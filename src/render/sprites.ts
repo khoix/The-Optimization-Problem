@@ -157,30 +157,59 @@ export function makeTerrain(): TerrainSprites {
 // Roads (16 connectivity variants, bitmask N=1 E=2 S=4 W=8)
 // ---------------------------------------------------------------------------
 
-export function makeRoads(): HTMLCanvasElement[] {
-  const out: HTMLCanvasElement[] = [];
-  const asphalt = '#3a3a40', asphaltHi = '#44444b', curb = '#6a6a72', line = '#b8b25e';
-  for (let mask = 0; mask < 16; mask++) {
-    const [c, ctx] = canvas(TILE, TILE);
-    const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, asphalt);
-    p.dither(0, 0, TILE, TILE, asphaltHi, 0.15, 300 + mask);
-    const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
-    // curbs on unconnected edges
-    if (!n) p.r(0, 0, TILE, 1, curb);
-    if (!s) p.r(0, TILE - 1, TILE, 1, curb);
-    if (!w) p.r(0, 0, 1, TILE, curb);
-    if (!e) p.r(TILE - 1, 0, 1, TILE, curb);
-    // dashed center lines toward connected edges
-    const cx = 7, cy = 7;
-    if (n) { p.r(cx, 1, 2, 2, line); p.r(cx, 5, 2, 2, line); }
-    if (s) { p.r(cx, 9, 2, 2, line); p.r(cx, 13, 2, 2, line); }
-    if (w) { p.r(1, cy, 2, 2, line); p.r(5, cy, 2, 2, line); }
-    if (e) { p.r(9, cy, 2, 2, line); p.r(13, cy, 2, 2, line); }
-    if (!n && !e && !s && !w) { p.r(cx, cy, 2, 2, line); }
-    out.push(c);
-  }
-  return out;
+/** Road sprites: [roadType][connectivity mask]. */
+export function makeRoads(): HTMLCanvasElement[][] {
+  const CLASSES = [
+    { surface: '#7d6a4e', surfaceHi: '#8a7658', edge: '#6a5940', line: '', width: 0 }, // dirt track
+    { surface: '#3a3a40', surfaceHi: '#44444b', edge: '#6a6a72', line: '#b8b25e', width: 1 }, // street
+    { surface: '#34343a', surfaceHi: '#3e3e45', edge: '#7a7a84', line: '#c9c36a', width: 2 }, // avenue
+    { surface: '#2e2e34', surfaceHi: '#38383f', edge: '#8a8a94', line: '#d9d372', width: 3 }, // highway
+  ];
+  return CLASSES.map((cls, type) => {
+    const out: HTMLCanvasElement[] = [];
+    for (let mask = 0; mask < 16; mask++) {
+      const [c, ctx] = canvas(TILE, TILE);
+      const p = new Px(ctx);
+      p.r(0, 0, TILE, TILE, cls.surface);
+      p.dither(0, 0, TILE, TILE, cls.surfaceHi, type === 0 ? 0.3 : 0.15, 300 + mask + type * 37);
+      const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
+      // curbs / shoulders on unconnected edges
+      if (!n) p.r(0, 0, TILE, 1, cls.edge);
+      if (!s) p.r(0, TILE - 1, TILE, 1, cls.edge);
+      if (!w) p.r(0, 0, 1, TILE, cls.edge);
+      if (!e) p.r(TILE - 1, 0, 1, TILE, cls.edge);
+      const cx = 7, cy = 7;
+      if (type === 0) {
+        // dirt: wheel ruts instead of markings
+        const rand = rng(400 + mask);
+        for (let i = 0; i < 16; i++) {
+          const t = Math.floor(rand() * TILE);
+          if (n || s) { p.p(5, t, '#6a5940'); p.p(10, t, '#6a5940'); }
+          if (e || w) { p.p(t, 5, '#6a5940'); p.p(t, 10, '#6a5940'); }
+        }
+      } else if (type === 3) {
+        // highway: solid double centreline plus shoulder stripes
+        if (n || s) { p.r(cx, 0, 1, TILE, cls.line); p.r(cx + 2, 0, 1, TILE, cls.line); p.r(2, 0, 1, TILE, '#9a9aa4'); p.r(TILE - 3, 0, 1, TILE, '#9a9aa4'); }
+        if (e || w) { p.r(0, cy, TILE, 1, cls.line); p.r(0, cy + 2, TILE, 1, cls.line); p.r(0, 2, TILE, 1, '#9a9aa4'); p.r(0, TILE - 3, TILE, 1, '#9a9aa4'); }
+      } else if (type === 2) {
+        // avenue: dashed centreline with a median tint
+        if (n) { p.r(cx, 0, 2, 3, cls.line); p.r(cx, 5, 2, 3, cls.line); }
+        if (s) { p.r(cx, 9, 2, 3, cls.line); p.r(cx, 13, 2, 3, cls.line); }
+        if (w) { p.r(0, cy, 3, 2, cls.line); p.r(5, cy, 3, 2, cls.line); }
+        if (e) { p.r(9, cy, 3, 2, cls.line); p.r(13, cy, 3, 2, cls.line); }
+        if (!n && !e && !s && !w) p.r(cx, cy, 2, 2, cls.line);
+      } else {
+        // street: short dashes
+        if (n) { p.r(cx, 1, 2, 2, cls.line); p.r(cx, 5, 2, 2, cls.line); }
+        if (s) { p.r(cx, 9, 2, 2, cls.line); p.r(cx, 13, 2, 2, cls.line); }
+        if (w) { p.r(1, cy, 2, 2, cls.line); p.r(5, cy, 2, 2, cls.line); }
+        if (e) { p.r(9, cy, 2, 2, cls.line); p.r(13, cy, 2, 2, cls.line); }
+        if (!n && !e && !s && !w) p.r(cx, cy, 2, 2, cls.line);
+      }
+      out.push(c);
+    }
+    return out;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +242,9 @@ type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number) => vo
 
 const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   road: () => { /* handled by makeRoads */ },
+  dirt_road: () => { /* handled by makeRoads */ },
+  avenue: () => { /* handled by makeRoads */ },
+  highway: () => { /* handled by makeRoads */ },
 
   house: (p, e, w, h, seed) => {
     const rand = rng(seed);
@@ -762,7 +794,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
 export function makeBuildingSprites(): Map<BuildingType, Sprite> {
   const out = new Map<BuildingType, Sprite>();
   for (const type of Object.keys(DRAWERS) as BuildingType[]) {
-    if (type === 'road') continue;
+    if (BUILDING_DEFS[type].roadType !== undefined) continue;
     const def = BUILDING_DEFS[type];
     const w = def.w * TILE, h = def.h * TILE;
     const [ac, actx] = canvas(w, h);

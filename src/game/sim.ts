@@ -6,6 +6,7 @@ import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
 import { updatePolitics, weightedApproval } from './politics';
 import { scenarioDef } from './scenarios';
+import { computeConnectivity, computeCoverage, covered } from './network';
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -77,12 +78,19 @@ export function simTick(g: GameState): void {
   // Scenario climate: desert sun makes solar sing; desert aquifers do not.
   const scen = scenarioDef(g.scenario);
   const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
+
+  // Spatial infrastructure: who is on the network, and who is in range.
+  const conn = computeConnectivity(g);
+  const cov = computeCoverage(g);
+
   for (const b of done) {
     const def = BUILDING_DEFS[b.type];
     const cond = buildingCondition(b);
     if (def.power > 0) powerCap += def.power * cond * (b.type === 'solar_farm' ? renewableBoost * scen.solarFactor : 1);
-    else powerDem += -def.power;
-    if (def.water > 0) waterCap += def.water * cond * scen.waterFactor; else waterDem += -def.water;
+    // A building outside the service area draws nothing: it isn't connected.
+    else if (covered(g, b, cov.power)) powerDem += -def.power;
+    if (def.water > 0) waterCap += def.water * cond * scen.waterFactor;
+    else if (covered(g, b, cov.water)) waterDem += -def.water;
   }
   powerCap = Math.round(powerCap);
   waterCap = Math.round(waterCap);
@@ -96,11 +104,22 @@ export function simTick(g: GameState): void {
   const utilitySat = Math.min(powerSat, waterSat);
 
   // ---------- Building activity, jobs, output ----------
+  // Three gates now stand between a building and operation: it must be on
+  // the road network, reachable by workers, and inside a service area for
+  // whatever it consumes. Placement is a real decision.
   for (const b of done) {
     const def = BUILDING_DEFS[b.type];
     const cond = buildingCondition(b);
-    // Buildings that consume utilities degrade gracefully with shortages.
-    b.active = def.power >= 0 && def.water >= 0 ? true : utilitySat > 0.35;
+    b.offlineReason = undefined;
+    const needsRoad = def.jobs > 0 || def.housing > 0;
+    const needsPower = def.power < 0;
+    const needsWater = def.water < 0;
+    if (needsRoad && !conn.onRoad.has(b.id)) b.offlineReason = 'road';
+    else if (def.jobs > 0 && !conn.labourReachable.has(b.id)) b.offlineReason = 'labor';
+    else if (needsPower && !covered(g, b, cov.power)) b.offlineReason = 'power';
+    else if (needsWater && !covered(g, b, cov.water)) b.offlineReason = 'water';
+    else if ((needsPower || needsWater) && utilitySat <= 0.35) b.offlineReason = 'utility';
+    b.active = b.offlineReason === undefined;
     if (!b.active) continue;
     jobsTotal += def.jobs;
     housing += def.housing;
@@ -398,6 +417,12 @@ export function simTick(g: GameState): void {
     if (waterSat < 0.85 && g.tick % 4 === 0) notify(g, 'Water reserves are running low. Cooling towers are thirsty.', 'warn');
     if (g.resources.capital < 0 && g.tick % 3 === 0) notify(g, 'The budget is in deficit.', 'warn');
     if (g.housingShortage > 0.3 && g.tick % 5 === 0) notify(g, `Housing shortage: ${Math.round(g.migrationDemand - capacity)} would-be residents cannot find homes.`, 'warn');
+    if (g.tick % 6 === 0) {
+      const stranded = done.filter((b) => b.offlineReason === 'road' || b.offlineReason === 'labor').length;
+      const unserved = done.filter((b) => b.offlineReason === 'power' || b.offlineReason === 'water').length;
+      if (stranded > 0) notify(g, `${stranded} building${stranded > 1 ? 's are' : ' is'} idle for want of a road connection to housing.`, 'warn');
+      if (unserved > 0) notify(g, `${unserved} building${unserved > 1 ? 's sit' : ' sits'} outside every utility service area.`, 'warn');
+    }
   }
 
   // ---------- Slow-burn failure counters ----------

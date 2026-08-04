@@ -1,11 +1,33 @@
 import type { BuildingDef, BuildingType } from './types';
 
 export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
+  dirt_road: {
+    type: 'dirt_road', name: 'Dirt Track', category: 'civic',
+    desc: 'Cheap access for the edges of the map. Jams the moment anyone uses it.',
+    w: 1, h: 1, cost: 3, upkeep: 0.02, jobs: 0, housing: 0,
+    power: 0, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 1,
+    roadCapacity: 4, roadType: 0,
+  },
   road: {
-    type: 'road', name: 'Road', category: 'civic',
-    desc: 'Connects districts. Traffic follows growth.',
+    type: 'road', name: 'Street', category: 'civic',
+    desc: 'The default. Connects districts; workplaces need a route to housing.',
     w: 1, h: 1, cost: 10, upkeep: 0.1, jobs: 0, housing: 0,
     power: 0, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 1,
+    roadCapacity: 10, roadType: 1,
+  },
+  avenue: {
+    type: 'avenue', name: 'Avenue', category: 'civic',
+    desc: 'Four lanes and a median. Twice the throughput of a street.',
+    w: 1, h: 1, cost: 26, upkeep: 0.25, jobs: 0, housing: 0,
+    power: 0, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 1,
+    roadCapacity: 22, roadType: 2, unlockTier: 1,
+  },
+  highway: {
+    type: 'highway', name: 'Highway', category: 'civic',
+    desc: 'Regional arterial. Enormous capacity, enormous footprint in every sense.',
+    w: 1, h: 1, cost: 60, upkeep: 0.6, jobs: 0, housing: 0,
+    power: 0, water: 0, compute: 0, pollution: 0.05, income: 0, buildTicks: 1,
+    roadCapacity: 45, roadType: 3, unlockTier: 2,
   },
   house: {
     type: 'house', name: 'House', category: 'zone',
@@ -93,39 +115,39 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     type: 'solar_farm', name: 'Solar Farm', category: 'power',
     desc: 'Clean power. Needs land, delivers modest output.',
     w: 3, h: 3, cost: 260, upkeep: 1.5, jobs: 4, housing: 0,
-    power: 22, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 3,
+    power: 22, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 3, serviceRadius: 9,
   },
   coal_plant: {
     type: 'coal_plant', name: 'Coal Plant', category: 'power',
     desc: 'Cheap, abundant power. The smoke goes somewhere.',
     w: 3, h: 3, cost: 320, upkeep: 3, jobs: 30, housing: 0,
-    power: 70, water: -8, compute: 0, pollution: 3.2, income: 0, buildTicks: 4,
+    power: 70, water: -8, compute: 0, pollution: 3.2, income: 0, buildTicks: 4, serviceRadius: 13,
   },
   nuclear_plant: {
     type: 'nuclear_plant', name: 'Nuclear Plant', category: 'power',
     desc: 'Enormous clean output. Expensive, slow to build.',
     w: 4, h: 4, cost: 1400, upkeep: 10, jobs: 45, housing: 0,
-    power: 220, water: -25, compute: 0, pollution: 0.1, income: 0, buildTicks: 10,
+    power: 220, water: -25, compute: 0, pollution: 0.1, income: 0, buildTicks: 10, serviceRadius: 20,
     unlockCompute: 60,
   },
   water_plant: {
     type: 'water_plant', name: 'Water Treatment Plant', category: 'power',
     desc: 'Supplies water to homes, industry, and cooling.',
     w: 2, h: 2, cost: 180, upkeep: 1.5, jobs: 10, housing: 0,
-    power: -4, water: 60, compute: 0, pollution: 0, income: 0, buildTicks: 3,
+    power: -4, water: 60, compute: 0, pollution: 0, income: 0, buildTicks: 3, serviceRadius: 11,
   },
   solar_array: {
     type: 'solar_array', name: 'Solar Array', category: 'power',
     desc: 'Utility-scale panels with tracking mounts. Three times a farm\'s output.',
     w: 4, h: 4, cost: 780, upkeep: 3.5, jobs: 10, housing: 0,
-    power: 72, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 5,
+    power: 72, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 5, serviceRadius: 15,
     unlockTier: 1,
   },
   water_reclamation: {
     type: 'water_reclamation', name: 'Water Reclamation Works', category: 'power',
     desc: 'Closed-loop recycling. Doubles yield from the same watershed.',
     w: 3, h: 3, cost: 640, upkeep: 5, jobs: 24, housing: 0,
-    power: -14, water: 150, compute: 0, pollution: 0, income: 0, buildTicks: 6,
+    power: -14, water: 150, compute: 0, pollution: 0, income: 0, buildTicks: 6, serviceRadius: 17,
     unlockTier: 2,
   },
   hospital: {
@@ -204,7 +226,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
 };
 
 export const BUILD_MENU_ORDER: BuildingType[] = [
-  'road',
+  'dirt_road', 'road', 'avenue', 'highway',
   'house', 'apartment', 'midrise', 'highrise', 'arcology',
   'park', 'plaza', 'library', 'community_center', 'school', 'sports_complex', 'museum',
   'solar_farm', 'solar_array', 'coal_plant', 'nuclear_plant', 'water_plant', 'water_reclamation',

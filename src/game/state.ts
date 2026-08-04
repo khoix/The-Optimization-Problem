@@ -2,6 +2,7 @@ import type { Building, BuildingType, EmergenceWeights, GameState, GroupId, Corp
 import { BUILDING_DEFS } from './buildings';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 import { scenarioDef, type ScenarioDef, type ScenarioId } from './scenarios';
+import { connectOrphans } from './network';
 
 export const MAP_W = 72;
 export const MAP_H = 72;
@@ -67,7 +68,7 @@ function generateTerrain(seed: number, scen: ScenarioDef): Tile[] {
       else if (n1[i] > scen.terrain.rockThreshold) terrain = 'rock';
       else if (n2[i] > scen.terrain.forestThreshold) terrain = 'forest';
       else if (!scen.terrain.river && !scen.terrain.coast && n2[i] < 0.34) terrain = 'sand'; // desert flats
-      tiles.push({ terrain, variant: Math.floor(r() * 4), road: false, buildingId: -1, pollution: 0 });
+      tiles.push({ terrain, variant: Math.floor(r() * 4), road: false, roadType: 1, buildingId: -1, pollution: 0 });
     }
   }
   return tiles;
@@ -78,16 +79,23 @@ export function tileAt(g: GameState, x: number, y: number): Tile | null {
   return g.map[y * g.mapW + x];
 }
 
+export function isRoadType(type: BuildingType): boolean {
+  return BUILDING_DEFS[type].roadType !== undefined;
+}
+
 export function canPlace(g: GameState, type: BuildingType, x: number, y: number): boolean {
   const def = BUILDING_DEFS[type];
+  const road = isRoadType(type);
   for (let dy = 0; dy < def.h; dy++) {
     for (let dx = 0; dx < def.w; dx++) {
       const t = tileAt(g, x + dx, y + dy);
       if (!t) return false;
       if (t.terrain === 'water' || t.terrain === 'rock') return false;
       if (t.buildingId !== -1) return false;
-      if (t.road && type !== 'road') return false;
-      if (type === 'road' && t.road) return false;
+      if (t.road && !road) return false;
+      // Roads may be laid on empty ground, or over a road of a different
+      // class — paving over is an upgrade (or a downgrade, if you insist).
+      if (road && t.road && t.roadType === def.roadType) return false;
     }
   }
   return true;
@@ -100,9 +108,10 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
     if (g.resources.capital < def.cost) return null;
     g.resources.capital -= def.cost;
   }
-  if (type === 'road') {
+  if (isRoadType(type)) {
     const t = tileAt(g, x, y)!;
     t.road = true;
+    t.roadType = def.roadType!;
     if (t.terrain === 'forest') t.terrain = 'grass';
     g.mapVersion++;
     return null;
@@ -247,21 +256,33 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     gameOver: null,
   };
 
-  // Seed a starter settlement east of the river.
+  // Seed a starter settlement east of the river: a small street grid, so
+  // every founding building has frontage on day one.
   const cx = Math.floor(MAP_W * 0.52), cy = Math.floor(MAP_H * 0.5);
-  for (let x = cx - 6; x <= cx + 6; x++) { const t = tileAt(g, x, cy); if (t && t.terrain !== 'water') { t.road = true; if (t.terrain === 'forest') t.terrain = 'grass'; } }
-  for (let y = cy - 5; y <= cy + 5; y++) { const t = tileAt(g, cx, y); if (t && t.terrain !== 'water') { t.road = true; if (t.terrain === 'forest') t.terrain = 'grass'; } }
+  const layRoad = (x: number, y: number) => {
+    const t = tileAt(g, x, y);
+    if (!t || t.terrain === 'water') return;
+    t.road = true; t.roadType = 1;
+    if (t.terrain === 'forest') t.terrain = 'grass';
+  };
+  for (const row of [cy - 4, cy, cy + 4]) for (let x = cx - 7; x <= cx + 7; x++) layRoad(x, row);
+  for (const col of [cx - 4, cx, cx + 4]) for (let y = cy - 5; y <= cy + 5; y++) layRoad(col, y);
+  // Buildings sit inside the blocks, each touching one of the streets above.
   const starter: Array<[BuildingType, number, number]> = [
-    ['house', cx - 3, cy - 2], ['house', cx - 2, cy - 2], ['house', cx + 2, cy - 2], ['house', cx + 3, cy - 2],
-    ['house', cx - 3, cy + 2], ['house', cx - 2, cy + 2], ['house', cx + 2, cy + 2],
-    ['house', cx + 3, cy + 2], ['house', cx - 3, cy - 3], ['house', cx + 2, cy - 3], ['house', cx + 3, cy - 3],
+    ['house', cx - 3, cy - 3], ['house', cx - 2, cy - 3], ['house', cx - 1, cy - 3],
+    ['house', cx + 1, cy - 3], ['house', cx + 2, cy - 3], ['house', cx + 3, cy - 3],
+    ['house', cx - 3, cy + 1], ['house', cx - 2, cy + 1], ['house', cx - 1, cy + 1],
+    ['house', cx + 1, cy + 3], ['house', cx + 2, cy + 3],
     ['retail', cx + 1, cy + 1],
-    ['water_plant', cx - 6, cy + 1],
-    ['solar_farm', cx + 4, cy - 6],
-    ['factory', cx - 6, cy - 5],
+    // Founding utilities sit central enough that their service radii cover
+    // the whole settlement on day one.
+    ['water_plant', cx + 5, cy + 1],
+    ['solar_farm', cx + 5, cy - 3],
+    ['factory', cx - 4, cy + 5],
   ];
   if (scen.extraIndustry) {
-    starter.push(['factory', cx + 4, cy + 2], ['coal_plant', cx - 6, cy + 4], ['house', cx - 2, cy - 3], ['house', cx - 2, cy + 3], ['house', cx + 2, cy + 3], ['house', cx - 3, cy + 3]);
+    starter.push(['factory', cx + 1, cy + 5], ['coal_plant', cx + 5, cy + 5],
+      ['house', cx - 1, cy - 1], ['house', cx + 1, cy - 1], ['house', cx + 2, cy - 1], ['house', cx + 3, cy + 3]);
   }
   for (const [t, x, y] of starter) {
     // The founding settlement must actually exist: clear rock/forest under
@@ -287,6 +308,10 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
   for (const [id, delta] of Object.entries(scen.corpMoodTweaks) as Array<[CorpId, number]>) {
     g.corps[id].mood = Math.max(0, Math.min(100, g.corps[id].mood + delta));
   }
+
+  // Safety net: whatever the terrain did to the layout, the founding
+  // settlement must actually be connected on day one.
+  connectOrphans(g);
 
   notify(g, `Welcome to ${scen.name}, Administrator. The regional development authority is yours. Investors are watching.`, 'system');
   return g;

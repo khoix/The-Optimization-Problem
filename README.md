@@ -18,7 +18,7 @@ Pushes to `main` deploy automatically to GitHub Pages via `.github/workflows/dep
 
 Open the printed URL. Controls:
 
-- **Left click** — place buildings / select / interact (drag to paint roads)
+- **Left click** — place buildings / select / interact (drag to paint any road class; paving over an existing road upgrades it)
 - **Right or middle drag** — pan camera (also WASD / arrow keys)
 - **Mouse wheel** — zoom
 - **Space** — pause · **Esc** — cancel tool
@@ -29,7 +29,8 @@ Open the printed URL. Controls:
 - **A city that visibly evolves**: chronic pollution kills the trees to bare snags, corporate branding spreads across rooftops as influence grows (and glows at night), traffic congests as population outruns the road network, and aging data centers sprout extra cooling units.
 - **Procedural soundscape** (WebAudio, no assets): wind, rain, and birdsong over a server hum that grows with compute — and as emergence rises the hum purifies toward a single clean sine while the birds thin out. Observer mode is nearly silent. Event chimes and a cold glass tone for system notices; mute in the top bar.
 - **Simulation core**: capital, electricity, water, compute, labor, and personal data; seven social indicators (Convenience, Trust, Agency, Security, Connection, Health, Future Confidence); population, unemployment, human expertise, corporate influence, unrest, and pollution — wired into the proposal's feedback loops (the Pacification Loop, the Automation Trap, the Health Spiral).
-- **30 building types** across civic, housing, amenities, utilities, economy, and compute — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
+- **Spatial infrastructure that makes placement matter**: roads are a real requirement, not decoration. Workplaces must trace a route along the road network back to housing — jobs have to be *reachable*, not merely adjacent to pavement — and four road classes (dirt track, street, avenue, highway) trade cost against the lane capacity that governs congestion. Utilities project a **service radius** that scales with facility class, so a nuclear plant reaches districts a solar farm never will, and a building outside every service area simply doesn't connect. Idle buildings show a diagnostic badge on the map and state the reason in the inspector: no road, no route from housing, out of power range, out of water range, or grid shortage.
+- **33 building types** across civic, housing, amenities, utilities, economy, and compute — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
 - **Attractiveness-driven growth**: people move here for named, inspectable reasons — jobs, housing, amenities, services, environment, safety, and affordability — each shown as its own bar. Amenity and service coverage are measured *per resident*, so a growing region that stops building parks, libraries, schools, and sports facilities watches its own appeal decay.
 - **Region-class progression**: crossing Township → City → Metropolis → Megaregion unlocks higher-density housing (mid-rise, high-rise, arcology), higher-yield utilities (solar array, water reclamation), and cultural anchors. Locked buildings stay visible in the menu with their required class, so the next tier is always something you can see coming.
 - **Compute allocation** across six sectors (consumer, healthcare, industry, government, research, surveillance) — every point given to one sector is taken from another.

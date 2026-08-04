@@ -71,7 +71,7 @@ export class Renderer {
   private blctx!: CanvasRenderingContext2D;
 
   private terrain: TerrainSprites;
-  private roads: HTMLCanvasElement[];
+  private roads: HTMLCanvasElement[][];
   private terrainCache: HTMLCanvasElement | null = null;
   private cachedMapVersion = -1;
   private buildings: Map<BuildingType, Sprite>;
@@ -384,6 +384,11 @@ export class Renderer {
       const def = BUILDING_DEFS[ui.buildType];
       const dx = ui.hoverTile[0] * TILE - camX, dy = ui.hoverTile[1] * TILE - camY;
       const spr = this.buildings.get(ui.buildType);
+      // Utilities preview the area they would serve.
+      if (def.serviceRadius) {
+        this.drawServiceArea(w, ui.hoverTile[0], ui.hoverTile[1], def.w, def.h, def.serviceRadius,
+          camX, camY, def.power > 0 ? 'power' : 'water');
+      }
       w.globalAlpha = 0.6;
       if (spr) w.drawImage(spr.albedo, dx, dy);
       w.globalAlpha = 1;
@@ -396,9 +401,29 @@ export class Renderer {
       const b = g.buildings.get(ui.selectedBuildingId);
       if (b) {
         const def = BUILDING_DEFS[b.type];
+        if (def.serviceRadius) {
+          this.drawServiceArea(w, b.x, b.y, def.w, def.h, def.serviceRadius, camX, camY,
+            def.power > 0 ? 'power' : 'water');
+        }
         w.strokeStyle = '#ffffff';
         w.strokeRect(b.x * TILE - camX + 0.5, b.y * TILE - camY + 0.5, def.w * TILE - 1, def.h * TILE - 1);
       }
+    }
+
+    // Buildings that are complete but idle get a diagnostic badge, so a dark
+    // district explains itself without a click.
+    for (const b of sorted) {
+      if (b.progress < 1 || b.active || !b.offlineReason) continue;
+      const def = BUILDING_DEFS[b.type];
+      const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+      if (dx + def.w * TILE < 0 || dy + def.h * TILE < 0 || dx > W || dy > H) continue;
+      const cx = dx + def.w * TILE / 2 - 3, cy = dy + def.h * TILE / 2 - 4;
+      const color = b.offlineReason === 'road' || b.offlineReason === 'labor' ? '#e8c85a' : '#e86a5a';
+      w.fillStyle = 'rgba(12,14,20,0.72)';
+      w.fillRect(cx - 2, cy - 2, 10, 12);
+      w.fillStyle = color;
+      w.fillRect(cx + 2, cy, 2, 6);
+      w.fillRect(cx + 2, cy + 7, 2, 2);
     }
 
     // ------------------------------------------------------------ lighting pass
@@ -661,6 +686,26 @@ export class Renderer {
     return out;
   }
 
+  /** Soft footprint of a utility's service radius, drawn under the cursor. */
+  private drawServiceArea(
+    w: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number,
+    radius: number, camX: number, camY: number, kind: 'power' | 'water',
+  ): void {
+    const cx = (bx + bw / 2) * TILE - camX;
+    const cy = (by + bh / 2) * TILE - camY;
+    const r = (radius + Math.max(bw, bh) / 2) * TILE;
+    const grad = w.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
+    const tint = kind === 'power' ? '255,214,110' : '110,200,255';
+    grad.addColorStop(0, `rgba(${tint},0.14)`);
+    grad.addColorStop(1, `rgba(${tint},0)`);
+    w.fillStyle = grad;
+    w.fillRect(cx - r, cy - r, r * 2, r * 2);
+    w.strokeStyle = `rgba(${tint},0.45)`;
+    w.beginPath();
+    w.arc(cx, cy, r, 0, Math.PI * 2);
+    w.stroke();
+  }
+
   private rebuildTerrainCache(g: GameState): void {
     if (!this.terrainCache) {
       this.terrainCache = document.createElement('canvas');
@@ -686,7 +731,7 @@ export class Renderer {
           if (g.map[ty * g.mapW + tx + 1]?.road && tx + 1 < g.mapW) mask |= 2;
           if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
           if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
-          c.drawImage(this.roads[mask], dx, dy);
+          c.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
         }
       }
     }

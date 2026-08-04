@@ -21,6 +21,15 @@ export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { 
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** Why a completed building isn't running — stated plainly, in the inspector. */
+const OFFLINE_REASONS: Record<string, string> = {
+  road: 'Offline — no road connection',
+  labor: 'Offline — no route from housing; workers cannot reach it',
+  power: 'Offline — outside every power service area',
+  water: 'Offline — outside every water service area',
+  utility: 'Offline — utility shortage',
+};
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -335,7 +344,7 @@ export class UI {
     this.inspector.classList.remove('hidden');
     this.inspector.innerHTML = `<h3>${def.name}${b.asiBuilt ? ' <span class="asi-tag">auto-commissioned</span>' : ''}</h3>
       <p>${def.desc}</p>
-      <p class="stats">${b.progress < 1 ? `Under construction (${Math.round(b.progress * 100)}%)` : b.active ? 'Operational' : 'Offline — utility shortage'}</p>
+      <p class="stats ${b.progress >= 1 && !b.active ? 'stat-bad' : ''}">${b.progress < 1 ? `Under construction (${Math.round(b.progress * 100)}%)` : b.active ? 'Operational' : OFFLINE_REASONS[b.offlineReason ?? 'utility']}</p>
       <p class="stats">${def.jobs ? `Jobs ${def.jobs} · ` : ''}${def.power !== 0 ? `Power ${def.power > 0 ? '+' : ''}${def.power} · ` : ''}${def.water !== 0 ? `Water ${def.water > 0 ? '+' : ''}${def.water} · ` : ''}${def.compute ? `Compute +${def.compute} · ` : ''}Condition ${Math.round(cond * 100)}%</p>`;
     const row = el('div', 'inspector-actions');
     if (b.progress >= 1 && cond < 0.98) {

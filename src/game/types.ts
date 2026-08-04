@@ -6,12 +6,16 @@ export interface Tile {
   terrain: TerrainType;
   variant: number;      // deterministic per-tile art variation
   road: boolean;
+  roadType: number;     // 0 dirt, 1 street, 2 avenue, 3 highway
   buildingId: number;   // -1 = none
   pollution: number;    // 0..1 local ground pollution
 }
 
 export type BuildingType =
   | 'road'
+  | 'dirt_road'
+  | 'avenue'
+  | 'highway'
   | 'house'
   | 'apartment'
   | 'midrise'
@@ -61,6 +65,11 @@ export interface BuildingDef {
   buildTicks: number;    // construction duration in ticks
   unlockCompute?: number; // total compute required before available
   unlockTier?: number;    // region-class index required (0 Township .. 3 Megaregion)
+  /** Producers only: tiles from the footprint edge that this facility serves. */
+  serviceRadius?: number;
+  /** Roads only: traffic capacity per tile, and the road tier it paints. */
+  roadCapacity?: number;
+  roadType?: number;
   /** Contribution to the amenity component of regional attractiveness. */
   amenity?: number;
   /** Contribution to the services component (education, care, civic capacity). */
@@ -91,6 +100,8 @@ export interface Building {
   active: boolean;       // has power/water/staff
   age: number;
   asiBuilt?: boolean;    // constructed autonomously by the system
+  /** Why this building is offline, for the inspector. Empty when running. */
+  offlineReason?: 'road' | 'labor' | 'power' | 'water' | 'utility';
 }
 
 /** Where scarce compute is allocated, as fractions summing to 1. */

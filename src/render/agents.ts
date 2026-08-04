@@ -22,6 +22,8 @@ export interface Particle {
 }
 
 const DIRS: Array<[number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+/** Traffic capacity per road class; mirrors ROAD_DEFS in game/network.ts. */
+const ROAD_CAPACITY = [4, 10, 22, 45];
 
 export class AmbientLife {
   agents: Agent[] = [];
@@ -32,9 +34,11 @@ export class AmbientLife {
   update(g: GameState, dt: number, weatherRain: number, nightF = 0, snowing = false): void {
     const uniform = g.asi.observer; // motion becomes eerily regular
     const roadTiles = this.collectRoads(g);
-    // Congestion: too many people per lane-tile. Streets fill up and slow
-    // down as the region grows faster than its road network.
-    this.congestion = uniform ? 0 : Math.max(0, Math.min(1, g.population / Math.max(1, roadTiles.length * 7) - 0.3));
+    // Congestion: demand against real lane capacity, so upgrading a street to
+    // an avenue actually unclogs it. The optimized city never jams.
+    let capacity = 0;
+    for (const t of g.map) if (t.road) capacity += ROAD_CAPACITY[t.roadType ?? 1];
+    this.congestion = uniform ? 0 : Math.max(0, Math.min(1, g.population / Math.max(1, capacity * 0.7) - 0.3));
     const targetCars = Math.min(90, Math.floor(g.population / 24) + Math.floor(roadTiles.length / 18) + Math.round(this.congestion * 30));
     let targetPeds: number;
     if (uniform) {
