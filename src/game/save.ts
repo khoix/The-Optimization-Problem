@@ -52,6 +52,8 @@ export function deserialize(env: SaveEnvelope): GameState {
   const pendingId = s.pendingEvent as unknown as string | null;
   if (pendingId) g.pendingEvent = EVENTS.find((e) => e.id === pendingId) ?? null;
   // Saves from before newer systems get sensible defaults.
+  g.scenario ??= 'verdant';
+  g.mapVersion ??= 0;
   g.asi.shadowPolicies ??= [];
   g.asi.diluted ??= [];
   g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };
@@ -104,11 +106,11 @@ export function requestLoad(slot: string): void {
   location.reload();
 }
 
-/** Consume the boot flag: 'new', a slot name to load from, or null. */
+/** Consume the boot flag: 'new' / 'new:<scenario>', a slot name to load from, or null. */
 export function consumeBootFlag(): string | null {
   const flag = localStorage.getItem(BOOT_FLAG);
   localStorage.removeItem(BOOT_FLAG);
-  if (flag === 'new') return 'new';
+  if (flag === 'new' || flag?.startsWith('new:')) return flag;
   if (flag?.startsWith('load:')) return flag.slice(5);
   return null;
 }

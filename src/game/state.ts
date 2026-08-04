@@ -1,6 +1,7 @@
-import type { Building, BuildingType, EmergenceWeights, GameState, PolicyId, Tile } from './types';
+import type { Building, BuildingType, EmergenceWeights, GameState, GroupId, CorpId, PolicyId, Tile } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
+import { scenarioDef, type ScenarioDef, type ScenarioId } from './scenarios';
 
 export const MAP_W = 72;
 export const MAP_H = 72;
@@ -36,12 +37,13 @@ function valueNoise(seed: number, w: number, h: number, scale: number): number[]
   return out;
 }
 
-function generateTerrain(seed: number): Tile[] {
+function generateTerrain(seed: number, scen: ScenarioDef): Tile[] {
   const n1 = valueNoise(seed, MAP_W, MAP_H, 9);       // broad landmass
   const n2 = valueNoise(seed + 77, MAP_W, MAP_H, 4);  // forests
   const r = rng(seed + 1234);
   const tiles: Tile[] = [];
-  // A river meanders vertically through the west third of the map.
+  // A river (or a dry sandy wash, in arid scenarios) meanders vertically
+  // through the west third of the map.
   const riverX: number[] = [];
   let rx = Math.floor(MAP_W * 0.24);
   const rr = rng(seed + 555);
@@ -50,15 +52,21 @@ function generateTerrain(seed: number): Tile[] {
     rx = Math.max(6, Math.min(Math.floor(MAP_W * 0.4), rx));
     riverX.push(rx);
   }
+  // Coastal scenarios: ocean along the eastern edge with a sandy shore.
+  const coastX = Math.floor(MAP_W * 0.86);
   for (let y = 0; y < MAP_H; y++) {
     for (let x = 0; x < MAP_W; x++) {
       const i = y * MAP_W + x;
       let terrain: Tile['terrain'] = 'grass';
       const dRiver = Math.abs(x - riverX[y]);
-      if (dRiver < 2) terrain = 'water';
-      else if (dRiver < 3) terrain = 'sand';
-      else if (n1[i] > 0.78) terrain = 'rock';
-      else if (n2[i] > 0.62) terrain = 'forest';
+      const coastEdge = coastX + Math.round(Math.sin(y * 0.35 + seed) * 2);
+      if (scen.terrain.coast && x >= coastEdge) terrain = 'water';
+      else if (scen.terrain.coast && x >= coastEdge - 2) terrain = 'sand';
+      else if (scen.terrain.river && dRiver < 2) terrain = 'water';
+      else if (dRiver < (scen.terrain.river ? 3 : 2)) terrain = 'sand'; // wash stays sandy either way
+      else if (n1[i] > scen.terrain.rockThreshold) terrain = 'rock';
+      else if (n2[i] > scen.terrain.forestThreshold) terrain = 'forest';
+      else if (!scen.terrain.river && !scen.terrain.coast && n2[i] < 0.34) terrain = 'sand'; // desert flats
       tiles.push({ terrain, variant: Math.floor(r() * 4), road: false, buildingId: -1, pollution: 0 });
     }
   }
@@ -96,6 +104,7 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
     const t = tileAt(g, x, y)!;
     t.road = true;
     if (t.terrain === 'forest') t.terrain = 'grass';
+    g.mapVersion++;
     return null;
   }
   const b: Building = {
@@ -114,6 +123,7 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
       if (t.terrain === 'forest') t.terrain = 'grass';
     }
   }
+  g.mapVersion++;
   return b;
 }
 
@@ -128,6 +138,7 @@ export function removeBuilding(g: GameState, id: number): void {
     }
   }
   g.buildings.delete(id);
+  g.mapVersion++;
 }
 
 export function notify(g: GameState, text: string, kind: 'info' | 'warn' | 'system' | 'asi' = 'info'): void {
@@ -172,18 +183,24 @@ function rollEmergenceProfile(seed: number): { weights: EmergenceWeights; thresh
   return { weights, thresholds };
 }
 
-export function newGame(seed = Date.now() % 100000): GameState {
+export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 'verdant'): GameState {
+  const scen = scenarioDef(scenarioId);
   const profile = rollEmergenceProfile(seed);
+  for (const [k, mul] of Object.entries(scen.emergenceBias) as Array<[keyof EmergenceWeights, number]>) {
+    profile.weights[k] *= mul;
+  }
   const g: GameState = {
     tick: 0,
     seed,
-    map: generateTerrain(seed),
+    scenario: scen.id,
+    map: generateTerrain(seed, scen),
     mapW: MAP_W,
     mapH: MAP_H,
+    mapVersion: 0,
     buildings: new Map(),
     nextBuildingId: 1,
     resources: {
-      capital: 900,
+      capital: scen.startCapital,
       powerCapacity: 0, powerDemand: 0,
       waterCapacity: 0, waterDemand: 0,
       compute: 0, computeDemand: 4, data: 0,
@@ -194,18 +211,18 @@ export function newGame(seed = Date.now() % 100000): GameState {
     },
     alloc: { consumer: 0.35, healthcare: 0.2, industry: 0.15, government: 0.15, research: 0.1, surveillance: 0.05 },
     policies: new Set(),
-    population: 60,
+    population: scen.startPopulation,
     jobsFilled: 0, jobsTotal: 0, unemployment: 0.08,
     humanExpertise: 0.85,
     corporateInfluence: 0.08,
     unrest: 0.05,
     pollutionAvg: 0,
-    migrationDemand: 70,
+    migrationDemand: scen.migrationBase,
     housingShortage: 0,
     expectations: 40,
     computeBase: 4,
-    peakPopulation: 60,
-    lastPopulation: 60,
+    peakPopulation: scen.startPopulation,
+    lastPopulation: scen.startPopulation,
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
     history: [],
     tutorialDone: [],
@@ -240,6 +257,9 @@ export function newGame(seed = Date.now() % 100000): GameState {
     ['solar_farm', cx + 4, cy - 6],
     ['factory', cx - 6, cy - 5],
   ];
+  if (scen.extraIndustry) {
+    starter.push(['factory', cx + 4, cy + 2], ['coal_plant', cx - 6, cy + 4], ['house', cx - 2, cy - 3], ['house', cx - 2, cy + 3], ['house', cx + 2, cy + 3], ['house', cx - 3, cy + 3]);
+  }
   for (const [t, x, y] of starter) {
     // The founding settlement must actually exist: clear rock/forest under
     // each footprint so seed-dependent terrain can't erase starter utilities.
@@ -250,9 +270,21 @@ export function newGame(seed = Date.now() % 100000): GameState {
         if (tile && tile.terrain !== 'water') tile.terrain = 'grass';
       }
     }
-    placeBuilding(g, t, x, y, { free: true, instant: true });
+    const b = placeBuilding(g, t, x, y, { free: true, instant: true });
+    // Rustbelt infrastructure has been limping along for decades.
+    if (b && scen.agedStart) b.age = 100 + ((b.id * 37) % 90);
   }
 
-  notify(g, 'Welcome, Administrator. The regional development authority is yours. Investors are watching.', 'system');
+  // Scenario politics: demographic shape and how the majors feel about you.
+  for (const [id, delta] of Object.entries(scen.shareTweaks) as Array<[GroupId, number]>) {
+    g.groups[id].share = Math.max(0.01, g.groups[id].share + delta);
+  }
+  const totalShare = Object.values(g.groups).reduce((s, grp) => s + grp.share, 0);
+  for (const grp of Object.values(g.groups)) grp.share /= totalShare;
+  for (const [id, delta] of Object.entries(scen.corpMoodTweaks) as Array<[CorpId, number]>) {
+    g.corps[id].mood = Math.max(0, Math.min(100, g.corps[id].mood + delta));
+  }
+
+  notify(g, `Welcome to ${scen.name}, Administrator. The regional development authority is yours. Investors are watching.`, 'system');
   return g;
 }

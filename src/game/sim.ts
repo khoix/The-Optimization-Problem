@@ -5,6 +5,7 @@ import { notify, policyActive, record, rng, tileAt } from './state';
 import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
 import { updatePolitics, weightedApproval } from './politics';
+import { scenarioDef } from './scenarios';
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -73,13 +74,15 @@ export function simTick(g: GameState): void {
   let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0;
   const renewableBoost = has('renewable_subsidy') ? 1.3 : 1;
 
+  // Scenario climate: desert sun makes solar sing; desert aquifers do not.
+  const scen = scenarioDef(g.scenario);
   const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
   for (const b of done) {
     const def = BUILDING_DEFS[b.type];
     const cond = buildingCondition(b);
-    if (def.power > 0) powerCap += def.power * cond * (b.type === 'solar_farm' ? renewableBoost : 1);
+    if (def.power > 0) powerCap += def.power * cond * (b.type === 'solar_farm' ? renewableBoost * scen.solarFactor : 1);
     else powerDem += -def.power;
-    if (def.water > 0) waterCap += def.water * cond; else waterDem += -def.water;
+    if (def.water > 0) waterCap += def.water * cond * scen.waterFactor; else waterDem += -def.water;
   }
   powerCap = Math.round(powerCap);
   waterCap = Math.round(waterCap);

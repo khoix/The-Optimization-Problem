@@ -232,9 +232,11 @@ export interface FailCounters {
 export interface GameState {
   tick: number;            // 1 tick = 1 month
   seed: number;
+  scenario: string;        // ScenarioId; string here to avoid an import cycle
   map: Tile[];
   mapW: number;
   mapH: number;
+  mapVersion: number;      // bumped on any tile change; renderer cache key
   buildings: Map<number, Building>;
   nextBuildingId: number;
 

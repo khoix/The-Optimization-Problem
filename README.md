@@ -14,6 +14,8 @@ npm run dev      # local dev server
 npm run build    # production build in dist/
 ```
 
+Pushes to `main` deploy automatically to GitHub Pages via `.github/workflows/deploy.yml` (enable Pages → Source: GitHub Actions in the repo settings once).
+
 Open the printed URL. Controls:
 
 - **Left click** — place buildings / select / interact (drag to paint roads)
@@ -58,9 +60,16 @@ src/
 
 No runtime dependencies; TypeScript + Vite only. All art is generated procedurally at load time.
 
+## Scenarios
+
+Four starting regions, each a different shape of the same trap:
+
+- **Verdant Valley** — the balanced river-valley classic
+- **Sunbelt Dry** — desert tech hub: brilliant solar, scarce water, adoring hyperscalers; corporate/data-weighted emergence
+- **Rustbelt Revival** — declining industrial city: aged infrastructure, thin coffers, a large displaced-worker bloc; automation-weighted emergence
+- **Azure Coast** — wealthy, organized, land-poor; research-weighted emergence
+
 ## Roadmap
 
-- Scenario variety (drought region, rust belt, coastal, …) with per-scenario starting conditions
-- Renderer performance pass (dirty-region terrain caching) for very large late-game cities
-- Deployment target (GitHub Pages / itch.io)
 - More events beyond the current 102; deeper population-group interactions
+- Desktop/console adaptation exploration per the proposal

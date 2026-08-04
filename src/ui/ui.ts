@@ -14,6 +14,7 @@ import { tierOf, buildingCondition } from '../game/sim';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
+import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -80,10 +81,15 @@ export class UI {
     const loadBtn = el('button', 'sys-btn', 'Load');
     loadBtn.onclick = () => this.showLoadMenu();
     const newBtn = el('button', 'sys-btn', 'New');
-    newBtn.onclick = () => this.showModal('Begin New Simulation', 'Start over from the founding of the region? The autosave will be overwritten as the new game progresses.', [
-      { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
-      { label: 'Cancel', action: () => {} },
-    ]);
+    newBtn.onclick = () => this.showModal('Begin New Simulation',
+      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
+      [
+        ...SCENARIO_ORDER.map((id) => ({
+          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
+          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
+        })),
+        { label: 'Cancel', action: () => {} },
+      ]);
     const muteBtn = el('button', 'sys-btn', '🔊');
     muteBtn.onclick = () => {
       const s = this.sound;

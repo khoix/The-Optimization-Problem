@@ -8,6 +8,7 @@ import { BUILDING_DEFS } from './game/buildings';
 import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { Soundscape } from './audio/soundscape';
+import type { ScenarioId } from './game/scenarios';
 
 const TICK_SECONDS = 4;          // one month of sim time at 1× speed
 const HOURS_PER_SECOND = 24 / 80; // full day/night cycle ≈ 80s at 1×
@@ -18,8 +19,10 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 
 // Boot: an explicit request wins; otherwise continue the autosave; otherwise
 // found a new region.
-const bootSlot = consumeBootFlag();
-const g = (bootSlot === 'new' ? null : loadFrom(bootSlot ?? AUTO_SLOT)) ?? newGame();
+const bootFlag = consumeBootFlag();
+const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
+const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
+const g = (isNew ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
 const freshGame = g.tick === 0;
 
 const renderer = new Renderer(canvas);
@@ -136,7 +139,7 @@ function demolishAtCursor(ev: MouseEvent): void {
   if (!t || g.asi.observer || g.gameOver) return;
   const tile = tileAt(g, t[0], t[1]);
   if (!tile) return;
-  if (tile.road) { tile.road = false; return; }
+  if (tile.road) { tile.road = false; g.mapVersion++; return; }
   if (tile.buildingId !== -1) ui.showInspector(tile.buildingId);
 }
 

@@ -65,11 +65,15 @@ export class Renderer {
   private lctx!: CanvasRenderingContext2D;
   private emiss!: HTMLCanvasElement;
   private ectx!: CanvasRenderingContext2D;
-  private blurTmp!: HTMLCanvasElement;
+  private blurTmp!: HTMLCanvasElement;   // half-res, for tilt-shift
   private bctx!: CanvasRenderingContext2D;
+  private bloomTmp!: HTMLCanvasElement;  // low-res, pre-blurred emissive
+  private blctx!: CanvasRenderingContext2D;
 
   private terrain: TerrainSprites;
   private roads: HTMLCanvasElement[];
+  private terrainCache: HTMLCanvasElement | null = null;
+  private cachedMapVersion = -1;
   private buildings: Map<BuildingType, Sprite>;
   private construction = new Map<string, HTMLCanvasElement>();
   private cars: HTMLCanvasElement[];
@@ -104,10 +108,13 @@ export class Renderer {
     [this.world, this.wctx] = mk();
     [this.light, this.lctx] = mk();
     [this.emiss, this.ectx] = mk();
+    // Half-res scratch for the tilt-shift blur: 4× cheaper than full-screen.
     this.blurTmp = document.createElement('canvas');
-    this.blurTmp.width = this.screen.width;
-    this.blurTmp.height = this.screen.height;
+    this.blurTmp.width = Math.ceil(this.screen.width / 2);
+    this.blurTmp.height = Math.ceil(this.screen.height / 2);
     this.bctx = this.blurTmp.getContext('2d')!;
+    // Low-res scratch for bloom: blur once at world resolution, scale after.
+    [this.bloomTmp, this.blctx] = mk();
     this.sctx.imageSmoothingEnabled = false;
   }
 
@@ -157,35 +164,27 @@ export class Renderer {
     const w = this.wctx;
 
     // ------------------------------------------------------------ terrain
+    // Static ground (grass/sand/rock + roads) is baked into a full-map cache
+    // and blitted in one draw; only animated water and dynamic overlays are
+    // drawn per-frame. The cache rebuilds when the map actually changes.
     const x0 = Math.max(0, Math.floor(camX / TILE)), y0 = Math.max(0, Math.floor(camY / TILE));
     const x1 = Math.min(g.mapW - 1, Math.ceil((camX + W) / TILE)), y1 = Math.min(g.mapH - 1, Math.ceil((camY + H) / TILE));
     w.fillStyle = '#1a2430';
     w.fillRect(0, 0, W, H);
+    if (g.mapVersion !== this.cachedMapVersion) this.rebuildTerrainCache(g);
+    w.drawImage(this.terrainCache!, camX, camY, W, H, 0, 0, W, H);
+
     const waterFrame = ((Math.floor(this.t * 2.2) % 3) + 3) % 3;
+    const wetRoads = this.rain > 0.25 && !this.snowing;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         const tile = g.map[ty * g.mapW + tx];
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
-        let img: HTMLCanvasElement;
-        switch (tile.terrain) {
-          case 'water': img = this.terrain.water[waterFrame]; break;
-          case 'sand': img = this.terrain.sand[tile.variant]; break;
-          case 'rock': img = this.terrain.rock[tile.variant]; break;
-          default: img = this.terrain.grass[tile.variant];
-        }
-        w.drawImage(img, dx, dy);
-        if (tile.road) {
-          let mask = 0;
-          if (g.map[(ty - 1) * g.mapW + tx]?.road) mask |= 1;
-          if (g.map[ty * g.mapW + tx + 1]?.road && tx + 1 < g.mapW) mask |= 2;
-          if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
-          if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
-          w.drawImage(this.roads[mask], dx, dy);
-          if (this.rain > 0.25 && !this.snowing) {
-            // wet asphalt sheen
-            w.fillStyle = `rgba(150,180,230,${(0.09 * this.rain).toFixed(3)})`;
-            w.fillRect(dx, dy, TILE, TILE);
-          }
+        if (tile.terrain === 'water') {
+          w.drawImage(this.terrain.water[waterFrame], dx, dy);
+        } else if (wetRoads && tile.road) {
+          w.fillStyle = `rgba(150,180,230,${(0.09 * this.rain).toFixed(3)})`;
+          w.fillRect(dx, dy, TILE, TILE);
         }
       }
     }
@@ -430,43 +429,54 @@ export class Renderer {
     const s = this.sctx;
     const sw = this.screen.width, sh = this.screen.height;
     s.imageSmoothingEnabled = false;
-    // era grading via filter on the upscale draw
-    s.filter = this.gradeFilter(g);
+    // era + season grading applied at world resolution (cheap), then a crisp
+    // unfiltered pixel upscale
+    this.blctx.clearRect(0, 0, W, H);
+    this.blctx.filter = this.gradeFilter(g);
+    this.blctx.drawImage(this.world, 0, 0);
+    this.blctx.filter = 'none';
     const fx = (this.camX - camX) * this.zoom, fy = (this.camY - camY) * this.zoom;
-    s.drawImage(this.world, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-    s.filter = 'none';
+    s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
 
-    // bloom: emissive layer, blurred + additive, scaled by darkness
+    // bloom: blur the emissive once at low (world) resolution, then let the
+    // pixel upscale spread it — far cheaper than filtering at screen size.
     const bloomStrength = 0.25 + nightF * 0.75;
+    this.blctx.clearRect(0, 0, W, H);
+    this.blctx.filter = 'blur(3px)';
+    this.blctx.drawImage(this.emiss, 0, 0);
+    this.blctx.filter = 'none';
+    s.imageSmoothingEnabled = true; // smooth scale sells the glow
     s.globalCompositeOperation = 'lighter';
     s.globalAlpha = bloomStrength * 0.55;
-    s.filter = `blur(${3 * this.zoom}px)`;
-    s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-    s.filter = `blur(${this.zoom}px)`;
+    s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
     s.globalAlpha = bloomStrength * 0.5;
     s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-    s.filter = 'none';
     s.globalAlpha = 1;
     s.globalCompositeOperation = 'source-over';
+    s.imageSmoothingEnabled = false;
 
     // volumetric light: dawn/dusk shafts, storm breaks, night compute pillars
     this.drawLightShafts(g, camX, camY);
 
-    // tilt-shift: blurred copy masked to top/bottom bands
-    this.bctx.clearRect(0, 0, sw, sh);
-    this.bctx.filter = 'blur(3px)';
-    this.bctx.drawImage(this.screen, 0, 0);
+    // tilt-shift: blur a half-res copy (the downscale is half the blur
+    // already), mask to the top/bottom bands, and scale back up.
+    const hw = this.blurTmp.width, hh = this.blurTmp.height;
+    this.bctx.clearRect(0, 0, hw, hh);
+    this.bctx.filter = 'blur(1.5px)';
+    this.bctx.drawImage(this.screen, 0, 0, sw, sh, 0, 0, hw, hh);
     this.bctx.filter = 'none';
     this.bctx.globalCompositeOperation = 'destination-in';
-    const mask = this.bctx.createLinearGradient(0, 0, 0, sh);
+    const mask = this.bctx.createLinearGradient(0, 0, 0, hh);
     mask.addColorStop(0, 'rgba(0,0,0,0.9)');
     mask.addColorStop(0.3, 'rgba(0,0,0,0)');
     mask.addColorStop(0.7, 'rgba(0,0,0,0)');
     mask.addColorStop(1, 'rgba(0,0,0,0.9)');
     this.bctx.fillStyle = mask;
-    this.bctx.fillRect(0, 0, sw, sh);
+    this.bctx.fillRect(0, 0, hw, hh);
     this.bctx.globalCompositeOperation = 'source-over';
-    s.drawImage(this.blurTmp, 0, 0);
+    s.imageSmoothingEnabled = true;
+    s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
+    s.imageSmoothingEnabled = false;
 
     // vignette
     const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
@@ -649,6 +659,38 @@ export class Renderer {
       }
     }
     return out;
+  }
+
+  private rebuildTerrainCache(g: GameState): void {
+    if (!this.terrainCache) {
+      this.terrainCache = document.createElement('canvas');
+      this.terrainCache.width = g.mapW * TILE;
+      this.terrainCache.height = g.mapH * TILE;
+    }
+    const c = this.terrainCache.getContext('2d')!;
+    c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, this.terrainCache.width, this.terrainCache.height);
+    for (let ty = 0; ty < g.mapH; ty++) {
+      for (let tx = 0; tx < g.mapW; tx++) {
+        const tile = g.map[ty * g.mapW + tx];
+        const dx = tx * TILE, dy = ty * TILE;
+        switch (tile.terrain) {
+          case 'water': break; // animated, drawn live
+          case 'sand': c.drawImage(this.terrain.sand[tile.variant], dx, dy); break;
+          case 'rock': c.drawImage(this.terrain.rock[tile.variant], dx, dy); break;
+          default: c.drawImage(this.terrain.grass[tile.variant], dx, dy);
+        }
+        if (tile.road) {
+          let mask = 0;
+          if (g.map[(ty - 1) * g.mapW + tx]?.road) mask |= 1;
+          if (g.map[ty * g.mapW + tx + 1]?.road && tx + 1 < g.mapW) mask |= 2;
+          if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
+          if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
+          c.drawImage(this.roads[mask], dx, dy);
+        }
+      }
+    }
+    this.cachedMapVersion = g.mapVersion;
   }
 
   private constructionFor(w: number, h: number): HTMLCanvasElement {
