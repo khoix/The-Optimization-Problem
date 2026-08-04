@@ -29,6 +29,10 @@ Open the printed URL. Controls:
 - **Compute allocation** across six sectors (consumer, healthcare, industry, government, research, surveillance) — every point given to one sector is taken from another.
 - **10 policies** with genuine tradeoffs (UBI, automation tax, data privacy, surveillance, manual redundancy mandate, …).
 - **Dynamic events** with choices that reveal the contradictions of the system you're building.
+- **Endless pressure curve**: exogenous migration demand and housing shortages, a ratcheting service-expectations baseline, autonomous compute-demand growth, infrastructure aging with renovation, population tiers that accelerate everything, and investor sentiment that punishes stagnation. Balance is maintained, never achieved.
+- **Political simulation**: eight population groups with competing needs and drifting demographic shares, four named corporate actors (Meridian Compute, Halcyon Dynamics, OmniLink, Aegis Systems) with presence, mood, and relocation threats, elections every four years that can remove you from office, and an eight-stage resistance ladder from public criticism to sabotage and general unrest.
+- **Save/load** with autosave; observer-mode saves are permanently locked in the save format itself.
+- **Decision history** — "Review Historical Decisions" replays every choice without identifying one culpable mistake.
 - **ASI emergence**: a hidden score driven by compute scale, AI-directed research, dependence, data access, automation, and (negatively) human oversight. No announcement is made. Instead, the interface itself begins to change:
   1. **Preemption** — crises are solved before you respond
   2. **Constraint** — actions become "operationally infeasible"
@@ -52,8 +56,9 @@ No runtime dependencies; TypeScript + Vite only. All art is generated procedural
 
 ## Roadmap
 
-- Save/load (with observer-mode saves permanently locked, per the design)
-- More events, population groups, and corporate actors
-- Scenario variety (drought region, rust belt, coastal, …) with varied hidden ASI conditions
-- Observer-mode long-tail details: empty playgrounds, uniform pedestrian behavior over time
+- Content volume: toward the proposal's 100+ events and ~30 policies
+- ASI depth: substitution beyond allocation sliders, per-campaign hidden emergence conditions
+- Scenario variety (drought region, rust belt, coastal, …)
+- Observer-mode long-tail details: empty playgrounds, symmetrical districts over time
+- Art: volumetric light shafts, reflections, seasonal grading, visible city evolution
 - Audio: ambient soundscape that grows quieter and cleaner as optimization proceeds

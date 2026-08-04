@@ -1,5 +1,6 @@
 import type { Building, BuildingType, GameState, Tile } from './types';
 import { BUILDING_DEFS } from './buildings';
+import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 
 export const MAP_W = 72;
 export const MAP_H = 72;
@@ -180,6 +181,12 @@ export function newGame(seed = Date.now() % 100000): GameState {
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
     history: [],
     tutorialDone: [],
+    groups: defaultGroups(),
+    corps: defaultCorps(),
+    resistanceStage: 0,
+    resistancePressure: 0,
+    nextElectionTick: ELECTION_PERIOD,
+    lastElectionResult: null,
     asi: { emergence: 0, phase: 0, phaseTick: 0, noticesShown: [], renamed: false, observer: false },
     notifications: [],
     pendingEvent: null,
@@ -202,7 +209,18 @@ export function newGame(seed = Date.now() % 100000): GameState {
     ['solar_farm', cx + 4, cy - 6],
     ['factory', cx - 6, cy - 5],
   ];
-  for (const [t, x, y] of starter) placeBuilding(g, t, x, y, { free: true, instant: true });
+  for (const [t, x, y] of starter) {
+    // The founding settlement must actually exist: clear rock/forest under
+    // each footprint so seed-dependent terrain can't erase starter utilities.
+    const def = BUILDING_DEFS[t];
+    for (let dy = 0; dy < def.h; dy++) {
+      for (let dx = 0; dx < def.w; dx++) {
+        const tile = tileAt(g, x + dx, y + dy);
+        if (tile && tile.terrain !== 'water') tile.terrain = 'grass';
+      }
+    }
+    placeBuilding(g, t, x, y, { free: true, instant: true });
+  }
 
   notify(g, 'Welcome, Administrator. The regional development authority is yours. Investors are watching.', 'system');
   return g;

@@ -213,6 +213,96 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
+    id: 'halcyon_pitch',
+    title: 'Halcyon Dynamics Makes an Offer',
+    body: 'Halcyon Dynamics offers to retrofit a factory with full automation at their expense — they keep 60% of the productivity gain, you keep the headlines. The plant\'s 60 workers have seen the press release before you have.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 18 && [...g.buildings.values()].some((b) => b.type === 'factory' && b.progress >= 1),
+    choices: [
+      {
+        label: 'Approve the retrofit',
+        effect: (g) => {
+          const f = [...g.buildings.values()].find((b) => b.type === 'factory' && b.progress >= 1);
+          if (f) { f.type = 'auto_factory'; f.age = 0; }
+          g.corps.halcyon.presence = Math.min(1, g.corps.halcyon.presence + 0.15);
+          g.corps.halcyon.mood = Math.min(100, g.corps.halcyon.mood + 10);
+          return 'The retrofit takes six weeks. The severance packages take longer to negotiate.';
+        },
+      },
+      {
+        label: 'Decline — keep the jobs',
+        effect: (g) => { g.corps.halcyon.mood = Math.max(0, g.corps.halcyon.mood - 15); ind(g, 'trust', 3); return 'Halcyon\'s regional director calls the decision "nostalgic." The workers call it something else.'; },
+      },
+    ],
+  },
+  {
+    id: 'omnilink_moderation',
+    title: 'OmniLink Offers to Handle It',
+    body: 'After a viral misinformation wave, OmniLink offers its moderation stack for all regional platforms — free, in exchange for the engagement data. "Content hygiene as a public service."',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 24 && g.indicators.trust < 55,
+    choices: [
+      {
+        label: 'Accept the free moderation',
+        effect: (g) => {
+          g.policies.add('moderation_ai');
+          g.corps.omnilink.presence = Math.min(1, g.corps.omnilink.presence + 0.15);
+          g.resources.data += 500;
+          return 'The feeds get cleaner. The dashboards get cleaner. Everything gets cleaner.';
+        },
+      },
+      {
+        label: 'Build a public moderation office (-150 capital)',
+        effect: (g) => { g.resources.capital -= 150; ind(g, 'trust', 4); ind(g, 'agency', 3); g.corps.omnilink.mood = Math.max(0, g.corps.omnilink.mood - 10); return 'Slower, clumsier, accountable. The word "quaint" trends briefly.'; },
+      },
+    ],
+  },
+  {
+    id: 'aegis_contract',
+    title: 'Aegis Systems: Predictive Deployment',
+    body: 'Aegis Systems proposes a predictive-policing pilot: patrol allocation by behavioral model. Their brochure notes a 31% crime reduction in comparable regions, in a font larger than the methodology.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 20 && g.indicators.security < 60,
+    choices: [
+      {
+        label: 'Approve the pilot',
+        effect: (g) => {
+          g.corps.aegis.presence = Math.min(1, g.corps.aegis.presence + 0.2);
+          ind(g, 'security', 8); ind(g, 'agency', -6); ind(g, 'trust', -3);
+          g.resources.data += 300;
+          return 'Crime statistics improve. Certain neighborhoods notice the patrols never leave.';
+        },
+      },
+      {
+        label: 'Fund community policing instead (-120 capital)',
+        effect: (g) => { g.resources.capital -= 120; ind(g, 'security', 4); ind(g, 'connection', 3); g.corps.aegis.mood = Math.max(0, g.corps.aegis.mood - 12); return 'Slower to show up in the statistics. Shows up other places first.'; },
+      },
+    ],
+  },
+  {
+    id: 'meridian_expansion',
+    title: 'Meridian Wants the North Parcel',
+    body: 'Meridian Compute requests expedited zoning for a second campus, hinting that a neighboring region has "shovel-ready alternatives." The jobs figure in their proposal is footnoted; the water figure is not mentioned at all.',
+    once: true, weight: 2,
+    condition: (g) => g.corps.meridian.presence > 0.2,
+    choices: [
+      {
+        label: 'Expedite the zoning',
+        effect: (g) => {
+          g.corps.meridian.mood = Math.min(100, g.corps.meridian.mood + 15);
+          g.corps.meridian.presence = Math.min(1, g.corps.meridian.presence + 0.1);
+          g.resources.capital += 200;
+          ind(g, 'agency', -3);
+          return 'The permits clear in record time. A precedent clears with them.';
+        },
+      },
+      {
+        label: 'Standard process, standard scrutiny',
+        effect: (g) => { g.corps.meridian.mood = Math.max(0, g.corps.meridian.mood - 14); ind(g, 'trust', 3); return 'The review takes nine months. Meridian\'s site-selection team is seen at the neighboring region\'s airport.'; },
+      },
+    ],
+  },
+  {
     id: 'housing_crisis',
     title: 'The Waiting List',
     body: 'Two thousand applications sit in the housing queue. A tent settlement has appeared near the interchange, photographed daily by drones — some journalistic, some municipal, some unclear.',

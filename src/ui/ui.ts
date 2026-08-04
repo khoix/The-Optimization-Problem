@@ -12,6 +12,7 @@ import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
 import { tierOf, buildingCondition } from '../game/sim';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
+import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -148,6 +149,7 @@ export class UI {
       Indicators: el('div', 'tab-body'),
       Compute: el('div', 'tab-body hidden'),
       Policies: el('div', 'tab-body hidden'),
+      Politics: el('div', 'tab-body hidden'),
     };
     for (const name of Object.keys(bodies)) {
       const b = el('button', 'tab', name);
@@ -161,8 +163,10 @@ export class UI {
     }
     this.sidePanel.append(tabs, ...Object.values(bodies));
 
-    // Indicators tab is re-rendered in refresh(); Compute + Policies built here.
+    // Indicators + Politics tabs are re-rendered in refresh(); Compute +
+    // Policies are built once here.
     bodies.Indicators.id = 'indicators-body';
+    bodies.Politics.id = 'politics-body';
 
     const alloc = bodies.Compute;
     alloc.append(el('p', 'hint', 'Distribute available compute between sectors. Everyone wants more.'));
@@ -465,6 +469,34 @@ export class UI {
         Jobs: ${g.jobsFilled}/${g.jobsTotal}</div>`;
       ind.innerHTML = html;
     }
+    // Politics tab -------------------------------------------------------
+    const pol = document.getElementById('politics-body');
+    if (pol) {
+      const calm = g.asi.phase >= 4;
+      const electionLabel = calm ? 'Preference collection' : 'Election';
+      const ticksLeft = Math.max(0, g.nextElectionTick - g.tick);
+      const approval = Math.round(weightedApproval(g));
+      const stageName = calm && g.resistanceStage > 0 ? 'Civic Engagement (elevated)' : RESISTANCE_STAGES[g.resistanceStage];
+      let html = `<div class="pol-summary">
+        ${electionLabel} in <b>${Math.floor(ticksLeft / 12)}y ${ticksLeft % 12}m</b> · weighted support <b>${approval}%</b><br>
+        ${g.lastElectionResult ? `<small>Last result: ${g.lastElectionResult}</small><br>` : ''}
+        ${statLabel(g, 'Protest Activity')}: <b>${stageName}</b></div>`;
+      html += '<div class="cat-label">Population Groups</div>';
+      for (const id of GROUP_ORDER) {
+        const grp = g.groups[id];
+        const v = grp.approval;
+        const cls = calm ? 'bar-calm' : v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
+        html += `<div class="ind-row" title="${GROUP_DEFS[id].desc}"><span>${GROUP_DEFS[id].name} <small>${Math.round(grp.share * 100)}%</small></span><div class="bar"><div class="fill ${cls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
+      }
+      html += '<div class="cat-label">Corporate Actors</div>';
+      for (const id of CORP_ORDER) {
+        const corp = g.corps[id];
+        const moodTxt = calm ? 'aligned' : corp.mood < 30 ? 'hostile' : corp.mood < 55 ? 'wary' : 'invested';
+        html += `<div class="ind-row" title="${CORP_DEFS[id].sector}"><span>${CORP_DEFS[id].name} <small>${moodTxt}</small></span><div class="bar"><div class="fill ${calm ? 'bar-calm' : 'bar-corp'}" style="width:${Math.round(corp.presence * 100)}%"></div></div><span class="ind-val">${Math.round(corp.presence * 100)}</span></div>`;
+      }
+      pol.innerHTML = html;
+    }
+
     this.syncAllocDisplays();
     this.syncPolicyButtons();
 

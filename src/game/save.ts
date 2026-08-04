@@ -4,6 +4,7 @@
 
 import type { Building, GameState } from './types';
 import { EVENTS } from './events';
+import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 
 const SAVE_VERSION = 1;
 
@@ -50,6 +51,13 @@ export function deserialize(env: SaveEnvelope): GameState {
   } as unknown as GameState;
   const pendingId = s.pendingEvent as unknown as string | null;
   if (pendingId) g.pendingEvent = EVENTS.find((e) => e.id === pendingId) ?? null;
+  // Saves from before the political simulation get sensible defaults.
+  g.groups ??= defaultGroups();
+  g.corps ??= defaultCorps();
+  g.resistanceStage ??= 0;
+  g.resistancePressure ??= 0;
+  g.nextElectionTick ??= Math.ceil((g.tick + 1) / ELECTION_PERIOD) * ELECTION_PERIOD;
+  g.lastElectionResult ??= null;
   // A locked save can only ever reopen as an observer, whatever else it claims.
   if (env.locked) g.asi.observer = true;
   return g;

@@ -44,6 +44,11 @@ const STEPS: TutorialStep[] = [
     text: 'Advisor: Early infrastructure is starting to age. Renovate it from the inspector, or accept declining output — either way, it will not maintain itself. Yet.',
   },
   {
+    id: 'politics',
+    condition: (g) => g.tick >= 14,
+    text: 'Advisor: Elections run every four years, and the coalition math is in the Politics tab. No policy pleases every group — govern for the coalition you can keep.',
+  },
+  {
     id: 'events',
     condition: (g) => g.firedEvents.size > 0,
     text: 'Advisor: When situations demand a decision, there is rarely a clean option. Pick the tradeoff you can live with. The consequences will find you either way.',

@@ -149,6 +149,27 @@ export interface HistoryEntry {
   text: string;
 }
 
+export type GroupId =
+  | 'tech_workers' | 'displaced_workers' | 'small_business' | 'executives'
+  | 'environmentalists' | 'parents' | 'elderly' | 'low_income';
+
+export interface PopulationGroup {
+  id: GroupId;
+  share: number;    // fraction of population, drifts with the economy
+  approval: number; // 0..100
+}
+
+export type CorpId = 'meridian' | 'halcyon' | 'omnilink' | 'aegis';
+
+export interface CorporateActor {
+  id: CorpId;
+  presence: number; // 0..1 footprint in the region
+  mood: number;     // 0..100 willingness to stay and invest
+}
+
+/** Escalation ladder from the proposal: 0 = calm .. 8 = general unrest. */
+export type ResistanceStage = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
 /** Rolling counters for slow-burn failure conditions. */
 export interface FailCounters {
   blackout: number;     // consecutive ticks of severe utility shortfall
@@ -191,6 +212,14 @@ export interface GameState {
 
   history: HistoryEntry[];
   tutorialDone: string[];
+
+  // Political simulation.
+  groups: Record<GroupId, PopulationGroup>;
+  corps: Record<CorpId, CorporateActor>;
+  resistanceStage: ResistanceStage;
+  resistancePressure: number;  // accumulates while grievances hold, decays otherwise
+  nextElectionTick: number;
+  lastElectionResult: string | null;
 
   asi: AsiState;
   notifications: Notification[];

@@ -3,6 +3,7 @@ import { BUILDING_DEFS } from './buildings';
 import { notify, record, rng, tileAt } from './state';
 import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
+import { updatePolitics, weightedApproval } from './politics';
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -54,7 +55,10 @@ export function simTick(g: GameState): void {
     if (b.progress < 1) {
       const def = BUILDING_DEFS[b.type];
       // Industry compute allocation speeds construction; ASI builds even faster.
-      const speedup = 1 + g.alloc.industry * computeSatisfaction(g) * 0.8 + (g.asi.phase >= 1 ? 0.5 : 0);
+      let speedup = 1 + g.alloc.industry * computeSatisfaction(g) * 0.8 + (g.asi.phase >= 1 ? 0.5 : 0);
+      // Organized resistance slows the permits, then blocks the gates.
+      if (g.resistanceStage >= 5) speedup *= 0.35;
+      else if (g.resistanceStage >= 3) speedup *= 0.7;
       b.progress = Math.min(1, b.progress + speedup / def.buildTicks);
       if (b.progress >= 1 && !b.asiBuilt) {
         notify(g, `${def.name} completed.`, 'info');
@@ -145,6 +149,10 @@ export function simTick(g: GameState): void {
   }
   if (g.policies.has('corporate_incentives')) income += 10; // attracted investment
 
+  // Boycotts hit revenue; strikes hit output on top of that.
+  if (g.resistanceStage >= 6) income *= 0.78;
+  else if (g.resistanceStage >= 4) income *= 0.88;
+
   let expenses = upkeep;
   for (const p of g.policies) {
     expenses += { ubi: 0, automation_tax: 0, data_privacy: 1, surveillance_program: 2, renewable_subsidy: 3, manual_redundancy: 5, retraining: 3, corporate_incentives: 0, moderation_ai: 2, public_broadband: 2 }[p];
@@ -192,11 +200,6 @@ export function simTick(g: GameState): void {
   const growth = (g.population - g.lastPopulation) / Math.max(20, g.lastPopulation);
   g.lastPopulation = g.population;
   g.resources.capital += income * Math.max(-0.12, Math.min(0.18, growth * 6)); // investor sentiment on top of base income
-
-  // ---------- Corporate influence ----------
-  const computeFootprint = done.filter((b) => BUILDING_DEFS[b.type].category === 'compute').length;
-  let corpTarget = clamp01(0.05 + computeFootprint * 0.035 + (g.policies.has('corporate_incentives') ? 0.2 : 0) - (g.policies.has('data_privacy') ? 0.05 : 0));
-  g.corporateInfluence = clamp01(approach(g.corporateInfluence, corpTarget, 0.01));
 
   // ---------- Human expertise ----------
   const automationShare = jobsTotal > 0 ? clamp01(done.filter((b) => b.type === 'auto_factory').length * 0.1 + computeSat * g.alloc.industry) : 0;
@@ -266,7 +269,8 @@ export function simTick(g: GameState): void {
     Math.max(0, g.pollutionAvg - 0.15) * 1.2 +
     Math.max(0, 1 - utilitySat) * 0.8 +
     g.housingShortage * 0.35 +
-    expectationGap / 140;
+    expectationGap / 140 +
+    Math.max(0, 45 - weightedApproval(g)) / 160; // angry coalitions organize
   const pacification = a.consumer * cs * 0.5 + (g.policies.has('surveillance_program') ? 0.1 : 0);
   g.unrest = clamp01(approach(g.unrest, clamp01(grievance - pacification), 0.04));
 
@@ -291,14 +295,12 @@ export function simTick(g: GameState): void {
   // ---------- Slow-burn failure counters ----------
   const fc = g.failCounters;
   fc.blackout = utilitySat < 0.5 ? fc.blackout + 1 : 0;
-  fc.approval = (ind.trust + ind.futureConfidence) / 2 < 25 ? fc.approval + 1 : 0;
   fc.environment = g.pollutionAvg > 0.35 ? fc.environment + 1 : 0;
   const inactiveShare = done.length > 4 ? done.filter((b) => !b.active).length / done.length : 0;
   fc.inactive = inactiveShare > 0.5 ? fc.inactive + 1 : 0;
 
   if (!g.asi.observer) {
     if (fc.blackout === 5) notify(g, 'Sustained blackouts and dry taps. The region cannot absorb much more of this.', 'warn');
-    if (fc.approval === 5) notify(g, 'A recall petition is circulating. Your administration is losing its mandate.', 'warn');
     if (fc.environment === 6) notify(g, 'Air-quality alerts have become a daily fixture. Doctors are going on record.', 'warn');
   }
 
@@ -311,7 +313,6 @@ export function simTick(g: GameState): void {
     else if (g.indicators.health < 8) g.gameOver = 'Public-health collapse. The region empties as those who can afford to leave do so.';
     else if (fc.blackout >= 10) g.gameOver = 'Grid and water-system failure. After months of cascading outages, essential services cannot be restarted with the staff that remain.';
     else if (fc.inactive >= 8) g.gameOver = 'Infrastructure collapse. Most of the region\'s facilities have gone dark, and there is no capacity left to bring them back.';
-    else if (fc.approval >= 10) g.gameOver = 'Political removal. The recall election is not close. Your successor promises "smarter, data-driven administration."';
     else if (fc.environment >= 12) g.gameOver = 'Environmental catastrophe. The region is declared unfit for habitation; remediation is projected in decades.';
     else if (g.corporateInfluence > 0.85) g.gameOver = 'Corporate takeover. The consortium now operates every essential system. Your office is retained for signatures.';
     else if (g.peakPopulation > 150 && g.population < g.peakPopulation * 0.3) g.gameOver = 'Mass migration. The region empties; the last census team does not bother finishing.';
@@ -320,6 +321,9 @@ export function simTick(g: GameState): void {
       record(g, 'system', `Administration terminated: ${g.gameOver}`);
     }
   }
+
+  // ---------- Politics: groups, corporations, resistance, elections ----------
+  updatePolitics(g, { unemployment, utilitySat, computeSat, automationShare, growth, expectationGap });
 
   // ---------- ASI & events ----------
   updateAsi(g, { computeProduced, computeSat, automationShare, utilitySat });
