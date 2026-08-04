@@ -7,6 +7,7 @@ import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
 import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
+import { Soundscape } from './audio/soundscape';
 
 const TICK_SECONDS = 4;          // one month of sim time at 1× speed
 const HOURS_PER_SECOND = 24 / 80; // full day/night cycle ≈ 80s at 1×
@@ -24,7 +25,13 @@ const freshGame = g.tick === 0;
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
 
+const sound = new Soundscape();
+// Browsers require a user gesture before audio starts.
+window.addEventListener('pointerdown', () => sound.init(), { once: true });
+window.addEventListener('keydown', () => sound.init(), { once: true });
+
 const ui = new UI(app, g, (s) => { g.speed = s; });
+ui.sound = sound;
 if (freshGame) ui.showIntro();
 
 const SPEED_MUL = [0, 1, 2.5, 6];
@@ -167,6 +174,7 @@ function frame(now: number): void {
   }
   renderer.hour = (renderer.hour + dt * mul * HOURS_PER_SECOND) % 24;
   renderer.update(g, dt, mul);
+  sound.update(g, dt, renderer.nightFactor(), renderer.rain, renderer.snowing);
 
   const uiState: UiRenderState = {
     hoverTile,

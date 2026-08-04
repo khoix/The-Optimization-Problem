@@ -18,7 +18,7 @@ export interface Agent {
 export interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; maxLife: number;
-  kind: 'smoke' | 'steam' | 'rain' | 'leaf';
+  kind: 'smoke' | 'steam' | 'rain' | 'snow' | 'leaf';
 }
 
 const DIRS: Array<[number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -26,12 +26,16 @@ const DIRS: Array<[number, number]> = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 export class AmbientLife {
   agents: Agent[] = [];
   particles: Particle[] = [];
+  congestion = 0; // 0..1, population pressure on the road network
   private spawnTimer = 0;
 
-  update(g: GameState, dt: number, weatherRain: number, nightF = 0): void {
+  update(g: GameState, dt: number, weatherRain: number, nightF = 0, snowing = false): void {
     const uniform = g.asi.observer; // motion becomes eerily regular
     const roadTiles = this.collectRoads(g);
-    const targetCars = Math.min(60, Math.floor(g.population / 24) + Math.floor(roadTiles.length / 18));
+    // Congestion: too many people per lane-tile. Streets fill up and slow
+    // down as the region grows faster than its road network.
+    this.congestion = uniform ? 0 : Math.max(0, Math.min(1, g.population / Math.max(1, roadTiles.length * 7) - 0.3));
+    const targetCars = Math.min(90, Math.floor(g.population / 24) + Math.floor(roadTiles.length / 18) + Math.round(this.congestion * 30));
     let targetPeds: number;
     if (uniform) {
       // The longer you watch, the quieter the streets: foot traffic thins
@@ -76,12 +80,17 @@ export class AmbientLife {
       }
     }
     if (weatherRain > 0) {
-      const n = Math.floor(weatherRain * 26);
+      const n = Math.floor(weatherRain * (snowing ? 18 : 26));
       for (let i = 0; i < n; i++) {
-        this.particles.push({
-          x: Math.random() * g.mapW * TILE, y: Math.random() * g.mapH * TILE,
-          vx: -14, vy: 90, life: 0.35, maxLife: 0.35, kind: 'rain',
-        });
+        this.particles.push(snowing
+          ? {
+            x: Math.random() * g.mapW * TILE, y: Math.random() * g.mapH * TILE,
+            vx: -3 + Math.random() * 6, vy: 11 + Math.random() * 8, life: 1.6, maxLife: 1.6, kind: 'snow',
+          }
+          : {
+            x: Math.random() * g.mapW * TILE, y: Math.random() * g.mapH * TILE,
+            vx: -14, vy: 90, life: 0.35, maxLife: 0.35, kind: 'rain',
+          });
       }
     }
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -90,6 +99,7 @@ export class AmbientLife {
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
       if (pt.kind === 'smoke' || pt.kind === 'steam') { pt.vx += (Math.random() - 0.3) * 6 * dt; pt.vy -= 4 * dt; }
+      if (pt.kind === 'snow') pt.vx = Math.sin(pt.life * 3 + pt.y) * 5; // drifting flakes
       if (pt.life <= 0) this.particles.splice(i, 1);
     }
     if (this.particles.length > 700) this.particles.splice(0, this.particles.length - 700);
@@ -122,7 +132,9 @@ export class AmbientLife {
   }
 
   private moveAgent(g: GameState, a: Agent, dt: number, uniform: boolean): void {
-    const speed = uniform ? (a.kind === 'car' ? 30 : 8) : a.speed; // lockstep speeds
+    // Congested streets crawl; the optimized city, of course, never jams.
+    const jam = a.kind === 'car' && !uniform ? 1 - this.congestion * 0.6 : 1;
+    const speed = (uniform ? (a.kind === 'car' ? 30 : 8) : a.speed) * jam;
     // lane offset: cars keep right, pedestrians walk the verge
     const laneOff = a.kind === 'car' ? 3 : 6;
     const [dx, dy] = DIRS[a.dir];

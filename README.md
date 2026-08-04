@@ -23,7 +23,9 @@ Open the printed URL. Controls:
 
 ## What's implemented (first prototype)
 
-- **HD-2D pixel renderer** (Canvas 2D): procedurally generated pixel-art tiles and buildings, dynamic day/night ambient lighting, per-building point lights, emissive windows and blinking server LEDs with bloom, tilt-shift depth of field, drifting cloud shadows, rain, wind-swayed trees, smoke/steam particles, traffic and pedestrians, pollution staining, and era-based color grading that cools from warm optimism toward blue-white sterility as the simulation advances.
+- **HD-2D pixel renderer** (Canvas 2D): procedurally generated pixel-art tiles and buildings, dynamic day/night ambient lighting, per-building point lights, emissive windows and blinking server LEDs with bloom, tilt-shift depth of field, drifting cloud shadows, weather (rain in three seasons, snow in winter), wind-swayed trees, smoke/steam particles, traffic and pedestrians, pollution staining, and era-based color grading that cools from warm optimism toward blue-white sterility as the simulation advances. Plus: **time-of-day directional shadows** and contact ambient occlusion, **water reflections** that mirror the shore and the city lights, **volumetric light shafts** at dawn and dusk with storm-break columns and night light-pillars over the compute campuses, and **seasonal grading** layered under the era drift.
+- **A city that visibly evolves**: chronic pollution kills the trees to bare snags, corporate branding spreads across rooftops as influence grows (and glows at night), traffic congests as population outruns the road network, and aging data centers sprout extra cooling units.
+- **Procedural soundscape** (WebAudio, no assets): wind, rain, and birdsong over a server hum that grows with compute — and as emergence rises the hum purifies toward a single clean sine while the birds thin out. Observer mode is nearly silent. Event chimes and a cold glass tone for system notices; mute in the top bar.
 - **Simulation core**: capital, electricity, water, compute, labor, and personal data; seven social indicators (Convenience, Trust, Agency, Security, Connection, Health, Future Confidence); population, unemployment, human expertise, corporate influence, unrest, and pollution — wired into the proposal's feedback loops (the Pacification Loop, the Automation Trap, the Health Spiral).
 - **20 building types** across civic, housing, utilities, economy, and compute categories — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
 - **Compute allocation** across six sectors (consumer, healthcare, industry, government, research, surveillance) — every point given to one sector is taken from another.
@@ -58,9 +60,7 @@ No runtime dependencies; TypeScript + Vite only. All art is generated procedural
 
 ## Roadmap
 
-- Content volume: toward the proposal's 100+ events and ~30 policies
-- ASI depth: substitution beyond allocation sliders, per-campaign hidden emergence conditions
-- Scenario variety (drought region, rust belt, coastal, …)
-- Observer-mode long-tail details: empty playgrounds, symmetrical districts over time
-- Art: volumetric light shafts, reflections, seasonal grading, visible city evolution
-- Audio: ambient soundscape that grows quieter and cleaner as optimization proceeds
+- Scenario variety (drought region, rust belt, coastal, …) with per-scenario starting conditions
+- Renderer performance pass (dirty-region terrain caching) for very large late-game cities
+- Deployment target (GitHub Pages / itch.io)
+- More events beyond the current 102; deeper population-group interactions

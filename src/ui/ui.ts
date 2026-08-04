@@ -13,6 +13,7 @@ import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '..
 import { tierOf, buildingCondition } from '../game/sim';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
+import type { Soundscape } from '../audio/soundscape';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -28,6 +29,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
 export class UI {
   tool: Tool = { kind: 'none' };
   selectedBuildingId: number | null = null;
+  sound: Soundscape | null = null;
 
   private root: HTMLElement;
   private topBar!: HTMLElement;
@@ -82,7 +84,15 @@ export class UI {
       { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
       { label: 'Cancel', action: () => {} },
     ]);
-    sys.append(saveBtn, loadBtn, newBtn);
+    const muteBtn = el('button', 'sys-btn', '🔊');
+    muteBtn.onclick = () => {
+      const s = this.sound;
+      if (!s) return;
+      s.init();
+      s.setEnabled(!s.enabled);
+      muteBtn.textContent = s.enabled ? '🔊' : '🔇';
+    };
+    sys.append(saveBtn, loadBtn, newBtn, muteBtn);
     this.topBar.append(this.topBarStats, sys, spd);
     this.buildPanel = el('div', 'panel build-panel');
     this.sidePanel = el('div', 'panel side-panel');
@@ -519,8 +529,10 @@ export class UI {
     this.syncPolicyButtons();
 
     // Notifications --------------------------------------------------------
+    let asiNotices = 0;
     while (this.shownNotifications < g.notifications.length) {
       const n = g.notifications[this.shownNotifications++];
+      if (n.kind === 'asi') asiNotices++;
       const item = el('div', `feed-item ${n.kind}`);
       const year2 = Math.floor(n.tick / 12) + 1;
       item.innerHTML = `<span class="feed-date">Y${year2} ${MONTHS[n.tick % 12]}</span> ${n.text}`;
@@ -528,10 +540,12 @@ export class UI {
       while (this.feed.children.length > 60) this.feed.firstChild?.remove();
       this.feed.scrollTop = this.feed.scrollHeight;
     }
+    if (asiNotices > 0) this.sound?.systemTone();
 
     // Events ---------------------------------------------------------------
     if (g.pendingEvent && this.modal.classList.contains('hidden')) {
       const e = g.pendingEvent;
+      this.sound?.eventChime();
       // Phase 4+: the system pre-selects what it considers the right answer.
       const rec = g.asi.phase >= 4 ? 0 : -1;
       this.showModal(e.title, e.body, e.choices.map((c, i) => ({

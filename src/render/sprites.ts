@@ -50,6 +50,7 @@ export interface TerrainSprites {
   sand: HTMLCanvasElement[];
   rock: HTMLCanvasElement[];
   tree: HTMLCanvasElement[];   // overlay sprites, 16x20 (canopy above tile)
+  treeDead: HTMLCanvasElement[]; // pollution-killed variants
 }
 
 export function makeTerrain(): TerrainSprites {
@@ -132,7 +133,24 @@ export function makeTerrain(): TerrainSprites {
     tree.push(c);
   }
 
-  return { grass, forest: grass, water, sand, rock, tree };
+  const treeDead: HTMLCanvasElement[] = [];
+  for (let v = 0; v < 3; v++) {
+    const [c, ctx] = canvas(TILE, TILE + 4);
+    const p = new Px(ctx);
+    const rand = rng(260 + v);
+    const cx = 8, cy = 9;
+    p.dither(cx - 4, cy + 6, 8, 2, '#00000044', 0.35, 270 + v);
+    // bare trunk and skeletal branches
+    p.r(cx - 1, cy - 1, 2, 9, '#4a3c30');
+    p.r(cx - 4, cy, 3, 1, '#4a3c30'); p.p(cx - 4, cy - 1, '#4a3c30');
+    p.r(cx + 1, cy - 2, 3, 1, '#544438'); p.p(cx + 3, cy - 3, '#544438');
+    p.p(cx - 2, cy - 3, '#4a3c30'); p.p(cx - 3, cy - 4, '#4a3c30');
+    p.p(cx + 1, cy - 4, '#544438');
+    for (let i = 0; i < 3; i++) p.p(cx - 3 + Math.floor(rand() * 6), cy - 1 + Math.floor(rand() * 3), '#3c332a');
+    treeDead.push(c);
+  }
+
+  return { grass, forest: grass, water, sand, rock, tree, treeDead };
 }
 
 // ---------------------------------------------------------------------------
