@@ -19,17 +19,75 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     w: 2, h: 2, cost: 220, upkeep: 1, jobs: 2, housing: 40,
     power: -5, water: -5, compute: 0, pollution: 0, income: 7, buildTicks: 4,
   },
+  midrise: {
+    type: 'midrise', name: 'Mid-Rise Block', category: 'zone',
+    desc: 'Six storeys, courtyard, ground-floor shops. Houses 90.',
+    w: 2, h: 2, cost: 420, upkeep: 2, jobs: 6, housing: 90,
+    power: -10, water: -10, compute: 0, pollution: 0, income: 15, buildTicks: 5,
+    unlockTier: 1, amenity: 0.2,
+  },
+  highrise: {
+    type: 'highrise', name: 'High-Rise Tower', category: 'zone',
+    desc: 'Dense vertical housing for 200. The skyline starts here.',
+    w: 3, h: 3, cost: 950, upkeep: 5, jobs: 12, housing: 200,
+    power: -24, water: -22, compute: 0, pollution: 0, income: 34, buildTicks: 7,
+    unlockTier: 2,
+  },
+  arcology: {
+    type: 'arcology', name: 'Arcology', category: 'zone',
+    desc: 'A self-contained vertical district of 450. Everything you need, inside.',
+    w: 4, h: 4, cost: 2400, upkeep: 14, jobs: 40, housing: 450,
+    power: -60, water: -50, compute: 0, pollution: 0, income: 80, buildTicks: 12,
+    unlockTier: 3, amenity: 0.4, services: 0.3,
+  },
   park: {
-    type: 'park', name: 'Park', category: 'civic',
-    desc: 'Green space. Improves health and connection.',
+    type: 'park', name: 'Park', category: 'amenity',
+    desc: 'Green space. Improves health, connection, and the case for living here.',
     w: 2, h: 2, cost: 60, upkeep: 0.5, jobs: 1, housing: 0,
     power: 0, water: -1, compute: 0, pollution: -0.4, income: 0, buildTicks: 2,
+    amenity: 1,
   },
   plaza: {
-    type: 'plaza', name: 'Civic Plaza', category: 'civic',
+    type: 'plaza', name: 'Civic Plaza', category: 'amenity',
     desc: 'Ceremonial public space with a statue.',
     w: 2, h: 2, cost: 80, upkeep: 0.4, jobs: 1, housing: 0,
     power: -1, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 2,
+    amenity: 0.8,
+  },
+  school: {
+    type: 'school', name: 'School', category: 'amenity',
+    desc: 'Educates the next workforce. Parents will not move somewhere without one.',
+    w: 3, h: 2, cost: 260, upkeep: 3, jobs: 30, housing: 0,
+    power: -5, water: -4, compute: 0, pollution: 0, income: 0, buildTicks: 4,
+    amenity: 0.6, services: 1.6,
+  },
+  library: {
+    type: 'library', name: 'Public Library', category: 'amenity',
+    desc: 'Books, warmth, wifi, and the region\'s most stubbornly human institution.',
+    w: 2, h: 2, cost: 160, upkeep: 1.5, jobs: 10, housing: 0,
+    power: -3, water: -1, compute: 0, pollution: 0, income: 0, buildTicks: 3,
+    amenity: 1, services: 0.7,
+  },
+  sports_complex: {
+    type: 'sports_complex', name: 'Sports Complex', category: 'amenity',
+    desc: 'Pitches, pool, and leagues. Health and belonging, sweatily acquired.',
+    w: 3, h: 3, cost: 340, upkeep: 3.5, jobs: 18, housing: 0,
+    power: -8, water: -8, compute: 0, pollution: 0, income: 5, buildTicks: 4,
+    amenity: 1.8, services: 0.4,
+  },
+  museum: {
+    type: 'museum', name: 'Museum', category: 'amenity',
+    desc: 'Cultural anchor. Draws visitors, residents, and arguments about funding.',
+    w: 3, h: 2, cost: 420, upkeep: 4, jobs: 22, housing: 0,
+    power: -7, water: -3, compute: 0, pollution: 0, income: 7, buildTicks: 5,
+    unlockTier: 1, amenity: 2, services: 0.3,
+  },
+  community_center: {
+    type: 'community_center', name: 'Community Center', category: 'amenity',
+    desc: 'Clubs, classes, and a hall anyone can book. Where strangers become neighbors.',
+    w: 2, h: 2, cost: 180, upkeep: 2, jobs: 12, housing: 0,
+    power: -4, water: -3, compute: 0, pollution: 0, income: 0, buildTicks: 3,
+    amenity: 1.1, services: 0.8,
   },
   solar_farm: {
     type: 'solar_farm', name: 'Solar Farm', category: 'power',
@@ -56,11 +114,26 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     w: 2, h: 2, cost: 180, upkeep: 1.5, jobs: 10, housing: 0,
     power: -4, water: 60, compute: 0, pollution: 0, income: 0, buildTicks: 3,
   },
+  solar_array: {
+    type: 'solar_array', name: 'Solar Array', category: 'power',
+    desc: 'Utility-scale panels with tracking mounts. Three times a farm\'s output.',
+    w: 4, h: 4, cost: 780, upkeep: 3.5, jobs: 10, housing: 0,
+    power: 72, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 5,
+    unlockTier: 1,
+  },
+  water_reclamation: {
+    type: 'water_reclamation', name: 'Water Reclamation Works', category: 'power',
+    desc: 'Closed-loop recycling. Doubles yield from the same watershed.',
+    w: 3, h: 3, cost: 640, upkeep: 5, jobs: 24, housing: 0,
+    power: -14, water: 150, compute: 0, pollution: 0, income: 0, buildTicks: 6,
+    unlockTier: 2,
+  },
   hospital: {
     type: 'hospital', name: 'Hospital', category: 'civic',
     desc: 'Care capacity. AI diagnostics multiply its reach.',
     w: 3, h: 3, cost: 420, upkeep: 5, jobs: 60, housing: 0,
     power: -8, water: -6, compute: 0, pollution: 0, income: 0, buildTicks: 5,
+    services: 2.4,
   },
   factory: {
     type: 'factory', name: 'Factory', category: 'industry',
@@ -131,8 +204,13 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
 };
 
 export const BUILD_MENU_ORDER: BuildingType[] = [
-  'road', 'house', 'apartment', 'park', 'plaza',
-  'solar_farm', 'coal_plant', 'nuclear_plant', 'water_plant',
+  'road',
+  'house', 'apartment', 'midrise', 'highrise', 'arcology',
+  'park', 'plaza', 'library', 'community_center', 'school', 'sports_complex', 'museum',
+  'solar_farm', 'solar_array', 'coal_plant', 'nuclear_plant', 'water_plant', 'water_reclamation',
   'hospital', 'factory', 'auto_factory', 'office', 'retail',
   'edge_dc', 'community_dc', 'med_dc', 'cloud_dc', 'gov_dc', 'ai_campus',
 ];
+
+/** Region-class names, indexed by tier. Mirrors TIERS in sim.ts. */
+export const TIER_NAMES = ['Township', 'City', 'Metropolis', 'Megaregion'];

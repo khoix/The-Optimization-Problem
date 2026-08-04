@@ -198,20 +198,43 @@ export function simTick(g: GameState): void {
   // ---------- Pollution field ----------
   diffusePollution(g);
 
-  // ---------- Population: exogenous migration pressure ----------
-  const desirability =
-    0.3 * utilitySat +
-    0.2 * clamp01(1 - g.pollutionAvg * 2) +
-    0.2 * (g.indicators.health / 100) +
-    0.15 * clamp01(1 - unemployment) +
-    0.15 * (g.indicators.futureConfidence / 100);
+  // ---------- Attractiveness: why people do or don't want to live here ----------
+  // Every component is named and inspectable. Amenities and services are
+  // measured as coverage per capita, so a growing region must keep building
+  // them or watch its own appeal decay.
+  let amenityPoints = 0, servicePoints = 0;
+  for (const b of done) {
+    if (!b.active) continue;
+    const def = BUILDING_DEFS[b.type];
+    const cond = buildingCondition(b);
+    amenityPoints += (def.amenity ?? 0) * cond;
+    servicePoints += (def.services ?? 0) * cond;
+  }
+  const perCapita = (points: number, per: number) => clamp01(points / Math.max(1, g.population / per));
 
+  const att = g.attractiveness;
+  // Jobs: are there openings, and are people in them?
+  att.jobs = clamp01(0.35 * clamp01(jobsTotal / Math.max(1, labourForce)) + 0.65 * clamp01(1 - unemployment * 1.6));
+  att.housing = clamp01(1 - g.housingShortage * 1.15);
+  att.amenities = perCapita(amenityPoints, 90) * (has('green_belt') ? 1.05 : 1);
+  att.services = perCapita(servicePoints, 110);
+  att.environment = clamp01(1 - g.pollutionAvg * 2.4);
+  att.safety = clamp01(g.indicators.security / 100 - g.unrest * 0.5);
+  // Cost of living: scarcity is priced, and someone always pays it.
+  att.cost = clamp01(1 - g.housingShortage * 0.8 - Math.max(0, 1 - utilitySat) * 0.4
+    - (has('carbon_tax') ? 0.05 : 0) + (has('ubi') ? 0.12 : 0) + (has('free_transit') ? 0.06 : 0));
+  att.overall = clamp01(
+    att.jobs * 0.24 + att.housing * 0.2 + att.amenities * 0.14 + att.services * 0.12 +
+    att.environment * 0.11 + att.safety * 0.09 + att.cost * 0.1);
+
+  // ---------- Population: exogenous migration pressure ----------
   // The wider world keeps producing people who want in. Demand grows with
   // time and tier, accelerates when the region is attractive, and only bleeds
   // away slowly when it isn't — growth is absorbed, not authorized.
+  const desirability = att.overall;
   const pull = 0.35 + desirability;
   g.migrationDemand += (1.4 + g.tick * 0.012) * T.mig * pull;
-  if (desirability < 0.35) g.migrationDemand -= g.migrationDemand * 0.025;
+  if (desirability < 0.35) g.migrationDemand -= g.migrationDemand * (0.05 - desirability * 0.07);
   g.migrationDemand = Math.max(20, Math.min(g.migrationDemand, g.population * 3 + 500));
 
   // The green belt protects land housing would otherwise sprawl into.
@@ -263,6 +286,8 @@ export function simTick(g: GameState): void {
   if (has('manual_redundancy')) expertiseTarget += 0.15;
   if (has('retraining')) expertiseTarget += 0.1;
   if (has('human_staffing')) expertiseTarget += 0.05;
+  // Schools and libraries make expertise renewable rather than inherited.
+  expertiseTarget += clamp01(done.filter((b) => (b.type === 'school' || b.type === 'library') && b.active).length / Math.max(1, g.population / 200)) * 0.12;
   expertiseTarget += done.filter((b) => b.type === 'community_dc' && b.active).length * 0.03;
   g.humanExpertise = clamp01(approach(g.humanExpertise, clamp01(expertiseTarget), 0.008));
 
@@ -301,15 +326,18 @@ export function simTick(g: GameState): void {
   const hospitals = done.filter((b) => b.type === 'hospital' && b.active).length;
   const careCapacity = clamp01(
     (hospitals * 260 * (0.6 + a.healthcare * cs * 1.2) + medDCs * 150 * (0.5 + a.healthcare * cs)) / Math.max(1, g.population));
+  // Recreation keeps people well in ways clinics can't.
+  const sportsCoverage = clamp01(done.filter((b) => b.type === 'sports_complex' && b.active).length / Math.max(1, g.population / 300));
   ind.health = clamp(approach(ind.health,
     35 + careCapacity * 45 - g.pollutionAvg * 55 - Math.max(0, ind.convenience - 70) * 0.25 - g.housingShortage * 9
       + (has('green_belt') ? 3 : 0) + (has('ewaste_program') ? 2 : 0)
-      + (done.some((b) => b.type === 'park') ? 4 : 0), 1.6));
+      + sportsCoverage * 7 + g.attractiveness.amenities * 4, 1.6));
 
-  // Connection: parks/plazas and shared institutions help; heavy consumer tech isolates.
-  const greens = done.filter((b) => b.type === 'park' || b.type === 'plaza').length;
+  // Connection: shared physical institutions are what make strangers into
+  // neighbors; heavy consumer tech isolates.
   ind.connection = clamp(approach(ind.connection,
-    58 + greens * 3 + communityDCs * 2 + (has('reduced_workweek') ? 4 : 0) + (has('green_belt') ? 2 : 0)
+    52 + g.attractiveness.amenities * 18 + communityDCs * 2
+      + (has('reduced_workweek') ? 4 : 0) + (has('green_belt') ? 2 : 0)
       - Math.max(0, ind.convenience - 55) * 0.5 - (has('public_broadband') ? 4 : 0), 1.2));
 
   // Security: employment + surveillance + police-by-algorithm.

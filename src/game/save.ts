@@ -56,6 +56,7 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
   g.tierName ??= 'Township';
+  g.attractiveness ??= { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 };
   g.asi.shadowPolicies ??= [];
   g.asi.diluted ??= [];
   g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };

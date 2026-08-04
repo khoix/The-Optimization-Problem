@@ -219,6 +219,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     pollutionAvg: 0,
     migrationDemand: scen.migrationBase,
     housingShortage: 0,
+    attractiveness: { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 },
     expectations: 40,
     computeBase: 4,
     peakPopulation: scen.startPopulation,

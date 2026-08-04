@@ -67,6 +67,16 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .build-btn.active { background: #2a3a55; border-color: var(--accent); }
 .build-btn .cost { color: var(--text-dim); font-family: var(--mono); }
 .build-btn.demolish { margin-top: 10px; color: var(--bad); }
+.build-btn.locked { opacity: 0.45; border-style: dashed; }
+.build-btn.locked:hover { background: #1a2230; }
+.build-btn .cost.lock { color: var(--accent); font-size: 10px; }
+
+.att-header {
+  margin: 12px 0 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--text-dim); border-top: 1px solid var(--panel-border); padding-top: 8px;
+}
+.att-header b { color: var(--text); font-family: var(--mono); }
+.att-row > span:first-child { width: 92px; font-size: 10px; }
 
 .side-panel { top: 44px; right: 10px; width: 268px; max-height: calc(100% - 220px); overflow-y: auto; }
 .tabs { display: flex; gap: 4px; margin-bottom: 8px; }

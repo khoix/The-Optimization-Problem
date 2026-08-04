@@ -4,7 +4,7 @@
 // thing into observer mode.
 
 import type { BuildingType, GameState, PolicyId } from '../game/types';
-import { BUILDING_DEFS, BUILD_MENU_ORDER } from '../game/buildings';
+import { BUILDING_DEFS, BUILD_MENU_ORDER, TIER_NAMES } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
@@ -116,10 +116,16 @@ export class UI {
   private renderBuildPanel(): void {
     const g = this.g;
     const allowed = buildableTypes(g);
+    const tier = TIER_NAMES.indexOf(tierOf(g.population).name);
     this.buildPanel.innerHTML = '<h3>Construction</h3>';
-    const cats: Array<[string, string]> = [['civic', 'Civic'], ['zone', 'Housing'], ['power', 'Utilities'], ['industry', 'Economy'], ['compute', 'Compute']];
+    const cats: Array<[string, string]> = [
+      ['civic', 'Civic'], ['zone', 'Housing'], ['amenity', 'Amenities'],
+      ['power', 'Utilities'], ['industry', 'Economy'], ['compute', 'Compute'],
+    ];
     for (const [cat, label] of cats) {
       const types = BUILD_MENU_ORDER.filter((t) => BUILDING_DEFS[t].category === cat && allowed.has(t));
+      // Compute-gated buildings stay hidden until earned; tier-gated ones show
+      // as locked, so the player can see what the next region class brings.
       const visible = types.filter((t) => {
         const def = BUILDING_DEFS[t];
         return !def.unlockCompute || g.resources.compute >= def.unlockCompute;
@@ -128,11 +134,21 @@ export class UI {
       this.buildPanel.append(el('div', 'cat-label', label));
       for (const t of visible) {
         const def = BUILDING_DEFS[t];
-        const btn = el('button', 'build-btn');
-        btn.innerHTML = `<span>${def.name}</span><span class="cost">§${def.cost}</span>`;
-        btn.title = `${def.desc}\n${def.jobs ? `Jobs: ${def.jobs}  ` : ''}${def.power ? `Power: ${def.power > 0 ? '+' : ''}${def.power}  ` : ''}${def.water ? `Water: ${def.water > 0 ? '+' : ''}${def.water}  ` : ''}${def.compute ? `Compute: +${def.compute}` : ''}`;
+        const locked = def.unlockTier != null && tier < def.unlockTier;
+        const btn = el('button', 'build-btn' + (locked ? ' locked' : ''));
+        btn.innerHTML = locked
+          ? `<span>${def.name}</span><span class="cost lock">${TIER_NAMES[def.unlockTier!]}</span>`
+          : `<span>${def.name}</span><span class="cost">§${def.cost}</span>`;
+        const stats = `${def.housing ? `Housing: ${def.housing}  ` : ''}${def.jobs ? `Jobs: ${def.jobs}  ` : ''}${def.power ? `Power: ${def.power > 0 ? '+' : ''}${def.power}  ` : ''}${def.water ? `Water: ${def.water > 0 ? '+' : ''}${def.water}  ` : ''}${def.compute ? `Compute: +${def.compute}  ` : ''}${def.amenity ? `Amenity: +${def.amenity}  ` : ''}${def.services ? `Services: +${def.services}` : ''}`;
+        btn.title = locked
+          ? `${def.name} — requires region class: ${TIER_NAMES[def.unlockTier!]}\n${def.desc}\n${stats}`
+          : `${def.desc}\n${stats}`;
         btn.dataset.type = t;
         btn.onclick = () => {
+          if (locked) {
+            this.flashSystemNote(`${def.name} requires region class: ${TIER_NAMES[def.unlockTier!]}.`);
+            return;
+          }
           this.selectedBuildingId = null;
           this.inspector.classList.add('hidden');
           this.tool = this.tool.kind === 'build' && this.tool.type === t ? { kind: 'none' } : { kind: 'build', type: t };
@@ -478,8 +494,9 @@ export class UI {
     }
 
     // Rebuild the construction menu when the set of available buildings
-    // changes (compute unlocks, phase restrictions).
-    const menuKey = BUILD_MENU_ORDER
+    // changes — compute unlocks, phase restrictions, or a region
+    // reclassification lifting a tier lock.
+    const menuKey = tierOf(g.population).name + '|' + BUILD_MENU_ORDER
       .filter((t) => buildableTypes(g).has(t))
       .filter((t) => !BUILDING_DEFS[t].unlockCompute || g.resources.compute >= BUILDING_DEFS[t].unlockCompute)
       .join(',');
@@ -534,6 +551,21 @@ export class UI {
         const shownCls = g.asi.phase >= 4 ? 'bar-calm' : cls;
         html += `<div class="ind-row"><span>${label}</span><div class="bar"><div class="fill ${shownCls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
       }
+      // Attractiveness breakdown: growth should never be a number that
+      // simply happens.
+      const att = g.attractiveness;
+      const attRows: Array<[string, number]> = [
+        ['Jobs', att.jobs], ['Housing', att.housing], ['Amenities', att.amenities],
+        ['Services', att.services], ['Environment', att.environment],
+        ['Safety', att.safety], ['Affordability', att.cost],
+      ];
+      html += `<div class="att-header">Attractiveness <b>${Math.round(att.overall * 100)}</b></div>`;
+      for (const [label, v] of attRows) {
+        const pct = Math.round(v * 100);
+        const cls = g.asi.phase >= 4 ? 'bar-calm' : pct < 30 ? 'bar-bad' : pct < 55 ? 'bar-mid' : 'bar-good';
+        html += `<div class="ind-row att-row"><span>${label}</span><div class="bar"><div class="fill ${cls}" style="width:${pct}%"></div></div><span class="ind-val">${pct}</span></div>`;
+      }
+
       const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
       html += `<div class="ind-extra">
         Region class: ${tierOf(g.population).name}<br>

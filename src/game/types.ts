@@ -14,8 +14,18 @@ export type BuildingType =
   | 'road'
   | 'house'
   | 'apartment'
+  | 'midrise'
+  | 'highrise'
+  | 'arcology'
   | 'park'
   | 'plaza'
+  | 'school'
+  | 'library'
+  | 'sports_complex'
+  | 'museum'
+  | 'community_center'
+  | 'solar_array'
+  | 'water_reclamation'
   | 'solar_farm'
   | 'coal_plant'
   | 'nuclear_plant'
@@ -36,7 +46,7 @@ export interface BuildingDef {
   type: BuildingType;
   name: string;
   desc: string;
-  category: 'civic' | 'power' | 'industry' | 'compute' | 'zone';
+  category: 'civic' | 'power' | 'industry' | 'compute' | 'zone' | 'amenity';
   w: number;
   h: number;
   cost: number;
@@ -50,6 +60,26 @@ export interface BuildingDef {
   income: number;        // tax/corporate revenue per tick when active
   buildTicks: number;    // construction duration in ticks
   unlockCompute?: number; // total compute required before available
+  unlockTier?: number;    // region-class index required (0 Township .. 3 Megaregion)
+  /** Contribution to the amenity component of regional attractiveness. */
+  amenity?: number;
+  /** Contribution to the services component (education, care, civic capacity). */
+  services?: number;
+}
+
+/**
+ * Why people do or don't want to live here. Every component is named and
+ * inspectable: growth should never be a number that simply happens.
+ */
+export interface Attractiveness {
+  jobs: number;
+  housing: number;
+  amenities: number;
+  services: number;
+  environment: number;
+  safety: number;
+  cost: number;
+  overall: number;
 }
 
 export interface Building {
@@ -257,6 +287,7 @@ export interface GameState {
   // Endless-pressure systems: balance is a treadmill, not a plateau.
   migrationDemand: number;   // people who want to live here, grows exogenously
   housingShortage: number;   // 0..1, unmet demand as a share of demand
+  attractiveness: Attractiveness;
   expectations: number;      // 0..100 ratcheting service-level baseline
   computeBase: number;       // autonomous floor of compute demand, always growing
   peakPopulation: number;
