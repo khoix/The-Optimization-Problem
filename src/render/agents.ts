@@ -28,13 +28,20 @@ export class AmbientLife {
   particles: Particle[] = [];
   private spawnTimer = 0;
 
-  update(g: GameState, dt: number, weatherRain: number): void {
+  update(g: GameState, dt: number, weatherRain: number, nightF = 0): void {
     const uniform = g.asi.observer; // motion becomes eerily regular
     const roadTiles = this.collectRoads(g);
     const targetCars = Math.min(60, Math.floor(g.population / 24) + Math.floor(roadTiles.length / 18));
-    const targetPeds = uniform
-      ? Math.min(30, Math.floor(g.population / 60))          // quieter streets
-      : Math.min(80, Math.floor(g.population / 14));
+    let targetPeds: number;
+    if (uniform) {
+      // The longer you watch, the quieter the streets: foot traffic thins
+      // year by year, and at night the sidewalks empty completely.
+      const observedYears = Math.max(0, g.tick - g.asi.phaseTick) / 12;
+      const thinning = Math.max(0.15, 1 - observedYears * 0.12);
+      targetPeds = Math.round(Math.min(30, Math.floor(g.population / 60)) * thinning * (1 - nightF));
+    } else {
+      targetPeds = Math.min(80, Math.floor(g.population / 14));
+    }
 
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0 && roadTiles.length > 0) {

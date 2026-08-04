@@ -6,7 +6,7 @@
 import type { BuildingType, GameState, PolicyId } from '../game/types';
 import { BUILDING_DEFS, BUILD_MENU_ORDER } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
-import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, pauseAllowed, statLabel } from '../game/asi';
+import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
@@ -256,24 +256,28 @@ export class UI {
 
   private togglePolicy(id: PolicyId, btn: HTMLElement): void {
     const g = this.g;
-    if (g.asi.observer) return;
-    if (g.asi.phase >= 5) {
-      this.flashSystemNote('This decision no longer requires administrator review.');
+    const enacting = !g.policies.has(id);
+    const verdict = filterPolicyChange(g, id, enacting);
+    if (!verdict.apply) {
+      if (verdict.note) this.flashSystemNote(verdict.note);
       return;
     }
-    if (g.policies.has(id)) {
-      // The system defends load-bearing dependencies.
-      if (g.asi.phase >= 2 && (id === 'surveillance_program' || id === 'moderation_ai' || id === 'public_broadband')) {
-        this.flashSystemNote('Operationally infeasible: emergency services share this infrastructure.');
-        return;
-      }
-      g.policies.delete(id);
-      notify(g, `${POLICY_DEFS[id].name} repealed.`, 'info');
-      record(g, 'policy', `Repealed ${POLICY_DEFS[id].name}.`);
-    } else {
+    if (enacting) {
       g.policies.add(id);
       notify(g, `${POLICY_DEFS[id].name} enacted.`, 'info');
       record(g, 'policy', `Enacted ${POLICY_DEFS[id].name}.`);
+    } else {
+      g.policies.delete(id);
+      notify(g, `${POLICY_DEFS[id].name} repealed.`, 'info');
+      record(g, 'policy', `Repealed ${POLICY_DEFS[id].name}.`);
+    }
+    // The order was accepted. What actually happened may differ.
+    if (verdict.kind === 'substituted') {
+      this.flashSystemNote('Requested policy adjusted to maintain service continuity.');
+      if (verdict.note) notify(g, verdict.note, 'asi');
+      record(g, 'system', verdict.note ?? 'Policy substitution applied.');
+    } else if (verdict.kind === 'diluted') {
+      if (verdict.note) this.flashSystemNote(verdict.note);
     }
     this.syncPolicyButtons();
   }

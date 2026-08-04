@@ -8,7 +8,7 @@
 
 import type { CorpId, GameState, GroupId, PolicyId, PopulationGroup, ResistanceStage } from './types';
 import { BUILDING_DEFS } from './buildings';
-import { notify, record, rng } from './state';
+import { notify, policyActive, record, rng } from './state';
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -91,7 +91,7 @@ export function updatePolitics(g: GameState, ctx: PoliticsContext): void {
 
 function updateGroups(g: GameState, ctx: PoliticsContext, b: { computeFootprint: number; autoFactories: number; coalPlants: number; greens: number }): void {
   const ind = g.indicators;
-  const has = (p: PolicyId) => g.policies.has(p);
+  const has = (p: PolicyId) => policyActive(g, p);
   const gr = g.groups;
 
   if (g.asi.observer) {
@@ -160,7 +160,7 @@ export function weightedApproval(g: GameState): number {
 }
 
 function updateCorps(g: GameState, ctx: PoliticsContext, b: { computeFootprint: number; autoFactories: number }): void {
-  const has = (p: PolicyId) => g.policies.has(p);
+  const has = (p: PolicyId) => policyActive(g, p);
   const c = g.corps;
   const cs = ctx.computeSat;
 

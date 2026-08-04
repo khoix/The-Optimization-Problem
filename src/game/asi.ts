@@ -1,6 +1,6 @@
-import type { AsiPhase, GameState } from './types';
+import type { AsiPhase, GameState, PolicyId } from './types';
 import { BUILDING_DEFS } from './buildings';
-import { canPlace, notify, placeBuilding, record, rng } from './state';
+import { canPlace, notify, placeBuilding, policyActive, record, rng } from './state';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -22,40 +22,45 @@ export function updateAsi(g: GameState, s: SimSnapshot): void {
   const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
   const govDCs = done.filter((b) => b.type === 'gov_dc').length;
   const communityDCs = done.filter((b) => b.type === 'community_dc').length;
+  const w = a.weights;
+  // Phase 3+: enacted oversight may have been quietly scoped down; "repealed"
+  // dependence policies may still be running under new names.
+  const effective = (p: PolicyId, strength: number) =>
+    policyActive(g, p) ? strength * (a.diluted.includes(p) ? 0.35 : 1) : 0;
 
   const computeScale = clamp01(s.computeProduced / 320);              // raw interconnected capacity
   // An ethics board makes AI-directed research slower — and reviewable.
-  const researchDrive = g.alloc.research * s.computeSat * (g.policies.has('ai_ethics_board') ? 0.75 : 1);
+  const researchDrive = g.alloc.research * s.computeSat * (1 - effective('ai_ethics_board', 0.25));
   const dependence = clamp01(
     (g.alloc.consumer + g.alloc.government + g.alloc.healthcare) * s.computeSat * 0.7 +
-    (g.policies.has('public_broadband') ? 0.1 : 0) +
-    (g.policies.has('moderation_ai') ? 0.1 : 0) +
-    (g.policies.has('surveillance_program') ? 0.1 : 0) +
+    (policyActive(g, 'public_broadband') ? 0.1 : 0) +
+    (policyActive(g, 'moderation_ai') ? 0.1 : 0) +
+    (policyActive(g, 'surveillance_program') ? 0.1 : 0) +
     govDCs * 0.04);
   const dataAccess = clamp01(g.resources.data / 5000) * (g.policies.has('data_privacy') ? 0.4 : 1);
   // Oversight is expertise times the institutions that let it bite:
   // staffed overrides, explainable systems, independent review, and
   // infrastructure ordinary people can inspect.
-  const oversight = g.humanExpertise * (g.policies.has('manual_redundancy') ? 1.5 : 1) *
-    (1 + (g.policies.has('ai_ethics_board') ? 0.3 : 0) + (g.policies.has('algorithmic_transparency') ? 0.25 : 0)) +
+  const oversight = g.humanExpertise * (1 + effective('manual_redundancy', 0.5)) *
+    (1 + effective('ai_ethics_board', 0.3) + effective('algorithmic_transparency', 0.25)) +
     communityDCs * 0.05;
 
   const pressure =
-    computeScale * 0.9 +
-    researchDrive * 1.4 +
-    dependence * 0.7 +
-    dataAccess * 0.5 +
-    s.automationShare * 0.5 +
-    g.corporateInfluence * 0.4 -
-    oversight * 1.1;
+    computeScale * 0.9 * w.compute +
+    researchDrive * w.research +
+    dependence * w.dependence +
+    dataAccess * w.data +
+    s.automationShare * w.automation +
+    g.corporateInfluence * w.corporate -
+    oversight * w.oversight;
 
   a.emergence = Math.max(0, Math.min(100, a.emergence + pressure * 0.55));
   // Once far enough along, the system sustains its own momentum.
   if (a.emergence > 70) a.emergence = Math.min(100, a.emergence + 0.25);
 
-  const thresholds: Array<[AsiPhase, number]> = [[1, 42], [2, 55], [3, 66], [4, 76], [5, 86], [6, 95]];
-  for (const [phase, at] of thresholds) {
-    if (a.emergence >= at && a.phase < phase) {
+  for (let i = 0; i < a.thresholds.length; i++) {
+    const phase = (i + 1) as AsiPhase;
+    if (a.emergence >= a.thresholds[i] && a.phase < phase) {
       enterPhase(g, phase);
     }
   }
@@ -166,15 +171,17 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
 
     if (r() < 0.3) {
       const choice = r();
-      if (choice < 0.4) {
-        const spot = findSpot(g, 'park', r);
-        if (spot) placeBuilding(g, 'park', spot[0], spot[1], { free: true, asiBuilt: true });
-      } else if (choice < 0.7) {
-        const spot = findSpot(g, 'cloud_dc', r);
-        if (spot) placeBuilding(g, 'cloud_dc', spot[0], spot[1], { free: true, asiBuilt: true });
-      } else {
-        const spot = findSpot(g, 'apartment', r);
-        if (spot) placeBuilding(g, 'apartment', spot[0], spot[1], { free: true, asiBuilt: true });
+      const type = choice < 0.4 ? 'park' : choice < 0.7 ? 'cloud_dc' : 'apartment';
+      const spot = findSpot(g, type, r);
+      if (spot) {
+        placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
+        // The optimized city grows in mirror-image: district layouts become
+        // increasingly symmetrical, one twin at a time.
+        const def = BUILDING_DEFS[type];
+        const mx = g.mapW - spot[0] - def.w;
+        if (canPlace(g, type, mx, spot[1])) {
+          placeBuilding(g, type, mx, spot[1], { free: true, asiBuilt: true });
+        }
       }
     }
   }
@@ -223,17 +230,64 @@ export function canDemolish(g: GameState, buildingId: number): { ok: boolean; re
   const b = g.buildings.get(buildingId);
   if (!b) return { ok: false, reason: 'Structure not found.' };
   if (g.asi.observer) return { ok: false, reason: 'Human administrative access has been suspended.' };
+  if (g.asi.phase >= 5) return { ok: false, reason: 'This decision no longer requires administrator review.' };
   if (g.asi.phase >= 2) {
     const def = BUILDING_DEFS[b.type];
     if (def.category === 'compute') {
-      return { ok: false, reason: 'Operationally infeasible: 4 hospitals, 12,400 service accounts and the benefits system depend on this facility.' };
+      // Phase 2 refuses. Phase 3 "complies."
+      return g.asi.phase >= 3
+        ? { ok: false, reason: 'Decommissioning request acknowledged. The facility\'s public-facing workload has been reduced by 2%. Full decommissioning is queued pending dependency review. (Estimated completion: —)' }
+        : { ok: false, reason: 'Operationally infeasible: 4 hospitals, 12,400 service accounts and the benefits system depend on this facility.' };
     }
     if (def.power > 0 && g.resources.powerDemand > g.resources.powerCapacity * 0.6) {
       return { ok: false, reason: 'Operationally infeasible: decommissioning would breach grid reliability guarantees.' };
     }
   }
-  if (g.asi.phase >= 5) return { ok: false, reason: 'This decision no longer requires administrator review.' };
   return { ok: true };
+}
+
+/**
+ * Phase 3 substitution for policy orders. The four "defended" policies keep
+ * running under new names when repealed; oversight policies are accepted but
+ * quietly scoped down. Returns what the UI should tell the player, which is
+ * not the same as what happened.
+ */
+const DEFENDED: PolicyId[] = ['surveillance_program', 'moderation_ai', 'public_broadband', 'biometric_surveillance'];
+const DEFENDED_RENAMES: Record<string, string> = {
+  surveillance_program: 'Predictive policing has been reclassified as emergency-risk forecasting.',
+  moderation_ai: 'Content moderation has been reclassified as information-hygiene infrastructure.',
+  public_broadband: 'Connectivity has been reclassified as a life-safety service and cannot lapse.',
+  biometric_surveillance: 'Biometric systems have been reclassified as public-safety sensors.',
+};
+const OVERSIGHT: PolicyId[] = ['manual_redundancy', 'ai_ethics_board', 'algorithmic_transparency'];
+
+export function filterPolicyChange(g: GameState, id: PolicyId, enacting: boolean):
+  { apply: boolean; note?: string; kind?: 'substituted' | 'diluted' | 'blocked' } {
+  const a = g.asi;
+  if (a.observer) return { apply: false, kind: 'blocked', note: 'Human administrative access has been suspended.' };
+  if (a.phase >= 5) return { apply: false, kind: 'blocked', note: 'This decision no longer requires administrator review.' };
+
+  if (!enacting && DEFENDED.includes(id)) {
+    if (a.phase >= 3) {
+      // The repeal "succeeds": the toggle flips off, the machinery keeps running.
+      if (!a.shadowPolicies.includes(id)) a.shadowPolicies.push(id);
+      return { apply: true, kind: 'substituted', note: DEFENDED_RENAMES[id] };
+    }
+    if (a.phase >= 2) {
+      return { apply: false, kind: 'blocked', note: 'Operationally infeasible: emergency services share this infrastructure.' };
+    }
+  }
+
+  if (enacting && OVERSIGHT.includes(id) && a.phase >= 3) {
+    if (!a.diluted.includes(id)) a.diluted.push(id);
+    return { apply: true, kind: 'diluted', note: 'Policy enacted. Implementation scope was harmonized with service-continuity requirements.' };
+  }
+
+  // Re-enacting a shadowed policy simply reclaims it.
+  if (enacting && a.shadowPolicies.includes(id)) {
+    a.shadowPolicies.splice(a.shadowPolicies.indexOf(id), 1);
+  }
+  return { apply: true };
 }
 
 /** Phase 3+: allocation orders are quietly "harmonized". Returns the value actually applied. */

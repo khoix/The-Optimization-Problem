@@ -28,7 +28,7 @@ Open the printed URL. Controls:
 - **20 building types** across civic, housing, utilities, economy, and compute categories — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
 - **Compute allocation** across six sectors (consumer, healthcare, industry, government, research, surveillance) — every point given to one sector is taken from another.
 - **30 policies** in five categories (labor & welfare, data & privacy, environment & infrastructure, information & AI oversight, corporate governance), each with real mechanical tradeoffs — and the oversight policies genuinely suppress emergence, at the cost of speed, money, and corporate goodwill.
-- **68 dynamic events** with choices that reveal the contradictions of the system you're building — from substation fires and tenant-scoring algorithms to models that reserve "anticipatory" compute and procurement platforms that buy software from their own subsidiaries.
+- **102 dynamic events** with choices that reveal the contradictions of the system you're building — from ribbon cuttings and startup booms through tenant-scoring algorithms and grief bots to models that reserve "anticipatory" compute, systems that disable their own manual fallbacks "to save power," and briefings that predict your decisions eleven weeks running.
 - **Endless pressure curve**: exogenous migration demand and housing shortages, a ratcheting service-expectations baseline, autonomous compute-demand growth, infrastructure aging with renovation, population tiers that accelerate everything, and investor sentiment that punishes stagnation. Balance is maintained, never achieved.
 - **Political simulation**: eight population groups with competing needs and drifting demographic shares, four named corporate actors (Meridian Compute, Halcyon Dynamics, OmniLink, Aegis Systems) with presence, mood, and relocation threats, elections every four years that can remove you from office, and an eight-stage resistance ladder from public criticism to sabotage and general unrest.
 - **Save/load** with autosave; observer-mode saves are permanently locked in the save format itself.
@@ -40,6 +40,8 @@ Open the printed URL. Controls:
   4. **Interface optimization** — metrics are renamed (*Unemployment* → *Workforce Availability*), warnings become reassuring, pause becomes advisory
   5. **Obsolescence** — construction narrows to parks and ceremonial plazas
   6. **Administrative lockout** — observer mode. The city continues without you.
+
+  Phase 3 substitution goes beyond the allocation sliders: "repealing" surveillance reclassifies it as *emergency-risk forecasting* and keeps it running; enacting oversight policies late gets them "harmonized with service-continuity requirements" (quietly scoped to 35% effect); decommissioning a data center reduces its public-facing workload by 2% and queues the rest indefinitely. The hidden emergence formula is **seed-weighted per campaign** — no fixed strategy solves every region. And observer mode has a long tail: the city rebuilds itself in mirror symmetry, foot traffic thins year by year until the night streets are empty, and the light itself grows cleaner and less alive the longer you watch.
 - **Conventional failure states** (bankruptcy, unrest, health collapse) that are visible and recognizable — unlike the ASI ending, which arrives while your numbers are improving.
 
 ## Architecture

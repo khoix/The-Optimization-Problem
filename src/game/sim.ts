@@ -1,7 +1,7 @@
 import type { Building, GameState } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { POLICY_DEFS } from './policies';
-import { notify, record, rng, tileAt } from './state';
+import { notify, policyActive, record, rng, tileAt } from './state';
 import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
 import { updatePolitics, weightedApproval } from './politics';
@@ -44,7 +44,7 @@ export function simTick(g: GameState): void {
   if (g.gameOver && !g.asi.observer) return;
   g.tick++;
   const r = rng(g.seed + g.tick * 31);
-  const has = (p: Parameters<GameState['policies']['has']>[0]) => g.policies.has(p);
+  const has = (p: Parameters<GameState['policies']['has']>[0]) => policyActive(g, p);
 
   const T = tierOf(g.population);
 
@@ -71,7 +71,7 @@ export function simTick(g: GameState): void {
   // ---------- Utility capacity & demand ----------
   let powerCap = 0, powerDem = 0, waterCap = 0, waterDem = 0;
   let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0;
-  const renewableBoost = g.policies.has('renewable_subsidy') ? 1.3 : 1;
+  const renewableBoost = has('renewable_subsidy') ? 1.3 : 1;
 
   const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
   for (const b of done) {
@@ -86,7 +86,7 @@ export function simTick(g: GameState): void {
   // Population baseline demand.
   powerDem += g.population * 0.04;
   waterDem += g.population * 0.05;
-  if (g.policies.has('water_rationing')) waterDem *= 0.85;
+  if (has('water_rationing')) waterDem *= 0.85;
 
   const powerSat = powerDem > 0 ? clamp01(powerCap / powerDem) : 1;
   const waterSat = waterDem > 0 ? clamp01(waterCap / waterDem) : 1;
@@ -104,15 +104,15 @@ export function simTick(g: GameState): void {
     upkeep += def.upkeep * upkeepWear(b);
     if (def.compute > 0) computeProduced += def.compute * utilitySat * cond;
   }
-  if (g.policies.has('manual_redundancy')) jobsTotal = Math.round(jobsTotal * 1.15);
-  if (g.policies.has('human_staffing')) jobsTotal = Math.round(jobsTotal * 1.1);
-  if (g.policies.has('reduced_workweek')) jobsTotal = Math.round(jobsTotal * 1.12);
+  if (has('manual_redundancy')) jobsTotal = Math.round(jobsTotal * 1.15);
+  if (has('human_staffing')) jobsTotal = Math.round(jobsTotal * 1.1);
+  if (has('reduced_workweek')) jobsTotal = Math.round(jobsTotal * 1.12);
 
   const labourForce = Math.floor(g.population * 0.55);
   let jobsFilled = Math.min(jobsTotal, labourForce);
   // Public employment hires from whoever remains.
   let publicHires = 0;
-  if (g.policies.has('public_employment')) {
+  if (has('public_employment')) {
     publicHires = Math.min(labourForce - jobsFilled, Math.floor(g.population * 0.06));
     jobsFilled += publicHires;
   }
@@ -126,11 +126,11 @@ export function simTick(g: GameState): void {
     g.computeBase +
     g.expectations * 0.12 +
     g.population * 0.03 * (1 + g.indicators.convenience / 150) + // consumer appetite grows with convenience
-    (g.policies.has('public_broadband') ? 6 : 0) +
-    (g.policies.has('surveillance_program') ? 8 : 0) +
-    (g.policies.has('moderation_ai') ? 6 : 0) +
-    (g.policies.has('data_localization') ? 5 : 0) +
-    (g.policies.has('public_ai_option') ? 6 : 0) +
+    (has('public_broadband') ? 6 : 0) +
+    (has('surveillance_program') ? 8 : 0) +
+    (has('moderation_ai') ? 6 : 0) +
+    (has('data_localization') ? 5 : 0) +
+    (has('public_ai_option') ? 6 : 0) +
     g.corporateInfluence * 30;
   const computeSat = computeDemand > 0 ? clamp01(computeProduced / computeDemand) : 1;
 
@@ -141,33 +141,33 @@ export function simTick(g: GameState): void {
     let inc = def.income;
     if (b.type === 'auto_factory' || b.type === 'factory') {
       // Consumer purchasing power gates industrial revenue: the automation trap.
-      const purchasing = clamp01(1 - unemployment * 1.4) * (g.policies.has('ubi') ? 1.05 : 1);
+      const purchasing = clamp01(1 - unemployment * 1.4) * (has('ubi') ? 1.05 : 1);
       inc *= 0.4 + 0.6 * purchasing;
-      if (b.type === 'auto_factory' && g.policies.has('automation_tax')) inc *= 0.8;
+      if (b.type === 'auto_factory' && has('automation_tax')) inc *= 0.8;
     }
     if (b.type === 'retail') {
-      inc *= clamp01(1 - unemployment * 1.6) * (g.policies.has('ubi') ? 1.1 : 1);
+      inc *= clamp01(1 - unemployment * 1.6) * (has('ubi') ? 1.1 : 1);
     }
     if (def.category === 'compute') {
       inc *= 0.5 + 0.5 * computeSat;
-      if (g.policies.has('corporate_incentives')) inc *= 0.7; // we gave away the margin
+      if (has('corporate_incentives')) inc *= 0.7; // we gave away the margin
     }
     income += inc * buildingCondition(b);
   }
   income += g.population * 0.06 * clamp01(1 - unemployment); // income tax
   // A tight housing market extracts rent — and the rent gets taxed.
   income += g.population * 0.02 * g.housingShortage;
-  if (g.policies.has('automation_tax')) {
+  if (has('automation_tax')) {
     income += [...g.buildings.values()].filter((b) => b.type === 'auto_factory' && b.active).length * 6;
   }
-  if (g.policies.has('corporate_incentives')) income += 10; // attracted investment
+  if (has('corporate_incentives')) income += 10; // attracted investment
 
   // Output-shaping policies trade revenue for other goods.
-  if (g.policies.has('reduced_workweek')) income *= 0.95;
-  if (g.policies.has('human_staffing')) income *= 0.96;
-  if (g.policies.has('local_procurement')) income *= 0.97;
-  if (g.policies.has('antitrust_enforcement')) income *= 0.94;
-  if (g.policies.has('carbon_tax')) income += done.filter((b) => b.type === 'coal_plant' && b.active).length * 5;
+  if (has('reduced_workweek')) income *= 0.95;
+  if (has('human_staffing')) income *= 0.96;
+  if (has('local_procurement')) income *= 0.97;
+  if (has('antitrust_enforcement')) income *= 0.94;
+  if (has('carbon_tax')) income += done.filter((b) => b.type === 'coal_plant' && b.active).length * 5;
 
   // Boycotts hit revenue; strikes hit output on top of that.
   if (g.resistanceStage >= 6) income *= 0.78;
@@ -175,22 +175,22 @@ export function simTick(g: GameState): void {
 
   let expenses = upkeep;
   for (const p of g.policies) expenses += POLICY_DEFS[p].costPerTick;
-  if (g.policies.has('ubi')) expenses += g.population * unemployment * 0.22;
-  if (g.policies.has('public_employment')) expenses += publicHires * 0.3;
-  if (g.policies.has('citizen_royalties')) expenses += g.population * 0.012;
+  if (has('ubi')) expenses += g.population * unemployment * 0.22;
+  if (has('public_employment')) expenses += publicHires * 0.3;
+  if (has('citizen_royalties')) expenses += g.population * 0.012;
 
   g.resources.capital += income - expenses;
 
   // ---------- Personal data ----------
   const dataRate =
     g.population * 0.02 * (0.5 + g.indicators.convenience / 100) *
-    (g.policies.has('data_privacy') ? 0.35 : 1) *
-    (g.policies.has('citizen_royalties') ? 0.7 : 1) *
-    (g.policies.has('childrens_privacy') ? 0.9 : 1) *
-    (g.policies.has('surveillance_program') ? 1.6 : 1) *
-    (g.policies.has('biometric_surveillance') ? 1.5 : 1);
+    (has('data_privacy') ? 0.35 : 1) *
+    (has('citizen_royalties') ? 0.7 : 1) *
+    (has('childrens_privacy') ? 0.9 : 1) *
+    (has('surveillance_program') ? 1.6 : 1) *
+    (has('biometric_surveillance') ? 1.5 : 1);
   g.resources.data += dataRate;
-  if (g.policies.has('right_to_delete')) g.resources.data *= 0.995;
+  if (has('right_to_delete')) g.resources.data *= 0.995;
 
   // ---------- Pollution field ----------
   diffusePollution(g);
@@ -229,9 +229,9 @@ export function simTick(g: GameState): void {
   // ---------- Human expertise ----------
   const automationShare = jobsTotal > 0 ? clamp01(done.filter((b) => b.type === 'auto_factory').length * 0.1 + computeSat * g.alloc.industry) : 0;
   let expertiseTarget = clamp01(0.9 - automationShare * 0.5 - g.asi.emergence / 300);
-  if (g.policies.has('manual_redundancy')) expertiseTarget += 0.15;
-  if (g.policies.has('retraining')) expertiseTarget += 0.1;
-  if (g.policies.has('human_staffing')) expertiseTarget += 0.05;
+  if (has('manual_redundancy')) expertiseTarget += 0.15;
+  if (has('retraining')) expertiseTarget += 0.1;
+  if (has('human_staffing')) expertiseTarget += 0.05;
   expertiseTarget += done.filter((b) => b.type === 'community_dc' && b.active).length * 0.03;
   g.humanExpertise = clamp01(approach(g.humanExpertise, clamp01(expertiseTarget), 0.008));
 
@@ -243,20 +243,28 @@ export function simTick(g: GameState): void {
   const govDCs = done.filter((b) => b.type === 'gov_dc' && b.active).length;
   const communityDCs = done.filter((b) => b.type === 'community_dc' && b.active).length;
 
+  // The expectations ratchet: citizens quickly normalize whatever service
+  // level they get, and only very slowly forgive its loss. Yesterday's luxury
+  // is today's baseline and tomorrow's grievance.
+  if (!g.asi.observer) {
+    if (ind.convenience > g.expectations) {
+      g.expectations = Math.min(100, g.expectations + (ind.convenience - g.expectations) * 0.05 * T.exp);
+    } else {
+      g.expectations = Math.max(25, g.expectations - 0.05);
+    }
+  }
+  const expectationGap = Math.max(0, g.expectations - ind.convenience);
+
+  // In observer mode the social indicators belong to the system: its
+  // optimization drift (in updateAsi) is the only author, and the ordinary
+  // civic formulas below no longer apply. The society is not responding to
+  // conditions anymore. It is being conditioned.
+  if (!g.asi.observer) {
+
   // Convenience: consumer compute + broadband; hurt by outages and rationing.
   ind.convenience = clamp(approach(ind.convenience,
     30 + a.consumer * cs * 90 + (has('public_broadband') ? 8 : 0) + (has('free_transit') ? 6 : 0)
       - (has('water_rationing') ? 6 : 0) + utilitySat * 10, 2.2));
-
-  // The expectations ratchet: citizens quickly normalize whatever service
-  // level they get, and only very slowly forgive its loss. Yesterday's luxury
-  // is today's baseline and tomorrow's grievance.
-  if (ind.convenience > g.expectations) {
-    g.expectations = Math.min(100, g.expectations + (ind.convenience - g.expectations) * 0.05 * T.exp);
-  } else {
-    g.expectations = Math.max(25, g.expectations - 0.05);
-  }
-  const expectationGap = Math.max(0, g.expectations - ind.convenience);
 
   // Health: hospitals + dedicated medical compute − pollution − psych toll of heavy consumer tech.
   const hospitals = done.filter((b) => b.type === 'hospital' && b.active).length;
@@ -304,14 +312,16 @@ export function simTick(g: GameState): void {
   const grievance =
     Math.max(0, 55 - ind.trust) / 100 +
     Math.max(0, 50 - ind.agency) / 120 +
-    unemployment * (g.policies.has('ubi') ? 0.3 : 0.8) +
+    unemployment * (has('ubi') ? 0.3 : 0.8) +
     Math.max(0, g.pollutionAvg - 0.15) * 1.2 +
     Math.max(0, 1 - utilitySat) * 0.8 +
     g.housingShortage * 0.35 +
     expectationGap / 140 +
     Math.max(0, 45 - weightedApproval(g)) / 160; // angry coalitions organize
-  const pacification = a.consumer * cs * 0.5 + (g.policies.has('surveillance_program') ? 0.1 : 0);
+  const pacification = a.consumer * cs * 0.5 + (has('surveillance_program') ? 0.1 : 0);
   g.unrest = clamp01(approach(g.unrest, clamp01(grievance - pacification), 0.04));
+
+  } // end !observer indicator block
 
   g.jobsTotal = jobsTotal;
   g.jobsFilled = jobsFilled;

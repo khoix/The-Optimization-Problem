@@ -51,7 +51,11 @@ export function deserialize(env: SaveEnvelope): GameState {
   } as unknown as GameState;
   const pendingId = s.pendingEvent as unknown as string | null;
   if (pendingId) g.pendingEvent = EVENTS.find((e) => e.id === pendingId) ?? null;
-  // Saves from before the political simulation get sensible defaults.
+  // Saves from before newer systems get sensible defaults.
+  g.asi.shadowPolicies ??= [];
+  g.asi.diluted ??= [];
+  g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };
+  g.asi.thresholds ??= [42, 55, 66, 76, 86, 95];
   g.groups ??= defaultGroups();
   g.corps ??= defaultCorps();
   g.resistanceStage ??= 0;

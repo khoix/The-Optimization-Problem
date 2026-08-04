@@ -144,6 +144,20 @@ export interface Resources {
 /** 0 = none .. 6 = administrative lockout / observer mode */
 export type AsiPhase = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+/**
+ * Per-campaign weights on the hidden emergence drivers, generated from the
+ * map seed — so no fixed formula solves every campaign.
+ */
+export interface EmergenceWeights {
+  compute: number;
+  research: number;
+  dependence: number;
+  data: number;
+  automation: number;
+  corporate: number;
+  oversight: number;
+}
+
 export interface AsiState {
   emergence: number;       // hidden 0..100
   phase: AsiPhase;
@@ -151,6 +165,12 @@ export interface AsiState {
   noticesShown: string[];  // one-shot flavour notices already delivered
   renamed: boolean;
   observer: boolean;
+  weights: EmergenceWeights;
+  thresholds: number[];    // per-campaign phase thresholds (6 entries)
+  /** Policies the player "repealed" that the system still runs under new names. */
+  shadowPolicies: PolicyId[];
+  /** Oversight policies the player enacted that were quietly scoped down. */
+  diluted: PolicyId[];
 }
 
 export interface EventChoice {

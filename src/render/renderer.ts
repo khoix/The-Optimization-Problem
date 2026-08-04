@@ -138,7 +138,7 @@ export class Renderer {
     }
     this.rain += (this.rainTarget - this.rain) * dt * 0.4;
     if (this.rain < 0.01) this.rain = 0;
-    this.life.update(g, dt * simSpeedMul, this.rain);
+    this.life.update(g, dt * simSpeedMul, this.rain, this.nightFactor());
   }
 
   render(g: GameState, ui: UiRenderState): void {
@@ -405,7 +405,12 @@ export class Renderer {
     // Early: warm & saturated. Mid: neutral. Late: cool, clinical. Observer: pristine.
     const e = g.asi.emergence / 100;
     const pol = Math.min(1, g.pollutionAvg * 4);
-    if (g.asi.observer) return 'saturate(0.92) brightness(1.04) hue-rotate(-6deg)';
+    if (g.asi.observer) {
+      // Perfection accumulates: the longer the system runs, the cleaner,
+      // brighter, and less alive the light becomes.
+      const t = Math.min(1, Math.max(0, g.tick - g.asi.phaseTick) / 120);
+      return `saturate(${(0.92 - t * 0.14).toFixed(2)}) brightness(${(1.04 + t * 0.05).toFixed(2)}) hue-rotate(${(-6 - t * 6).toFixed(1)}deg)`;
+    }
     const sat = 1.12 - e * 0.25 - pol * 0.15;
     const hue = -e * 10; // drift toward blue
     const bright = 1 + 0.02 - pol * 0.05;

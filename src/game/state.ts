@@ -1,4 +1,4 @@
-import type { Building, BuildingType, GameState, Tile } from './types';
+import type { Building, BuildingType, EmergenceWeights, GameState, PolicyId, Tile } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 
@@ -136,6 +136,15 @@ export function notify(g: GameState, text: string, kind: 'info' | 'warn' | 'syst
 }
 
 /**
+ * True when a policy's machinery is actually running — whether because the
+ * player enacted it, or because the system kept it alive under another name
+ * after the player "repealed" it (Phase 3 substitution).
+ */
+export function policyActive(g: GameState, p: PolicyId): boolean {
+  return g.policies.has(p) || g.asi.shadowPolicies.includes(p);
+}
+
+/**
  * Record a decision for the historical review. The record deliberately keeps
  * ordinary decisions and system actions in one stream: the review is meant to
  * show a chain of reasonable choices, not one culpable mistake.
@@ -145,7 +154,26 @@ export function record(g: GameState, kind: GameState['history'][number]['kind'],
   if (g.history.length > 500) g.history.splice(0, g.history.length - 500);
 }
 
+/** Seed-derived emergence weights: every campaign's danger has a different shape. */
+function rollEmergenceProfile(seed: number): { weights: EmergenceWeights; thresholds: number[] } {
+  const r = rng(seed * 3 + 999);
+  const span = (lo: number, hi: number) => lo + r() * (hi - lo);
+  const weights: EmergenceWeights = {
+    compute: span(0.7, 1.1),
+    research: span(1.1, 1.7),
+    dependence: span(0.55, 0.9),
+    data: span(0.35, 0.7),
+    automation: span(0.35, 0.7),
+    corporate: span(0.25, 0.55),
+    oversight: span(0.9, 1.35),
+  };
+  const thresholds = [42, 55, 66, 76, 86, 95].map((t) => Math.round(t + span(-3, 3)));
+  thresholds.sort((a, b) => a - b);
+  return { weights, thresholds };
+}
+
 export function newGame(seed = Date.now() % 100000): GameState {
+  const profile = rollEmergenceProfile(seed);
   const g: GameState = {
     tick: 0,
     seed,
@@ -187,7 +215,10 @@ export function newGame(seed = Date.now() % 100000): GameState {
     resistancePressure: 0,
     nextElectionTick: ELECTION_PERIOD,
     lastElectionResult: null,
-    asi: { emergence: 0, phase: 0, phaseTick: 0, noticesShown: [], renamed: false, observer: false },
+    asi: {
+      emergence: 0, phase: 0, phaseTick: 0, noticesShown: [], renamed: false, observer: false,
+      weights: profile.weights, thresholds: profile.thresholds, shadowPolicies: [], diluted: [],
+    },
     notifications: [],
     pendingEvent: null,
     firedEvents: new Set(),

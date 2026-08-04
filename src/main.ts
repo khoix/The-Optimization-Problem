@@ -32,7 +32,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 // Debug/testing handles (also lets the curious peek behind the curtain).
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
-(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding };
+(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick };
 
 // ---------------------------------------------------------------- input
 let dragging = false;
