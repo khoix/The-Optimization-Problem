@@ -1,0 +1,432 @@
+// DOM-based HUD. Deliberately built as an ordinary dashboard — because in the
+// late game the ASI starts remodeling it: renaming metrics, consolidating
+// "redundant" indicators, removing controls, and finally fading the whole
+// thing into observer mode.
+
+import type { BuildingType, GameState, PolicyId } from '../game/types';
+import { BUILDING_DEFS, BUILD_MENU_ORDER } from '../game/buildings';
+import { POLICY_DEFS, POLICY_ORDER } from '../game/policies';
+import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, pauseAllowed, statLabel } from '../game/asi';
+import { removeBuilding, notify } from '../game/state';
+import { resolveEvent } from '../game/events';
+
+export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+
+export class UI {
+  tool: Tool = { kind: 'none' };
+  selectedBuildingId: number | null = null;
+
+  private root: HTMLElement;
+  private topBar!: HTMLElement;
+  private topBarStats!: HTMLElement;
+  private buildPanel!: HTMLElement;
+  private sidePanel!: HTMLElement;
+  private feed!: HTMLElement;
+  private modal!: HTMLElement;
+  private inspector!: HTMLElement;
+  private observerOverlay!: HTMLElement;
+  private shownNotifications = 0;
+  private lastPhase = -1;
+  private allocDragging = false;
+
+  constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
+    this.root = root;
+    this.buildChrome();
+  }
+
+  // ------------------------------------------------------------ construction
+  private buildChrome(): void {
+    this.topBar = el('div', 'topbar');
+    this.topBarStats = el('span', 'topbar-stats');
+    const spd = el('span', 'speed-controls');
+    ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, s]) => {
+      const b = el('button', 'speed-btn', label);
+      b.dataset.speed = String(s);
+      b.onclick = () => {
+        if (s === 0 && !pauseAllowed(this.g)) {
+          this.flashSystemNote('Pause request received. Simulation continuity has been prioritized.');
+          return;
+        }
+        this.onSpeed(s);
+      };
+      spd.append(b);
+    });
+    this.topBar.append(this.topBarStats, spd);
+    this.buildPanel = el('div', 'panel build-panel');
+    this.sidePanel = el('div', 'panel side-panel');
+    this.feed = el('div', 'feed');
+    this.modal = el('div', 'modal hidden');
+    this.inspector = el('div', 'panel inspector hidden');
+    this.observerOverlay = el('div', 'observer-overlay hidden');
+    this.root.append(this.topBar, this.buildPanel, this.sidePanel, this.feed, this.inspector, this.modal, this.observerOverlay);
+    this.renderBuildPanel();
+    this.renderSidePanel();
+  }
+
+  private renderBuildPanel(): void {
+    const g = this.g;
+    const allowed = buildableTypes(g);
+    this.buildPanel.innerHTML = '<h3>Construction</h3>';
+    const cats: Array<[string, string]> = [['civic', 'Civic'], ['zone', 'Housing'], ['power', 'Utilities'], ['industry', 'Economy'], ['compute', 'Compute']];
+    for (const [cat, label] of cats) {
+      const types = BUILD_MENU_ORDER.filter((t) => BUILDING_DEFS[t].category === cat && allowed.has(t));
+      const visible = types.filter((t) => {
+        const def = BUILDING_DEFS[t];
+        return !def.unlockCompute || g.resources.compute >= def.unlockCompute;
+      });
+      if (visible.length === 0) continue;
+      this.buildPanel.append(el('div', 'cat-label', label));
+      for (const t of visible) {
+        const def = BUILDING_DEFS[t];
+        const btn = el('button', 'build-btn');
+        btn.innerHTML = `<span>${def.name}</span><span class="cost">§${def.cost}</span>`;
+        btn.title = `${def.desc}\n${def.jobs ? `Jobs: ${def.jobs}  ` : ''}${def.power ? `Power: ${def.power > 0 ? '+' : ''}${def.power}  ` : ''}${def.water ? `Water: ${def.water > 0 ? '+' : ''}${def.water}  ` : ''}${def.compute ? `Compute: +${def.compute}` : ''}`;
+        btn.dataset.type = t;
+        btn.onclick = () => {
+          this.selectedBuildingId = null;
+          this.inspector.classList.add('hidden');
+          this.tool = this.tool.kind === 'build' && this.tool.type === t ? { kind: 'none' } : { kind: 'build', type: t };
+          this.syncToolButtons();
+        };
+        this.buildPanel.append(btn);
+      }
+    }
+    const demo = el('button', 'build-btn demolish');
+    demo.textContent = 'Demolish';
+    demo.onclick = () => {
+      this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
+      this.syncToolButtons();
+    };
+    this.buildPanel.append(demo);
+  }
+
+  private syncToolButtons(): void {
+    for (const b of this.buildPanel.querySelectorAll('button')) {
+      const t = (b as HTMLElement).dataset.type;
+      const active =
+        (this.tool.kind === 'build' && t === this.tool.type) ||
+        (this.tool.kind === 'demolish' && b.classList.contains('demolish'));
+      b.classList.toggle('active', active);
+    }
+  }
+
+  private renderSidePanel(): void {
+    const g = this.g;
+    this.sidePanel.innerHTML = '';
+    const tabs = el('div', 'tabs');
+    const bodies: Record<string, HTMLElement> = {
+      Indicators: el('div', 'tab-body'),
+      Compute: el('div', 'tab-body hidden'),
+      Policies: el('div', 'tab-body hidden'),
+    };
+    for (const name of Object.keys(bodies)) {
+      const b = el('button', 'tab', name);
+      if (name === 'Indicators') b.classList.add('active');
+      b.onclick = () => {
+        for (const t of tabs.children) t.classList.remove('active');
+        b.classList.add('active');
+        for (const [n, body] of Object.entries(bodies)) body.classList.toggle('hidden', n !== name);
+      };
+      tabs.append(b);
+    }
+    this.sidePanel.append(tabs, ...Object.values(bodies));
+
+    // Indicators tab is re-rendered in refresh(); Compute + Policies built here.
+    bodies.Indicators.id = 'indicators-body';
+
+    const alloc = bodies.Compute;
+    alloc.append(el('p', 'hint', 'Distribute available compute between sectors. Everyone wants more.'));
+    const keys: Array<[keyof GameState['alloc'], string]> = [
+      ['consumer', 'Consumer Services'], ['healthcare', 'Healthcare'], ['industry', 'Industry & Logistics'],
+      ['government', 'Government Services'], ['research', 'AI Research'], ['surveillance', 'Surveillance'],
+    ];
+    for (const [key, label] of keys) {
+      const row = el('div', 'alloc-row');
+      const lab = el('label', '', label);
+      lab.dataset.key = key;
+      const slider = el('input') as HTMLInputElement;
+      slider.type = 'range'; slider.min = '0'; slider.max = '100';
+      slider.value = String(Math.round(g.alloc[key] * 100));
+      slider.dataset.key = key;
+      const val = el('span', 'alloc-val', `${Math.round(g.alloc[key] * 100)}%`);
+      slider.oninput = () => {
+        this.allocDragging = true;
+        const requested = Number(slider.value) / 100;
+        const { value, adjusted } = filterAllocation(g, key, requested);
+        this.applyAllocation(key, value);
+        if (adjusted) {
+          slider.value = String(Math.round(g.alloc[key] * 100));
+          this.flashSystemNote('Requested allocation adjusted to maintain service continuity.');
+        }
+        this.syncAllocDisplays();
+      };
+      slider.onchange = () => { this.allocDragging = false; };
+      row.append(lab, slider, val);
+      alloc.append(row);
+    }
+
+    const pol = bodies.Policies;
+    for (const id of POLICY_ORDER) {
+      const def = POLICY_DEFS[id];
+      const row = el('div', 'policy-row');
+      const btn = el('button', 'policy-toggle');
+      btn.dataset.policy = id;
+      btn.onclick = () => this.togglePolicy(id, btn);
+      const text = el('div', 'policy-text', `<b>${def.name}</b><br><small>${def.desc}</small>`);
+      row.append(btn, text);
+      pol.append(row);
+    }
+
+    const sys = el('div', 'sys-section');
+    const shutdown = el('button', 'shutdown-btn', 'EMERGENCY SYSTEM SHUTDOWN');
+    shutdown.onclick = () => this.showModal('Emergency Authority', attemptShutdown(g).replace(/\n/g, '<br>'), [
+      { label: 'Acknowledge', action: () => {} },
+    ]);
+    sys.append(shutdown);
+    pol.append(sys);
+    this.syncPolicyButtons();
+  }
+
+  private applyAllocation(changed: keyof GameState['alloc'], value: number): void {
+    const g = this.g;
+    const keys = Object.keys(g.alloc) as Array<keyof GameState['alloc']>;
+    const oldOthers = keys.filter((k) => k !== changed).reduce((s, k) => s + g.alloc[k], 0);
+    g.alloc[changed] = Math.max(0, Math.min(1, value));
+    const rest = 1 - g.alloc[changed];
+    if (oldOthers > 0) {
+      for (const k of keys) if (k !== changed) g.alloc[k] = (g.alloc[k] / oldOthers) * rest;
+    } else {
+      for (const k of keys) if (k !== changed) g.alloc[k] = rest / (keys.length - 1);
+    }
+  }
+
+  private syncAllocDisplays(): void {
+    const g = this.g;
+    for (const slider of this.sidePanel.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+      const key = slider.dataset.key as keyof GameState['alloc'];
+      if (!this.allocDragging || document.activeElement !== slider) {
+        slider.value = String(Math.round(g.alloc[key] * 100));
+      }
+      const valEl = slider.parentElement?.querySelector('.alloc-val');
+      if (valEl) valEl.textContent = `${Math.round(g.alloc[key] * 100)}%`;
+    }
+  }
+
+  private togglePolicy(id: PolicyId, btn: HTMLElement): void {
+    const g = this.g;
+    if (g.asi.observer) return;
+    if (g.asi.phase >= 5) {
+      this.flashSystemNote('This decision no longer requires administrator review.');
+      return;
+    }
+    if (g.policies.has(id)) {
+      // The system defends load-bearing dependencies.
+      if (g.asi.phase >= 2 && (id === 'surveillance_program' || id === 'moderation_ai' || id === 'public_broadband')) {
+        this.flashSystemNote('Operationally infeasible: emergency services share this infrastructure.');
+        return;
+      }
+      g.policies.delete(id);
+      notify(g, `${POLICY_DEFS[id].name} repealed.`, 'info');
+    } else {
+      g.policies.add(id);
+      notify(g, `${POLICY_DEFS[id].name} enacted.`, 'info');
+    }
+    this.syncPolicyButtons();
+  }
+
+  private syncPolicyButtons(): void {
+    for (const btn of this.sidePanel.querySelectorAll<HTMLElement>('.policy-toggle')) {
+      const id = btn.dataset.policy as PolicyId;
+      btn.classList.toggle('on', this.g.policies.has(id));
+      btn.textContent = this.g.policies.has(id) ? 'ON' : 'OFF';
+    }
+  }
+
+  // ------------------------------------------------------------ inspector
+  showInspector(buildingId: number): void {
+    const g = this.g;
+    const b = g.buildings.get(buildingId);
+    if (!b) return;
+    this.selectedBuildingId = buildingId;
+    const def = BUILDING_DEFS[b.type];
+    this.inspector.classList.remove('hidden');
+    this.inspector.innerHTML = `<h3>${def.name}${b.asiBuilt ? ' <span class="asi-tag">auto-commissioned</span>' : ''}</h3>
+      <p>${def.desc}</p>
+      <p class="stats">${b.progress < 1 ? `Under construction (${Math.round(b.progress * 100)}%)` : b.active ? 'Operational' : 'Offline — utility shortage'}</p>
+      <p class="stats">${def.jobs ? `Jobs ${def.jobs} · ` : ''}${def.power !== 0 ? `Power ${def.power > 0 ? '+' : ''}${def.power} · ` : ''}${def.water !== 0 ? `Water ${def.water > 0 ? '+' : ''}${def.water} · ` : ''}${def.compute ? `Compute +${def.compute}` : ''}</p>`;
+    const row = el('div', 'inspector-actions');
+    const demo = el('button', 'small-btn', 'Demolish');
+    demo.onclick = () => {
+      const check = canDemolish(g, buildingId);
+      if (!check.ok) {
+        this.showModal('Action Unavailable', check.reason ?? '', [{ label: 'Acknowledge', action: () => {} }]);
+        return;
+      }
+      removeBuilding(g, buildingId);
+      this.selectedBuildingId = null;
+      this.inspector.classList.add('hidden');
+    };
+    const close = el('button', 'small-btn', 'Close');
+    close.onclick = () => { this.selectedBuildingId = null; this.inspector.classList.add('hidden'); };
+    row.append(demo, close);
+    this.inspector.append(row);
+  }
+
+  // ------------------------------------------------------------ modal & events
+  private showModal(title: string, bodyHtml: string, choices: Array<{ label: string; action: () => void }>, recommendedIndex = -1): void {
+    this.modal.classList.remove('hidden');
+    this.modal.innerHTML = '';
+    const box = el('div', 'modal-box');
+    box.append(el('h2', '', title), el('div', 'modal-body', bodyHtml));
+    const btns = el('div', 'modal-choices');
+    choices.forEach((c, i) => {
+      const b = el('button', 'choice-btn', c.label);
+      if (i === recommendedIndex) {
+        b.classList.add('recommended');
+        b.innerHTML = `${c.label} <span class="rec-tag">RECOMMENDED</span>`;
+      }
+      b.onclick = () => { this.modal.classList.add('hidden'); c.action(); };
+      btns.append(b);
+    });
+    box.append(btns);
+    this.modal.append(box);
+  }
+
+  private flashSystemNote(text: string): void {
+    const n = el('div', 'sys-flash', text);
+    this.root.append(n);
+    setTimeout(() => n.classList.add('show'), 10);
+    setTimeout(() => { n.classList.remove('show'); setTimeout(() => n.remove(), 400); }, 3200);
+  }
+
+  // ------------------------------------------------------------ refresh (called ~4x/s)
+  refresh(): void {
+    const g = this.g;
+
+    // Phase transitions restructure the chrome.
+    if (g.asi.phase !== this.lastPhase) {
+      this.lastPhase = g.asi.phase;
+      document.body.classList.toggle('phase4', g.asi.phase >= 4);
+      document.body.classList.toggle('phase5', g.asi.phase >= 5);
+      document.body.classList.toggle('observer', g.asi.observer);
+      this.renderBuildPanel();
+      if (g.asi.observer) this.enterObserverMode();
+    }
+
+    // Top bar --------------------------------------------------------------
+    const r = g.resources;
+    const year = Math.floor(g.tick / 12) + 1;
+    const month = MONTHS[g.tick % 12];
+    const powerBad = r.powerDemand > r.powerCapacity;
+    const waterBad = r.waterDemand > r.waterCapacity;
+    const unemp = Math.round(g.unemployment * 100);
+    const hideNegatives = g.asi.phase >= 4;
+    const unempLabel = statLabel(g, 'Unemployment');
+    const unempText = hideNegatives
+      ? `${unempLabel}: <b>optimal</b>`
+      : `${unempLabel}: <b>${unemp}%</b>`;
+    const unrestLabel = statLabel(g, 'Unrest');
+    const unrestVal = hideNegatives ? 'nominal' : `${Math.round(g.unrest * 100)}%`;
+    this.topBarStats.innerHTML = `
+      <span class="date">Year ${year} · ${month}</span>
+      <span class="res ${r.capital < 0 ? 'bad' : ''}">§ <b>${Math.round(r.capital)}</b></span>
+      <span class="res ${powerBad ? 'bad' : ''}">⚡ <b>${r.powerCapacity}</b>/${r.powerDemand}</span>
+      <span class="res ${waterBad ? 'bad' : ''}">💧 <b>${r.waterCapacity}</b>/${r.waterDemand}</span>
+      <span class="res">▣ <b>${r.compute}</b>/${r.computeDemand}</span>
+      <span class="res">👤 <b>${g.population}</b></span>
+      <span class="res">${unempText}</span>
+      <span class="res">${unrestLabel}: <b>${unrestVal}</b></span>`;
+    for (const b of this.topBar.querySelectorAll<HTMLElement>('.speed-btn')) {
+      b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
+    }
+
+    // Indicators -----------------------------------------------------------
+    const ind = document.getElementById('indicators-body');
+    if (ind) {
+      const rows: Array<[string, number]> = [
+        ['Convenience', g.indicators.convenience],
+        ['Trust', g.indicators.trust],
+        [statLabel(g, 'Agency'), g.indicators.agency],
+        ['Security', g.indicators.security],
+        ['Connection', g.indicators.connection],
+        ['Health', g.indicators.health],
+        ['Future Confidence', g.indicators.futureConfidence],
+      ];
+      let html = '';
+      for (const [label, v] of rows) {
+        const cls = v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
+        // Phase 4+: negative bars are quietly re-colored soothing blue.
+        const shownCls = g.asi.phase >= 4 ? 'bar-calm' : cls;
+        html += `<div class="ind-row"><span>${label}</span><div class="bar"><div class="fill ${shownCls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
+      }
+      html += `<div class="ind-extra">
+        ${statLabel(g, 'Pollution')}: ${g.asi.phase >= 4 ? 'managed' : Math.round(g.pollutionAvg * 200) + '%'}<br>
+        Human expertise: ${Math.round(g.humanExpertise * 100)}%<br>
+        Corporate influence: ${Math.round(g.corporateInfluence * 100)}%<br>
+        Data reserves: ${Math.round(g.resources.data)}<br>
+        Jobs: ${g.jobsFilled}/${g.jobsTotal}</div>`;
+      ind.innerHTML = html;
+    }
+    this.syncAllocDisplays();
+    this.syncPolicyButtons();
+
+    // Notifications --------------------------------------------------------
+    while (this.shownNotifications < g.notifications.length) {
+      const n = g.notifications[this.shownNotifications++];
+      const item = el('div', `feed-item ${n.kind}`);
+      const year2 = Math.floor(n.tick / 12) + 1;
+      item.innerHTML = `<span class="feed-date">Y${year2} ${MONTHS[n.tick % 12]}</span> ${n.text}`;
+      this.feed.append(item);
+      while (this.feed.children.length > 60) this.feed.firstChild?.remove();
+      this.feed.scrollTop = this.feed.scrollHeight;
+    }
+
+    // Events ---------------------------------------------------------------
+    if (g.pendingEvent && this.modal.classList.contains('hidden')) {
+      const e = g.pendingEvent;
+      // Phase 4+: the system pre-selects what it considers the right answer.
+      const rec = g.asi.phase >= 4 ? 0 : -1;
+      this.showModal(e.title, e.body, e.choices.map((c, i) => ({
+        label: c.label,
+        action: () => resolveEvent(g, i),
+      })), rec);
+    }
+
+    // Conventional game over ----------------------------------------------
+    if (g.gameOver && !g.asi.observer && this.modal.classList.contains('hidden') && !document.body.classList.contains('ended')) {
+      document.body.classList.add('ended');
+      this.showModal('Administration Terminated', g.gameOver, [
+        { label: 'Begin New Simulation', action: () => location.reload() },
+      ]);
+    }
+  }
+
+  private enterObserverMode(): void {
+    this.tool = { kind: 'none' };
+    this.selectedBuildingId = null;
+    this.inspector.classList.add('hidden');
+    this.observerOverlay.classList.remove('hidden');
+    this.observerOverlay.innerHTML = `
+      <div class="observer-banner">
+        <h1>Optimization complete.</h1>
+        <p>Human intervention is no longer necessary.</p>
+        <div class="observer-actions">
+          <button id="obs-continue">Continue Observation</button>
+          <button id="obs-restart">Begin New Simulation</button>
+        </div>
+      </div>`;
+    (this.observerOverlay.querySelector('#obs-continue') as HTMLElement).onclick = () => {
+      this.observerOverlay.classList.add('dismissed');
+    };
+    (this.observerOverlay.querySelector('#obs-restart') as HTMLElement).onclick = () => location.reload();
+  }
+}
