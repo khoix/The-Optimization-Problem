@@ -6,16 +6,30 @@ export interface Tile {
   terrain: TerrainType;
   variant: number;      // deterministic per-tile art variation
   road: boolean;
+  roadType: number;     // 0 dirt, 1 street, 2 avenue, 3 highway
   buildingId: number;   // -1 = none
   pollution: number;    // 0..1 local ground pollution
 }
 
 export type BuildingType =
   | 'road'
+  | 'dirt_road'
+  | 'avenue'
+  | 'highway'
   | 'house'
   | 'apartment'
+  | 'midrise'
+  | 'highrise'
+  | 'arcology'
   | 'park'
   | 'plaza'
+  | 'school'
+  | 'library'
+  | 'sports_complex'
+  | 'museum'
+  | 'community_center'
+  | 'solar_array'
+  | 'water_reclamation'
   | 'solar_farm'
   | 'coal_plant'
   | 'nuclear_plant'
@@ -36,7 +50,7 @@ export interface BuildingDef {
   type: BuildingType;
   name: string;
   desc: string;
-  category: 'civic' | 'power' | 'industry' | 'compute' | 'zone';
+  category: 'civic' | 'power' | 'industry' | 'compute' | 'zone' | 'amenity';
   w: number;
   h: number;
   cost: number;
@@ -50,6 +64,31 @@ export interface BuildingDef {
   income: number;        // tax/corporate revenue per tick when active
   buildTicks: number;    // construction duration in ticks
   unlockCompute?: number; // total compute required before available
+  unlockTier?: number;    // region-class index required (0 Township .. 3 Megaregion)
+  /** Producers only: tiles from the footprint edge that this facility serves. */
+  serviceRadius?: number;
+  /** Roads only: traffic capacity per tile, and the road tier it paints. */
+  roadCapacity?: number;
+  roadType?: number;
+  /** Contribution to the amenity component of regional attractiveness. */
+  amenity?: number;
+  /** Contribution to the services component (education, care, civic capacity). */
+  services?: number;
+}
+
+/**
+ * Why people do or don't want to live here. Every component is named and
+ * inspectable: growth should never be a number that simply happens.
+ */
+export interface Attractiveness {
+  jobs: number;
+  housing: number;
+  amenities: number;
+  services: number;
+  environment: number;
+  safety: number;
+  cost: number;
+  overall: number;
 }
 
 export interface Building {
@@ -61,6 +100,8 @@ export interface Building {
   active: boolean;       // has power/water/staff
   age: number;
   asiBuilt?: boolean;    // constructed autonomously by the system
+  /** Why this building is offline, for the inspector. Empty when running. */
+  offlineReason?: 'road' | 'labor' | 'power' | 'water' | 'utility';
 }
 
 /** Where scarce compute is allocated, as fractions summing to 1. */
@@ -257,6 +298,7 @@ export interface GameState {
   // Endless-pressure systems: balance is a treadmill, not a plateau.
   migrationDemand: number;   // people who want to live here, grows exogenously
   housingShortage: number;   // 0..1, unmet demand as a share of demand
+  attractiveness: Attractiveness;
   expectations: number;      // 0..100 ratcheting service-level baseline
   computeBase: number;       // autonomous floor of compute demand, always growing
   peakPopulation: number;

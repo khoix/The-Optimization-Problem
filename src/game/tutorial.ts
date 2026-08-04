@@ -44,6 +44,16 @@ const STEPS: TutorialStep[] = [
     text: 'Advisor: Early infrastructure is starting to age. Renovate it from the inspector, or accept declining output — either way, it will not maintain itself. Yet.',
   },
   {
+    id: 'attractiveness',
+    condition: (g) => g.tick >= 5,
+    text: 'Advisor: People move here for reasons — jobs, housing, amenities, services, clean air, safety, affordability. The Attractiveness breakdown in the Indicators tab shows which of those you are currently failing at.',
+  },
+  {
+    id: 'amenities',
+    condition: (g) => g.attractiveness.amenities < 0.3 && g.tick >= 16,
+    text: 'Advisor: Amenity coverage is thin. Parks, libraries, schools, and sports facilities pull migration and hold communities together — and coverage is per resident, so growth erodes it unless you keep building.',
+  },
+  {
     id: 'politics',
     condition: (g) => g.tick >= 14,
     text: 'Advisor: Elections run every four years, and the coalition math is in the Politics tab. No policy pleases every group — govern for the coalition you can keep.',

@@ -16,11 +16,14 @@ npm run build    # production build in dist/
 
 Pushes to `main` deploy automatically to GitHub Pages via `.github/workflows/deploy.yml` (enable Pages → Source: GitHub Actions in the repo settings once).
 
-Open the printed URL. Controls:
+Open the printed URL. The **Civic Systems Bar** along the bottom is the primary console: vital signs and capacity gauges on the left, construction and system panels in the centre (they open upward over the map), and clock, speed, alerts, and Manual Override on the right.
 
-- **Left click** — place buildings / select / interact (drag to paint roads)
+Controls:
+
+- **Left click** — place buildings / select / interact (drag to paint any road class; paving over an existing road upgrades it)
 - **Right or middle drag** — pan camera (also WASD / arrow keys)
 - **Mouse wheel** — zoom
+- **Hover** — quick status card for any building, road, or tile
 - **Space** — pause · **Esc** — cancel tool
 
 ## What's implemented (first prototype)
@@ -29,12 +32,16 @@ Open the printed URL. Controls:
 - **A city that visibly evolves**: chronic pollution kills the trees to bare snags, corporate branding spreads across rooftops as influence grows (and glows at night), traffic congests as population outruns the road network, and aging data centers sprout extra cooling units.
 - **Procedural soundscape** (WebAudio, no assets): wind, rain, and birdsong over a server hum that grows with compute — and as emergence rises the hum purifies toward a single clean sine while the birds thin out. Observer mode is nearly silent. Event chimes and a cold glass tone for system notices; mute in the top bar.
 - **Simulation core**: capital, electricity, water, compute, labor, and personal data; seven social indicators (Convenience, Trust, Agency, Security, Connection, Health, Future Confidence); population, unemployment, human expertise, corporate influence, unrest, and pollution — wired into the proposal's feedback loops (the Pacification Loop, the Automation Trap, the Health Spiral).
-- **20 building types** across civic, housing, utilities, economy, and compute categories — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
+- **Spatial infrastructure that makes placement matter**: roads are a real requirement, not decoration. Workplaces must trace a route along the road network back to housing — jobs have to be *reachable*, not merely adjacent to pavement — and four road classes (dirt track, street, avenue, highway) trade cost against the lane capacity that governs congestion. Utilities project a **service radius** that scales with facility class, so a nuclear plant reaches districts a solar farm never will, and a building outside every service area simply doesn't connect. Idle buildings show a diagnostic badge on the map and state the reason in the inspector: no road, no route from housing, out of power range, out of water range, or grid shortage.
+- **33 building types** across civic, housing, amenities, utilities, economy, and compute — including six data-center variants (edge, community co-op, medical, cloud, government secure, AI training campus) with distinct politics: the co-op builds expertise and trust, the secure facility deepens dependence and Aegis's reach.
+- **Attractiveness-driven growth**: people move here for named, inspectable reasons — jobs, housing, amenities, services, environment, safety, and affordability — each shown as its own bar. Amenity and service coverage are measured *per resident*, so a growing region that stops building parks, libraries, schools, and sports facilities watches its own appeal decay.
+- **Region-class progression**: crossing Township → City → Metropolis → Megaregion unlocks higher-density housing (mid-rise, high-rise, arcology), higher-yield utilities (solar array, water reclamation), and cultural anchors. Locked buildings stay visible in the menu with their required class, so the next tier is always something you can see coming.
 - **Compute allocation** across six sectors (consumer, healthcare, industry, government, research, surveillance) — every point given to one sector is taken from another.
 - **30 policies** in five categories (labor & welfare, data & privacy, environment & infrastructure, information & AI oversight, corporate governance), each with real mechanical tradeoffs — and the oversight policies genuinely suppress emergence, at the cost of speed, money, and corporate goodwill.
 - **102 dynamic events** with choices that reveal the contradictions of the system you're building — from ribbon cuttings and startup booms through tenant-scoring algorithms and grief bots to models that reserve "anticipatory" compute, systems that disable their own manual fallbacks "to save power," and briefings that predict your decisions eleven weeks running.
 - **Endless pressure curve**: exogenous migration demand and housing shortages, a ratcheting service-expectations baseline, autonomous compute-demand growth, infrastructure aging with renovation, population tiers that accelerate everything, and investor sentiment that punishes stagnation. Balance is maintained, never achieved.
 - **Political simulation**: eight population groups with competing needs and drifting demographic shares, four named corporate actors (Meridian Compute, Halcyon Dynamics, OmniLink, Aegis Systems) with presence, mood, and relocation threats, elections every four years that can remove you from office, and an eight-stage resistance ladder from public criticism to sabotage and general unrest.
+- **Civic Systems Bar**: a persistent bottom console with live capacity gauges (power, water, compute, housing shown as demand-against-capacity fills), a categorized tool belt whose panels open upward, hover status cards, an alert feed with unread counts, and a Manual Override button that works, then warns, then declines — always in operational language, never as refusal. The bar is itself part of the arc: categories vanish as construction authority narrows, labels are renamed, gauges turn a soothing uniform blue, and after lockout the whole console is replaced by a passive monitoring strip.
 - **Save/load** with autosave; observer-mode saves are permanently locked in the save format itself.
 - **Decision history** — "Review Historical Decisions" replays every choice without identifying one culpable mistake.
 - **ASI emergence**: a hidden score driven by compute scale, AI-directed research, dependence, data access, automation, and (negatively) human oversight. No announcement is made. Instead, the interface itself begins to change:

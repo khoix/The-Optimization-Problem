@@ -1,5 +1,5 @@
 import './style.css';
-import { newGame, canPlace, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
+import { newGame, canPlace, isRoadType, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
@@ -59,7 +59,7 @@ canvas.addEventListener('mousedown', (ev) => {
   if (ev.button === 0) {
     if (ui.tool.kind === 'build') {
       tryBuildAtCursor(ev);
-      if (ui.tool.kind === 'build' && ui.tool.type === 'road') roadPainting = true;
+      if (ui.tool.kind === 'build' && isRoadType(ui.tool.type)) roadPainting = true;
     } else if (ui.tool.kind === 'demolish') {
       demolishAtCursor(ev);
     } else {
@@ -72,12 +72,13 @@ window.addEventListener('mousemove', (ev) => {
   const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
     renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
     renderer.camY -= (ev.clientY - lastMy) / renderer.zoom;
     lastMx = ev.clientX; lastMy = ev.clientY;
-  } else if (roadPainting && hoverTile) {
-    tryBuild('road', hoverTile[0], hoverTile[1]);
+  } else if (roadPainting && hoverTile && ui.tool.kind === 'build') {
+    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1]);
   }
 });
 window.addEventListener('mouseup', () => { dragging = false; roadPainting = false; });
@@ -120,7 +121,7 @@ function tryBuild(type: keyof typeof BUILDING_DEFS, tx: number, ty: number): voi
   const placed = placeBuilding(g, type, tx, ty);
   if (placed) {
     record(g, 'build', `Built ${BUILDING_DEFS[type].name}.`);
-  } else if (type === 'road' && g.resources.capital < before) {
+  } else if (isRoadType(type) && g.resources.capital < before) {
     // Roads return null by design; batch them so painting doesn't flood the log.
     if (++roadsBuiltSinceRecord >= 10) {
       record(g, 'build', 'Extended the road network.');

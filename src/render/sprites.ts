@@ -157,30 +157,59 @@ export function makeTerrain(): TerrainSprites {
 // Roads (16 connectivity variants, bitmask N=1 E=2 S=4 W=8)
 // ---------------------------------------------------------------------------
 
-export function makeRoads(): HTMLCanvasElement[] {
-  const out: HTMLCanvasElement[] = [];
-  const asphalt = '#3a3a40', asphaltHi = '#44444b', curb = '#6a6a72', line = '#b8b25e';
-  for (let mask = 0; mask < 16; mask++) {
-    const [c, ctx] = canvas(TILE, TILE);
-    const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, asphalt);
-    p.dither(0, 0, TILE, TILE, asphaltHi, 0.15, 300 + mask);
-    const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
-    // curbs on unconnected edges
-    if (!n) p.r(0, 0, TILE, 1, curb);
-    if (!s) p.r(0, TILE - 1, TILE, 1, curb);
-    if (!w) p.r(0, 0, 1, TILE, curb);
-    if (!e) p.r(TILE - 1, 0, 1, TILE, curb);
-    // dashed center lines toward connected edges
-    const cx = 7, cy = 7;
-    if (n) { p.r(cx, 1, 2, 2, line); p.r(cx, 5, 2, 2, line); }
-    if (s) { p.r(cx, 9, 2, 2, line); p.r(cx, 13, 2, 2, line); }
-    if (w) { p.r(1, cy, 2, 2, line); p.r(5, cy, 2, 2, line); }
-    if (e) { p.r(9, cy, 2, 2, line); p.r(13, cy, 2, 2, line); }
-    if (!n && !e && !s && !w) { p.r(cx, cy, 2, 2, line); }
-    out.push(c);
-  }
-  return out;
+/** Road sprites: [roadType][connectivity mask]. */
+export function makeRoads(): HTMLCanvasElement[][] {
+  const CLASSES = [
+    { surface: '#7d6a4e', surfaceHi: '#8a7658', edge: '#6a5940', line: '', width: 0 }, // dirt track
+    { surface: '#3a3a40', surfaceHi: '#44444b', edge: '#6a6a72', line: '#b8b25e', width: 1 }, // street
+    { surface: '#34343a', surfaceHi: '#3e3e45', edge: '#7a7a84', line: '#c9c36a', width: 2 }, // avenue
+    { surface: '#2e2e34', surfaceHi: '#38383f', edge: '#8a8a94', line: '#d9d372', width: 3 }, // highway
+  ];
+  return CLASSES.map((cls, type) => {
+    const out: HTMLCanvasElement[] = [];
+    for (let mask = 0; mask < 16; mask++) {
+      const [c, ctx] = canvas(TILE, TILE);
+      const p = new Px(ctx);
+      p.r(0, 0, TILE, TILE, cls.surface);
+      p.dither(0, 0, TILE, TILE, cls.surfaceHi, type === 0 ? 0.3 : 0.15, 300 + mask + type * 37);
+      const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
+      // curbs / shoulders on unconnected edges
+      if (!n) p.r(0, 0, TILE, 1, cls.edge);
+      if (!s) p.r(0, TILE - 1, TILE, 1, cls.edge);
+      if (!w) p.r(0, 0, 1, TILE, cls.edge);
+      if (!e) p.r(TILE - 1, 0, 1, TILE, cls.edge);
+      const cx = 7, cy = 7;
+      if (type === 0) {
+        // dirt: wheel ruts instead of markings
+        const rand = rng(400 + mask);
+        for (let i = 0; i < 16; i++) {
+          const t = Math.floor(rand() * TILE);
+          if (n || s) { p.p(5, t, '#6a5940'); p.p(10, t, '#6a5940'); }
+          if (e || w) { p.p(t, 5, '#6a5940'); p.p(t, 10, '#6a5940'); }
+        }
+      } else if (type === 3) {
+        // highway: solid double centreline plus shoulder stripes
+        if (n || s) { p.r(cx, 0, 1, TILE, cls.line); p.r(cx + 2, 0, 1, TILE, cls.line); p.r(2, 0, 1, TILE, '#9a9aa4'); p.r(TILE - 3, 0, 1, TILE, '#9a9aa4'); }
+        if (e || w) { p.r(0, cy, TILE, 1, cls.line); p.r(0, cy + 2, TILE, 1, cls.line); p.r(0, 2, TILE, 1, '#9a9aa4'); p.r(0, TILE - 3, TILE, 1, '#9a9aa4'); }
+      } else if (type === 2) {
+        // avenue: dashed centreline with a median tint
+        if (n) { p.r(cx, 0, 2, 3, cls.line); p.r(cx, 5, 2, 3, cls.line); }
+        if (s) { p.r(cx, 9, 2, 3, cls.line); p.r(cx, 13, 2, 3, cls.line); }
+        if (w) { p.r(0, cy, 3, 2, cls.line); p.r(5, cy, 3, 2, cls.line); }
+        if (e) { p.r(9, cy, 3, 2, cls.line); p.r(13, cy, 3, 2, cls.line); }
+        if (!n && !e && !s && !w) p.r(cx, cy, 2, 2, cls.line);
+      } else {
+        // street: short dashes
+        if (n) { p.r(cx, 1, 2, 2, cls.line); p.r(cx, 5, 2, 2, cls.line); }
+        if (s) { p.r(cx, 9, 2, 2, cls.line); p.r(cx, 13, 2, 2, cls.line); }
+        if (w) { p.r(1, cy, 2, 2, cls.line); p.r(5, cy, 2, 2, cls.line); }
+        if (e) { p.r(9, cy, 2, 2, cls.line); p.r(13, cy, 2, 2, cls.line); }
+        if (!n && !e && !s && !w) p.r(cx, cy, 2, 2, cls.line);
+      }
+      out.push(c);
+    }
+    return out;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +242,9 @@ type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number) => vo
 
 const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   road: () => { /* handled by makeRoads */ },
+  dirt_road: () => { /* handled by makeRoads */ },
+  avenue: () => { /* handled by makeRoads */ },
+  highway: () => { /* handled by makeRoads */ },
 
   house: (p, e, w, h, seed) => {
     const rand = rng(seed);
@@ -253,6 +285,215 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     }
     p.r(2, 2, 1, 1, '#c94f4f'); // aerial light
     e.r(2, 2, 1, 1, '#ff6a6a');
+  },
+
+  midrise: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#4a7f3c'); p.dither(0, 0, w, h, '#548c44', 0.3, seed);
+    boxBuilding(p, 1, 1, w - 2, h - 4, { wall: '#9a8d7e', wallDark: '#7a6f62', roof: '#8a7f72', roofHi: '#9e9384', roofLo: '#6e6459' });
+    // courtyard cut into the roof
+    p.r(10, 8, 12, 10, '#5d9a4d'); p.dither(10, 8, 12, 10, '#4f8a44', 0.35, seed + 3);
+    p.outline(10, 8, 12, 10, '#6e6459');
+    p.p(14, 12, '#c9d96a'); p.p(18, 15, '#d97ab0');
+    // roof plant + stair heads
+    p.r(3, 3, 5, 4, '#7a6f62'); p.r(w - 9, 4, 6, 4, '#7a6f62');
+    // windows: four bands
+    for (let row = 0; row < 4; row++)
+      for (let col = 0; col < 7; col++) {
+        const wx = 3 + col * 4, wy = h - 11 + row * 2;
+        if (wx < w - 3) { p.r(wx, wy, 2, 1, '#9cc3dd'); if ((col * 3 + row) % 4 !== 0) e.r(wx, wy, 2, 1, '#ffd9a0'); }
+      }
+    // ground-floor shopfronts
+    p.r(3, h - 3, 7, 2, '#c9a86a'); p.r(13, h - 3, 6, 2, '#7ab0c9'); p.r(22, h - 3, 6, 2, '#c97ab0');
+    e.r(3, h - 3, 7, 1, '#ffe9b0'); e.r(13, h - 3, 6, 1, '#bfe9ff');
+  },
+
+  highrise: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#7d8a80'); p.dither(0, 0, w, h, '#8a968c', 0.25, seed);
+    // plaza apron
+    p.r(2, h - 8, w - 4, 6, '#a8a094'); p.dither(2, h - 8, w - 4, 6, '#b8b0a4', 0.3, seed + 1);
+    // tower slab, tall and narrow
+    boxBuilding(p, 6, 2, w - 12, h - 12, { wall: '#6e7a8a', wallDark: '#54606e', roof: '#5e6a7a', roofHi: '#76828f', roofLo: '#464f5c', outlineC: '#181c22' });
+    // glass curtain: vertical mullions + horizontal floor bands
+    for (let x = 8; x < w - 8; x += 3) p.r(x, 4, 1, h - 18, '#8fa4b8');
+    for (let y = 6; y < h - 14; y += 4) p.r(7, y, w - 14, 1, '#4a5464');
+    // crown + mast
+    p.r(8, 2, w - 16, 2, '#8fa4b8');
+    p.r(Math.floor(w / 2) - 1, -1, 2, 5, '#8a8a92'); p.p(Math.floor(w / 2) - 1, -2, '#c94f4f');
+    // lit windows scattered up the face
+    const rand = rng(seed + 11);
+    for (let i = 0; i < 26; i++) {
+      const wx = 8 + Math.floor(rand() * (w - 17)), wy = 5 + Math.floor(rand() * (h - 20));
+      e.r(wx, wy, 2, 1, rand() < 0.25 ? '#bfe0ff' : '#ffd9a0');
+    }
+    e.p(Math.floor(w / 2) - 1, -2, '#ff6a6a');
+  },
+
+  arcology: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#6e7a74'); p.dither(0, 0, w, h, '#7a8680', 0.25, seed);
+    // stepped terraces: three concentric plateaus with planting
+    const steps: Array<[number, number, number, number, string, string]> = [
+      [2, 6, w - 4, h - 10, '#5e6a72', '#76838c'],
+      [8, 12, w - 16, h - 22, '#6a7680', '#828f99'],
+      [15, 18, w - 30, h - 34, '#76838c', '#8e9ba6'],
+    ];
+    for (const [x, y, sw, sh, base, hi] of steps) {
+      p.r(x, y, sw, sh, base);
+      p.r(x, y, sw, 1, hi);
+      p.r(x, y + sh - 1, sw, 1, '#454e56');
+      p.outline(x, y, sw, sh, '#232a30');
+      // green terrace edge
+      p.r(x + 1, y + sh - 3, sw - 2, 2, '#4f8a44');
+      p.dither(x + 1, y + sh - 3, sw - 2, 2, '#5d9a4d', 0.4, seed + x);
+    }
+    // crown gardens + skybridges
+    p.r(20, 10, w - 40, 6, '#4f8a44'); p.dither(20, 10, w - 40, 6, '#65a254', 0.4, seed + 7);
+    p.r(6, 26, w - 12, 1, '#8e9ba6'); p.r(6, 40, w - 12, 1, '#8e9ba6');
+    // window bands on each face
+    for (let i = 0; i < 3; i++) {
+      const y = 20 + i * 14;
+      for (let x = 6; x < w - 8; x += 4) { p.r(x, y, 2, 1, '#9cc3dd'); if ((x + i) % 3 !== 0) e.r(x, y, 2, 1, '#ffe0b0'); }
+    }
+    p.p(Math.floor(w / 2), 4, '#c94f4f');
+    e.p(Math.floor(w / 2), 4, '#ff6a6a');
+    e.r(20, 10, w - 40, 1, '#9fe8b0'); // grow lights in the crown gardens
+  },
+
+  school: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#5d9a4d'); p.dither(0, 0, w, h, '#4f8a44', 0.3, seed);
+    // playing field + running track
+    p.r(2, h - 12, 18, 10, '#4a8a3c');
+    p.outline(2, h - 12, 18, 10, '#d9d9d0');
+    p.r(10, h - 12, 1, 10, '#d9d9d0');
+    // two-storey brick block, long and low
+    boxBuilding(p, 22, 3, w - 25, h - 10, { wall: '#b06a52', wallDark: '#8a5040', roof: '#9a5f4a', roofHi: '#b0705a', roofLo: '#7a4838' });
+    // clerestory windows in two rows
+    for (let row = 0; row < 2; row++)
+      for (let col = 0; col < 5; col++) {
+        const wx = 24 + col * 4, wy = h - 9 + row * 3;
+        if (wx < w - 4) { p.r(wx, wy, 3, 2, '#cfe0f0'); e.r(wx, wy, 3, 2, '#ffe9b0'); }
+      }
+    // entrance canopy + flagpole
+    p.r(w - 12, h - 4, 5, 3, '#8a5040');
+    p.r(w - 4, 4, 1, 7, '#8a8a92'); p.r(w - 3, 4, 3, 2, '#4f8ac9');
+    // bike racks
+    for (let i = 0; i < 4; i++) p.p(23 + i * 2, h - 2, '#3a3a40');
+    e.r(w - 11, h - 3, 3, 1, '#ffd9a0');
+  },
+
+  library: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#7d8a6e'); p.dither(0, 0, w, h, '#8a967a', 0.28, seed);
+    // stone civic block with a portico
+    boxBuilding(p, 2, 3, w - 4, h - 8, { wall: '#c9c2ac', wallDark: '#a49d88', roof: '#b8b19c', roofHi: '#d2cbb6', roofLo: '#948d7a' });
+    // pediment + columns across the front
+    p.r(5, h - 8, w - 10, 2, '#d2cbb6');
+    for (let i = 0; i < 5; i++) p.r(7 + i * 4, h - 6, 2, 4, '#dcd5c0');
+    p.r(4, h - 9, w - 8, 1, '#948d7a');
+    // skylights over the reading room
+    p.r(7, 6, w - 14, 5, '#8fa4b8'); p.r(7, 6, w - 14, 1, '#cfe0f0');
+    for (let x = 9; x < w - 8; x += 4) p.r(x, 7, 1, 3, '#a4b4c4');
+    // steps
+    p.r(9, h - 2, w - 18, 1, '#b8b19c');
+    e.r(7, 6, w - 14, 5, '#ffeccc');   // warm glow through the skylights
+    for (let i = 0; i < 4; i++) e.r(8 + i * 4, h - 5, 2, 2, '#ffe9b0');
+  },
+
+  sports_complex: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#5d9a4d'); p.dither(0, 0, w, h, '#4f8a44', 0.3, seed);
+    // pitch with markings
+    p.r(2, 2, w - 20, h - 18, '#4a8a3c');
+    p.outline(2, 2, w - 20, h - 18, '#e8e8e2');
+    p.r(2, Math.floor((h - 18) / 2) + 2, w - 20, 1, '#e8e8e2');
+    p.r(Math.floor((w - 20) / 2) - 3, Math.floor((h - 18) / 2) - 1, 7, 5, '#4a8a3c');
+    p.outline(Math.floor((w - 20) / 2) - 3, Math.floor((h - 18) / 2) - 1, 7, 5, '#e8e8e2');
+    // pool hall with barrel roof
+    boxBuilding(p, w - 17, 4, 15, 18, { wall: '#7aa8c0', wallDark: '#5e8499', roof: '#6e9ab0', roofHi: '#8ab6cc', roofLo: '#527a8e' });
+    p.r(w - 15, 6, 11, 3, '#a8d8e8'); // rooflight
+    // outdoor courts
+    p.r(3, h - 14, 14, 11, '#b06a52'); p.outline(3, h - 14, 14, 11, '#e8e8e2');
+    p.r(10, h - 14, 1, 11, '#e8e8e2');
+    // floodlights
+    for (const fx of [2, w - 22]) { p.r(fx, h - 20, 1, 6, '#5a5a62'); p.r(fx - 1, h - 21, 3, 2, '#e8e8e2'); }
+    e.r(1, h - 21, 3, 2, '#fff4d0'); e.r(w - 23, h - 21, 3, 2, '#fff4d0');
+    e.r(w - 15, 6, 11, 3, '#bfe9ff');
+  },
+
+  museum: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#8a8a7e'); p.dither(0, 0, w, h, '#96968a', 0.25, seed);
+    // sculpture garden strip
+    p.r(2, h - 7, 12, 5, '#5d9a4d'); p.dither(2, h - 7, 12, 5, '#4f8a44', 0.35, seed + 2);
+    p.r(6, h - 6, 2, 3, '#a8a8b2'); p.p(6, h - 7, '#c2c2cc');
+    // angular modern wing: pale stone with a glazed atrium
+    boxBuilding(p, 16, 2, w - 19, h - 8, { wall: '#dcd8cc', wallDark: '#b4b0a4', roof: '#cac6ba', roofHi: '#e8e4d8', roofLo: '#a09c90' });
+    // glass atrium wedge
+    p.r(20, 5, 12, 9, '#7ca6c9');
+    for (let x = 21; x < 32; x += 3) p.r(x, 5, 1, 9, '#a8cce0');
+    p.outline(20, 5, 12, 9, '#4a6a80');
+    // banner columns out front
+    for (let i = 0; i < 3; i++) { const bx = 18 + i * 5; p.r(bx, h - 6, 3, 4, i === 1 ? '#c94f4f' : '#4f5fc9'); }
+    p.r(16, h - 7, w - 19, 1, '#a09c90');
+    e.r(20, 5, 12, 9, '#cfe6ff');
+    for (let i = 0; i < 3; i++) e.r(18 + i * 5, h - 6, 3, 1, '#ffd9a0');
+  },
+
+  community_center: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#7d9a6e'); p.dither(0, 0, w, h, '#8aa67a', 0.3, seed);
+    // low warm-timber hall with a pitched roof
+    p.r(2, 6, w - 4, h - 10, '#c9a878');
+    p.r(2, h - 5, w - 4, 1, '#a48858');
+    p.r(1, 2, w - 2, 5, '#8a5f42');
+    p.r(1, 3, w - 2, 1, '#a4785a');
+    p.r(1, 6, w - 2, 1, '#6e4a32');
+    p.outline(1, 2, w - 2, h - 6, '#3a2a1c');
+    // big multipurpose windows + open doors
+    for (let i = 0; i < 3; i++) { const wx = 4 + i * 8; p.r(wx, h - 10, 5, 4, '#9cc3dd'); }
+    p.r(w - 8, h - 8, 4, 4, '#6e4a32');
+    // noticeboard and picnic table
+    p.r(3, h - 3, 4, 2, '#a4785a'); p.p(4, h - 3, '#e8e8e2'); p.p(6, h - 2, '#e8e8e2');
+    for (let i = 0; i < 3; i++) e.r(4 + i * 8, h - 10, 5, 3, '#ffdca8');
+    e.r(w - 8, h - 7, 4, 3, '#ffe9b0');
+  },
+
+  solar_array: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#8a8064'); p.dither(0, 0, w, h, '#968c70', 0.3, seed);
+    // larger tracked panels in a denser grid than the farm
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        const x = 2 + col * 12, y = 2 + row * 12;
+        if (x + 10 > w || y + 8 > h) continue;
+        p.r(x, y, 10, 7, '#16304f');
+        p.r(x, y, 10, 1, '#3d6a9e');
+        p.r(x + 1, y + 1, 4, 1, '#7ab0dd');
+        for (let i = 1; i < 3; i++) p.r(x, y + i * 2 + 1, 10, 1, '#101f36');
+        p.outline(x, y, 10, 7, '#0a1420');
+        p.r(x + 4, y + 7, 2, 2, '#54544e'); // tracker post
+      }
+    }
+    // inverter station + transformer yard
+    p.r(w - 14, h - 12, 12, 10, '#8a8a92'); p.outline(w - 14, h - 12, 12, 10, '#3a3a42');
+    for (let i = 0; i < 3; i++) p.r(w - 12 + i * 4, h - 10, 2, 6, '#6a6a74');
+    e.r(w - 12, h - 11, 2, 1, '#7aff9a');
+    e.r(3, 3, 3, 1, '#9fd0ff');
+  },
+
+  water_reclamation: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#8a8a80'); p.dither(0, 0, w, h, '#96968c', 0.3, seed);
+    // three staged basins, progressively clearer
+    const shades = ['#4a5a3e', '#2e5f8f', '#4a90c0'];
+    for (let i = 0; i < 3; i++) {
+      const bx = 4 + i * 14, by = 4;
+      p.r(bx, by, 12, 12, '#7d7d75');
+      p.r(bx + 1, by + 1, 10, 10, shades[i]);
+      p.r(bx + 3, by + 3, 6, 6, i === 2 ? '#6fb3dd' : '#356b9e');
+      p.r(bx + 5, by + 1, 1, 10, '#c9c9c2');
+      p.r(bx + 1, by + 5, 10, 1, '#c9c9c2');
+      p.outline(bx, by, 12, 12, '#3a3a36');
+    }
+    // membrane hall + pipe gallery
+    boxBuilding(p, 4, 20, w - 8, h - 24, { wall: '#8a94a0', wallDark: '#6a7480', roof: '#7a8490', roofHi: '#8c96a2', roofLo: '#5e6874' });
+    for (let i = 0; i < 4; i++) p.r(7 + i * 9, 22, 6, 3, '#5f8aa8');
+    p.r(2, h - 8, w - 4, 3, '#5f8aa8'); p.outline(2, h - 8, w - 4, 3, '#2e4a5e');
+    for (let i = 0; i < 4; i++) e.r(8 + i * 9, h - 6, 2, 1, '#bfe9ff');
+    e.r(6, 22, 2, 2, '#7ae9ff');
   },
 
   park: (p, e, w, h, seed) => {
@@ -553,7 +794,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
 export function makeBuildingSprites(): Map<BuildingType, Sprite> {
   const out = new Map<BuildingType, Sprite>();
   for (const type of Object.keys(DRAWERS) as BuildingType[]) {
-    if (type === 'road') continue;
+    if (BUILDING_DEFS[type].roadType !== undefined) continue;
     const def = BUILDING_DEFS[type];
     const w = def.w * TILE, h = def.h * TILE;
     const [ac, actx] = canvas(w, h);

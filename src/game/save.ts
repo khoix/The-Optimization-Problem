@@ -5,6 +5,7 @@
 import type { Building, GameState } from './types';
 import { EVENTS } from './events';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
+import { connectOrphans } from './network';
 
 const SAVE_VERSION = 1;
 
@@ -56,6 +57,7 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
   g.tierName ??= 'Township';
+  g.attractiveness ??= { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 };
   g.asi.shadowPolicies ??= [];
   g.asi.diluted ??= [];
   g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };
@@ -68,6 +70,11 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.lastElectionResult ??= null;
   // A locked save can only ever reopen as an observer, whatever else it claims.
   if (env.locked) g.asi.observer = true;
+  // Tiles predating road classes default to Street.
+  for (const t of g.map) if (t.roadType === undefined) t.roadType = 1;
+  // Cities built before roads were a requirement get access stubs rather
+  // than going dark on load.
+  connectOrphans(g);
   return g;
 }
 

@@ -1,6 +1,7 @@
 import type { AsiPhase, GameState, PolicyId } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { canPlace, notify, placeBuilding, policyActive, record, rng } from './state';
+import { computeCoverage, roadNetwork } from './network';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -187,13 +188,71 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
   }
 }
 
+/**
+ * The system does not build things that will not work. It prefers sites on
+ * the road network and inside existing service areas, and lays its own
+ * access road when it settles for less.
+ */
 function findSpot(g: GameState, type: keyof typeof BUILDING_DEFS, r: () => number): [number, number] | null {
-  for (let i = 0; i < 60; i++) {
+  const def = BUILDING_DEFS[type];
+  const cov = computeCoverage(g);
+  const net = roadNetwork(g);
+  let fallback: [number, number] | null = null;
+  for (let i = 0; i < 120; i++) {
     const x = Math.floor(r() * g.mapW);
     const y = Math.floor(r() * g.mapH);
-    if (canPlace(g, type, x, y)) return [x, y];
+    if (!canPlace(g, type, x, y)) continue;
+    if (!fallback) fallback = [x, y];
+    // Does the footprint touch a road, and is it inside what it needs?
+    let touchesRoad = false;
+    for (let d = 0; d < def.w && !touchesRoad; d++) {
+      touchesRoad = net.component[Math.max(0, y - 1) * g.mapW + x + d] !== -1 ||
+        net.component[Math.min(g.mapH - 1, y + def.h) * g.mapW + x + d] !== -1;
+    }
+    for (let d = 0; d < def.h && !touchesRoad; d++) {
+      touchesRoad = net.component[(y + d) * g.mapW + Math.max(0, x - 1)] !== -1 ||
+        net.component[(y + d) * g.mapW + Math.min(g.mapW - 1, x + def.w)] !== -1;
+    }
+    const idx = y * g.mapW + x;
+    const powered = def.power >= 0 || cov.power[idx] === 1;
+    const watered = def.water >= 0 || cov.water[idx] === 1;
+    if (touchesRoad && powered && watered) return [x, y];
   }
-  return null;
+  if (fallback) {
+    // Settle, then connect: an access stub appears without a work order.
+    const [fx, fy] = fallback;
+    const spot = placeAndStub(g, fx, fy, def.w, def.h);
+    if (spot) return fallback;
+  }
+  return fallback;
+}
+
+/** Lay a short road stub from a prospective footprint toward the network. */
+function placeAndStub(g: GameState, x: number, y: number, w: number, h: number): boolean {
+  const net = roadNetwork(g);
+  let best: [number, number] | null = null, bestD = Infinity;
+  for (let ty = Math.max(0, y - 14); ty < Math.min(g.mapH, y + h + 14); ty++) {
+    for (let tx = Math.max(0, x - 14); tx < Math.min(g.mapW, x + w + 14); tx++) {
+      if (net.component[ty * g.mapW + tx] === -1) continue;
+      const d = Math.abs(tx - x) + Math.abs(ty - y);
+      if (d < bestD) { bestD = d; best = [tx, ty]; }
+    }
+  }
+  if (!best) return false;
+  const [tx, ty] = best;
+  const startY = ty < y ? y - 1 : y + h;
+  const lay = (px: number, py: number) => {
+    if (px < 0 || py < 0 || px >= g.mapW || py >= g.mapH) return;
+    const t = g.map[py * g.mapW + px];
+    if (t.buildingId !== -1 || t.terrain === 'water' || t.road) return;
+    t.road = true; t.roadType = 1;
+  };
+  const sy = Math.sign(ty - startY);
+  for (let py = startY; sy !== 0 && py !== ty + sy; py += sy) lay(x, py);
+  const sx = Math.sign(tx - x);
+  for (let px = x; sx !== 0 && px !== tx + sx; px += sx) lay(px, ty);
+  g.mapVersion++;
+  return true;
 }
 
 const AMBIENT: Array<{ id: string; phase: number; text: string }> = [
