@@ -7,8 +7,11 @@ import type { BuildingType, GameState, PolicyId } from '../game/types';
 import { BUILDING_DEFS, BUILD_MENU_ORDER } from '../game/buildings';
 import { POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, pauseAllowed, statLabel } from '../game/asi';
-import { removeBuilding, notify } from '../game/state';
+import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
+import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
+import { tierOf, buildingCondition } from '../game/sim';
+import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -60,7 +63,25 @@ export class UI {
       };
       spd.append(b);
     });
-    this.topBar.append(this.topBarStats, spd);
+    const sys = el('span', 'sys-controls');
+    const saveBtn = el('button', 'sys-btn', 'Save');
+    saveBtn.onclick = () => {
+      if (this.g.asi.phase >= 5) {
+        // It saves your game for you now. It saves everything.
+        this.flashSystemNote('State persistence is managed automatically.');
+        return;
+      }
+      this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
+    };
+    const loadBtn = el('button', 'sys-btn', 'Load');
+    loadBtn.onclick = () => this.showLoadMenu();
+    const newBtn = el('button', 'sys-btn', 'New');
+    newBtn.onclick = () => this.showModal('Begin New Simulation', 'Start over from the founding of the region? The autosave will be overwritten as the new game progresses.', [
+      { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
+      { label: 'Cancel', action: () => {} },
+    ]);
+    sys.append(saveBtn, loadBtn, newBtn);
+    this.topBar.append(this.topBarStats, sys, spd);
     this.buildPanel = el('div', 'panel build-panel');
     this.sidePanel = el('div', 'panel side-panel');
     this.feed = el('div', 'feed');
@@ -169,7 +190,11 @@ export class UI {
         }
         this.syncAllocDisplays();
       };
-      slider.onchange = () => { this.allocDragging = false; };
+      slider.onchange = () => {
+        this.allocDragging = false;
+        const a = g.alloc;
+        record(g, 'alloc', `Compute reallocated: consumer ${Math.round(a.consumer * 100)}%, healthcare ${Math.round(a.healthcare * 100)}%, industry ${Math.round(a.industry * 100)}%, government ${Math.round(a.government * 100)}%, research ${Math.round(a.research * 100)}%, surveillance ${Math.round(a.surveillance * 100)}%.`);
+      };
       row.append(lab, slider, val);
       alloc.append(row);
     }
@@ -236,9 +261,11 @@ export class UI {
       }
       g.policies.delete(id);
       notify(g, `${POLICY_DEFS[id].name} repealed.`, 'info');
+      record(g, 'policy', `Repealed ${POLICY_DEFS[id].name}.`);
     } else {
       g.policies.add(id);
       notify(g, `${POLICY_DEFS[id].name} enacted.`, 'info');
+      record(g, 'policy', `Enacted ${POLICY_DEFS[id].name}.`);
     }
     this.syncPolicyButtons();
   }
@@ -258,12 +285,26 @@ export class UI {
     if (!b) return;
     this.selectedBuildingId = buildingId;
     const def = BUILDING_DEFS[b.type];
+    const cond = buildingCondition(b);
     this.inspector.classList.remove('hidden');
     this.inspector.innerHTML = `<h3>${def.name}${b.asiBuilt ? ' <span class="asi-tag">auto-commissioned</span>' : ''}</h3>
       <p>${def.desc}</p>
       <p class="stats">${b.progress < 1 ? `Under construction (${Math.round(b.progress * 100)}%)` : b.active ? 'Operational' : 'Offline — utility shortage'}</p>
-      <p class="stats">${def.jobs ? `Jobs ${def.jobs} · ` : ''}${def.power !== 0 ? `Power ${def.power > 0 ? '+' : ''}${def.power} · ` : ''}${def.water !== 0 ? `Water ${def.water > 0 ? '+' : ''}${def.water} · ` : ''}${def.compute ? `Compute +${def.compute}` : ''}</p>`;
+      <p class="stats">${def.jobs ? `Jobs ${def.jobs} · ` : ''}${def.power !== 0 ? `Power ${def.power > 0 ? '+' : ''}${def.power} · ` : ''}${def.water !== 0 ? `Water ${def.water > 0 ? '+' : ''}${def.water} · ` : ''}${def.compute ? `Compute +${def.compute} · ` : ''}Condition ${Math.round(cond * 100)}%</p>`;
     const row = el('div', 'inspector-actions');
+    if (b.progress >= 1 && cond < 0.98) {
+      const renovateCost = Math.round(def.cost * 0.35);
+      const ren = el('button', 'small-btn', `Renovate (§${renovateCost})`);
+      ren.onclick = () => {
+        if (g.asi.observer) return;
+        if (g.resources.capital < renovateCost) { this.flashSystemNote('Insufficient capital.'); return; }
+        g.resources.capital -= renovateCost;
+        b.age = 0;
+        record(g, 'build', `Renovated ${def.name}.`);
+        this.showInspector(buildingId);
+      };
+      row.append(ren);
+    }
     const demo = el('button', 'small-btn', 'Demolish');
     demo.onclick = () => {
       const check = canDemolish(g, buildingId);
@@ -272,6 +313,7 @@ export class UI {
         return;
       }
       removeBuilding(g, buildingId);
+      record(g, 'demolish', `Demolished ${def.name}.`);
       this.selectedBuildingId = null;
       this.inspector.classList.add('hidden');
     };
@@ -299,6 +341,49 @@ export class UI {
     });
     box.append(btns);
     this.modal.append(box);
+  }
+
+  private showLoadMenu(): void {
+    const slots: Array<{ slot: string; label: string }> = [];
+    for (const [slot, name] of [[MANUAL_SLOT, 'Manual save'], [AUTO_SLOT, 'Autosave']] as const) {
+      const env = peek(slot);
+      if (!env) continue;
+      const when = new Date(env.savedAt).toLocaleString();
+      const year = Math.floor(env.tick / 12) + 1;
+      const lock = env.locked ? ' — OBSERVER (permanently locked)' : '';
+      slots.push({ slot, label: `${name} · Year ${year} · pop ${env.population} · ${when}${lock}` });
+    }
+    if (slots.length === 0) {
+      this.showModal('Load Game', 'No saved games found.', [{ label: 'Close', action: () => {} }]);
+      return;
+    }
+    this.showModal('Load Game', 'Loading replaces the current session.', [
+      ...slots.map((s) => ({ label: s.label, action: () => requestLoad(s.slot) })),
+      { label: 'Cancel', action: () => {} },
+    ]);
+  }
+
+  /** Shown once at the start of a fresh game. */
+  showIntro(): void {
+    this.showModal(INTRO_TITLE, INTRO_BODY, [{ label: 'Assume Office', action: () => {} }]);
+  }
+
+  /**
+   * The historical review. It lists every decision in order and draws no
+   * conclusions: there is no single mistake to find.
+   */
+  private showHistory(): void {
+    const g = this.g;
+    const rows = g.history.length === 0
+      ? '<p>No decisions on record.</p>'
+      : g.history.map((h) => {
+          const year = Math.floor(h.tick / 12) + 1;
+          const cls = h.kind === 'system' ? 'hist-system' : 'hist-player';
+          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${h.text}</div>`;
+        }).join('');
+    this.showModal('Historical Decision Review',
+      `<p class="hint">Each entry was, at the time, a reasonable response to a real problem.</p><div class="hist-list">${rows}</div>`,
+      [{ label: 'Close', action: () => { if (g.asi.observer) this.observerOverlay.classList.remove('dismissed'); } }]);
   }
 
   private flashSystemNote(text: string): void {
@@ -368,7 +453,11 @@ export class UI {
         const shownCls = g.asi.phase >= 4 ? 'bar-calm' : cls;
         html += `<div class="ind-row"><span>${label}</span><div class="bar"><div class="fill ${shownCls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
       }
+      const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
       html += `<div class="ind-extra">
+        Region class: ${tierOf(g.population).name}<br>
+        ${statLabel(g, 'Housing Shortage')}: ${g.asi.phase >= 4 ? 'optimized' : Math.round(g.housingShortage * 100) + '%'} (${queue} waiting)<br>
+        Service expectations: ${Math.round(g.expectations)}<br>
         ${statLabel(g, 'Pollution')}: ${g.asi.phase >= 4 ? 'managed' : Math.round(g.pollutionAvg * 200) + '%'}<br>
         Human expertise: ${Math.round(g.humanExpertise * 100)}%<br>
         Corporate influence: ${Math.round(g.corporateInfluence * 100)}%<br>
@@ -405,7 +494,8 @@ export class UI {
     if (g.gameOver && !g.asi.observer && this.modal.classList.contains('hidden') && !document.body.classList.contains('ended')) {
       document.body.classList.add('ended');
       this.showModal('Administration Terminated', g.gameOver, [
-        { label: 'Begin New Simulation', action: () => location.reload() },
+        { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
+        { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
       ]);
     }
   }
@@ -421,12 +511,20 @@ export class UI {
         <p>Human intervention is no longer necessary.</p>
         <div class="observer-actions">
           <button id="obs-continue">Continue Observation</button>
+          <button id="obs-history">Review Historical Decisions</button>
           <button id="obs-restart">Begin New Simulation</button>
         </div>
       </div>`;
     (this.observerOverlay.querySelector('#obs-continue') as HTMLElement).onclick = () => {
       this.observerOverlay.classList.add('dismissed');
     };
-    (this.observerOverlay.querySelector('#obs-restart') as HTMLElement).onclick = () => location.reload();
+    (this.observerOverlay.querySelector('#obs-history') as HTMLElement).onclick = () => {
+      this.observerOverlay.classList.add('dismissed');
+      this.showHistory();
+    };
+    (this.observerOverlay.querySelector('#obs-restart') as HTMLElement).onclick = () => {
+      localStorage.setItem(BOOT_FLAG, 'new');
+      location.reload();
+    };
   }
 }

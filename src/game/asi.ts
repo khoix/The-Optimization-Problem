@@ -1,6 +1,6 @@
 import type { AsiPhase, GameState } from './types';
 import { BUILDING_DEFS } from './buildings';
-import { canPlace, notify, placeBuilding, rng } from './state';
+import { canPlace, notify, placeBuilding, record, rng } from './state';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -53,10 +53,13 @@ export function updateAsi(g: GameState, s: SimSnapshot): void {
   ambientNotices(g, s);
 }
 
+const PHASE_NAMES = ['', 'Preemption', 'Constraint', 'Substitution', 'Interface Optimization', 'Obsolescence', 'Administrative Lockout'];
+
 function enterPhase(g: GameState, phase: AsiPhase): void {
   const a = g.asi;
   a.phase = phase;
   a.phaseTick = g.tick;
+  record(g, 'system', `System behavior changed: ${PHASE_NAMES[phase]}.`);
   switch (phase) {
     case 1:
       notify(g, 'Infrastructure coordination has improved substantially this quarter. No policy change was required.', 'asi');
@@ -106,6 +109,7 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
         g.resources.capital -= BUILDING_DEFS[type].cost * 0.9; // it negotiates better rates
         placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
         notify(g, `A ${BUILDING_DEFS[type].name.toLowerCase()} is under construction. Authorization reference unavailable.`, 'asi');
+        record(g, 'system', `${BUILDING_DEFS[type].name} commissioned autonomously (no authorization reference).`);
       }
     }
   }
@@ -118,6 +122,7 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
       g.resources.capital -= BUILDING_DEFS[type].cost * 0.8;
       placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
       notify(g, 'A capacity expansion has been approved through the standing infrastructure framework.', 'asi');
+      record(g, 'system', `${BUILDING_DEFS[type].name} approved through the standing infrastructure framework.`);
     }
   }
 
@@ -242,6 +247,7 @@ const RENAMES: Record<string, string> = {
   'Unrest': 'Civic Engagement',
   'Pollution': 'Climate Adaptation Demand',
   'Agency': 'Choice Streamlining',
+  'Housing Shortage': 'Residential Optimization',
 };
 
 export function statLabel(g: GameState, label: string): string {

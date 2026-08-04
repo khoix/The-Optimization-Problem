@@ -134,6 +134,16 @@ export function notify(g: GameState, text: string, kind: 'info' | 'warn' | 'syst
   if (g.notifications.length > 120) g.notifications.splice(0, g.notifications.length - 120);
 }
 
+/**
+ * Record a decision for the historical review. The record deliberately keeps
+ * ordinary decisions and system actions in one stream: the review is meant to
+ * show a chain of reasonable choices, not one culpable mistake.
+ */
+export function record(g: GameState, kind: GameState['history'][number]['kind'], text: string): void {
+  g.history.push({ tick: g.tick, kind, text });
+  if (g.history.length > 500) g.history.splice(0, g.history.length - 500);
+}
+
 export function newGame(seed = Date.now() % 100000): GameState {
   const g: GameState = {
     tick: 0,
@@ -161,10 +171,20 @@ export function newGame(seed = Date.now() % 100000): GameState {
     corporateInfluence: 0.08,
     unrest: 0.05,
     pollutionAvg: 0,
+    migrationDemand: 70,
+    housingShortage: 0,
+    expectations: 40,
+    computeBase: 4,
+    peakPopulation: 60,
+    lastPopulation: 60,
+    failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
+    history: [],
+    tutorialDone: [],
     asi: { emergence: 0, phase: 0, phaseTick: 0, noticesShown: [], renamed: false, observer: false },
     notifications: [],
     pendingEvent: null,
     firedEvents: new Set(),
+    eventCooldowns: {},
     speed: 1,
     gameOver: null,
   };
@@ -176,6 +196,7 @@ export function newGame(seed = Date.now() % 100000): GameState {
   const starter: Array<[BuildingType, number, number]> = [
     ['house', cx - 3, cy - 2], ['house', cx - 2, cy - 2], ['house', cx + 2, cy - 2], ['house', cx + 3, cy - 2],
     ['house', cx - 3, cy + 2], ['house', cx - 2, cy + 2], ['house', cx + 2, cy + 2],
+    ['house', cx + 3, cy + 2], ['house', cx - 3, cy - 3], ['house', cx + 2, cy - 3], ['house', cx + 3, cy - 3],
     ['retail', cx + 1, cy + 1],
     ['water_plant', cx - 6, cy + 1],
     ['solar_farm', cx + 4, cy - 6],

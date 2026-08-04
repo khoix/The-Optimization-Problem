@@ -34,7 +34,13 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .topbar .date { color: var(--accent); font-weight: 600; }
 .topbar .res b { color: #fff; }
 .topbar .res.bad b { color: var(--bad); }
-.speed-controls { margin-left: auto; display: flex; gap: 4px; }
+.speed-controls { display: flex; gap: 4px; }
+.sys-controls { margin-left: auto; display: flex; gap: 4px; margin-right: 12px; }
+.sys-btn {
+  background: #1a2230; color: var(--text-dim); border: 1px solid var(--panel-border);
+  padding: 2px 8px; cursor: pointer; border-radius: 3px; font-size: 11px;
+}
+.sys-btn:hover { color: #fff; background: #232e42; }
 .speed-btn {
   background: #1a2230; color: var(--text-dim); border: 1px solid var(--panel-border);
   padding: 2px 8px; cursor: pointer; border-radius: 3px; font-size: 11px;
@@ -139,7 +145,13 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
   border-radius: 8px; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
 }
 .modal-box h2 { font-size: 16px; margin-bottom: 10px; }
-.modal-body { font-size: 13px; line-height: 1.5; color: #b8c2d4; margin-bottom: 16px; font-family: inherit; }
+.modal-body { font-size: 13px; line-height: 1.5; color: #b8c2d4; margin-bottom: 16px; font-family: inherit; max-height: 60vh; overflow-y: auto; }
+
+/* historical decision review */
+.hist-list { max-height: 46vh; overflow-y: auto; margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.hist-row { padding: 3px 8px; font-size: 11px; border-left: 3px solid var(--panel-border); background: #101624; border-radius: 3px; line-height: 1.4; }
+.hist-row.hist-system { border-left-color: var(--asi); color: #b8dce8; }
+.hist-date { color: var(--text-dim); font-family: var(--mono); font-size: 10px; margin-right: 6px; }
 .modal-choices { display: flex; flex-direction: column; gap: 6px; }
 .choice-btn {
   background: #1a2436; color: var(--text); border: 1px solid #34405a;

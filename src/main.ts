@@ -1,22 +1,31 @@
 import './style.css';
-import { newGame, canPlace, placeBuilding, tileAt, MAP_W, MAP_H } from './game/state';
+import { newGame, canPlace, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
+import { updateTutorial } from './game/tutorial';
 
 const TICK_SECONDS = 4;          // one month of sim time at 1× speed
 const HOURS_PER_SECOND = 24 / 80; // full day/night cycle ≈ 80s at 1×
+const AUTOSAVE_TICKS = 12;       // once per in-game year
 
 const app = document.getElementById('app')!;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 
-const g = newGame();
+// Boot: an explicit request wins; otherwise continue the autosave; otherwise
+// found a new region.
+const bootSlot = consumeBootFlag();
+const g = (bootSlot === 'new' ? null : loadFrom(bootSlot ?? AUTO_SLOT)) ?? newGame();
+const freshGame = g.tick === 0;
+
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
+if (freshGame) ui.showIntro();
 
 const SPEED_MUL = [0, 1, 2.5, 6];
 
@@ -91,9 +100,21 @@ function cursorTile(ev: MouseEvent): [number, number] | null {
   return [tx, ty];
 }
 
+let roadsBuiltSinceRecord = 0;
+
 function tryBuild(type: keyof typeof BUILDING_DEFS, tx: number, ty: number): void {
   if (g.asi.observer || g.gameOver) return;
-  placeBuilding(g, type, tx, ty);
+  const before = g.resources.capital;
+  const placed = placeBuilding(g, type, tx, ty);
+  if (placed) {
+    record(g, 'build', `Built ${BUILDING_DEFS[type].name}.`);
+  } else if (type === 'road' && g.resources.capital < before) {
+    // Roads return null by design; batch them so painting doesn't flood the log.
+    if (++roadsBuiltSinceRecord >= 10) {
+      record(g, 'build', 'Extended the road network.');
+      roadsBuiltSinceRecord = 0;
+    }
+  }
 }
 
 function tryBuildAtCursor(ev: MouseEvent): void {
@@ -123,6 +144,7 @@ function selectAtCursor(ev: MouseEvent): void {
 let simAccum = 0;
 let uiAccum = 0;
 let last = performance.now();
+let endStateSaved = false;
 
 function frame(now: number): void {
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
@@ -133,6 +155,14 @@ function frame(now: number): void {
   while (simAccum >= TICK_SECONDS) {
     simAccum -= TICK_SECONDS;
     simTick(g);
+    updateTutorial(g);
+    if (g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
+  }
+  // Capture the terminal state once, immediately — a locked observer save is
+  // part of the design, not an accident of timing.
+  if ((g.gameOver || g.asi.observer) && !endStateSaved) {
+    endStateSaved = true;
+    saveTo(AUTO_SLOT, g);
   }
   renderer.hour = (renderer.hour + dt * mul * HOURS_PER_SECOND) % 24;
   renderer.update(g, dt, mul);

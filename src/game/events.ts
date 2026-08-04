@@ -1,5 +1,5 @@
 import type { GameEvent, GameState } from './types';
-import { notify } from './state';
+import { notify, record } from './state';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -213,6 +213,23 @@ export const EVENTS: GameEvent[] = [
     ],
   },
   {
+    id: 'housing_crisis',
+    title: 'The Waiting List',
+    body: 'Two thousand applications sit in the housing queue. A tent settlement has appeared near the interchange, photographed daily by drones — some journalistic, some municipal, some unclear.',
+    once: false, weight: 2,
+    condition: (g) => g.housingShortage > 0.35,
+    choices: [
+      {
+        label: 'Emergency housing fund (-200 capital)',
+        effect: (g) => { g.resources.capital -= 200; g.migrationDemand *= 0.96; ind(g, 'trust', 4); return 'Modular units go up in weeks. The waiting list barely notices.'; },
+      },
+      {
+        label: 'Let the market respond',
+        effect: (g) => { g.unrest = clamp01(g.unrest + 0.06); ind(g, 'trust', -4); g.resources.capital += 60; return 'Rents climb. So does revenue. So does something else.'; },
+      },
+    ],
+  },
+  {
     id: 'automated_economy',
     title: 'Growth, Apparently',
     body: 'Auditors note that several automated firms now primarily purchase services from other automated firms. Regional GDP is up 9%. Median household income is flat.',
@@ -231,25 +248,31 @@ export const EVENTS: GameEvent[] = [
   },
 ];
 
+const REPEAT_COOLDOWN = 20; // ticks before a repeatable event may fire again
+
 export function maybeFireEvent(g: GameState, r: () => number): void {
   if (r() > 0.16) return;
-  const eligible = EVENTS.filter((e) => !g.firedEvents.has(e.id) && e.condition(g));
+  const eligible = EVENTS.filter((e) =>
+    !g.firedEvents.has(e.id) &&
+    g.tick - (g.eventCooldowns[e.id] ?? -REPEAT_COOLDOWN) >= REPEAT_COOLDOWN &&
+    e.condition(g));
   if (eligible.length === 0) return;
   const totalWeight = eligible.reduce((s, e) => s + e.weight, 0);
   let roll = r() * totalWeight;
   for (const e of eligible) {
     roll -= e.weight;
     if (roll <= 0) {
+      g.eventCooldowns[e.id] = g.tick;
       // Phase 1+: sometimes the system has already handled it.
       if (g.asi.phase >= 1 && r() < 0.35 + g.asi.phase * 0.1) {
         if (e.once || g.asi.phase >= 3) g.firedEvents.add(e.id);
         const resolution = e.choices[0].label.replace(/\s*\(.*\)$/, '');
         notify(g, `${e.title} — resolved automatically. Action taken: ${resolution.toLowerCase()}. No administrator input was required.`, 'asi');
+        record(g, 'system', `"${e.title}" resolved automatically: ${resolution.toLowerCase()}.`);
         e.choices[0].effect(g);
         return;
       }
       if (e.once) g.firedEvents.add(e.id);
-      else if (r() < 0.7) g.firedEvents.add(e.id + ':' + g.tick); // dedupe key noise, harmless
       g.pendingEvent = e;
       return;
     }
@@ -260,6 +283,9 @@ export function resolveEvent(g: GameState, choiceIndex: number): void {
   const e = g.pendingEvent;
   if (!e) return;
   g.pendingEvent = null;
-  const note = e.choices[choiceIndex]?.effect(g);
+  const choice = e.choices[choiceIndex];
+  if (!choice) return;
+  record(g, 'event', `"${e.title}": chose "${choice.label.replace(/\s*\(.*\)$/, '')}".`);
+  const note = choice.effect(g);
   if (typeof note === 'string') notify(g, note, 'info');
 }

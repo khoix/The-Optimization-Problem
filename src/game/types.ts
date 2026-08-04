@@ -143,6 +143,20 @@ export interface Notification {
   kind: 'info' | 'warn' | 'system' | 'asi';
 }
 
+export interface HistoryEntry {
+  tick: number;
+  kind: 'build' | 'demolish' | 'policy' | 'alloc' | 'event' | 'system';
+  text: string;
+}
+
+/** Rolling counters for slow-burn failure conditions. */
+export interface FailCounters {
+  blackout: number;     // consecutive ticks of severe utility shortfall
+  approval: number;     // consecutive ticks of collapsed public approval
+  environment: number;  // consecutive ticks of extreme pollution
+  inactive: number;     // consecutive ticks with most buildings offline
+}
+
 export interface GameState {
   tick: number;            // 1 tick = 1 month
   seed: number;
@@ -166,10 +180,23 @@ export interface GameState {
   unrest: number;          // 0..1
   pollutionAvg: number;    // 0..1
 
+  // Endless-pressure systems: balance is a treadmill, not a plateau.
+  migrationDemand: number;   // people who want to live here, grows exogenously
+  housingShortage: number;   // 0..1, unmet demand as a share of demand
+  expectations: number;      // 0..100 ratcheting service-level baseline
+  computeBase: number;       // autonomous floor of compute demand, always growing
+  peakPopulation: number;
+  lastPopulation: number;    // for growth-rate / stagnation effects
+  failCounters: FailCounters;
+
+  history: HistoryEntry[];
+  tutorialDone: string[];
+
   asi: AsiState;
   notifications: Notification[];
   pendingEvent: GameEvent | null;
   firedEvents: Set<string>;
+  eventCooldowns: Record<string, number>; // last-fired tick for repeatable events
 
   speed: 0 | 1 | 2 | 3;
   gameOver: string | null; // conventional failure description, if any

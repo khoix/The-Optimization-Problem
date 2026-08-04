@@ -1,6 +1,6 @@
-import type { GameState } from './types';
+import type { Building, GameState } from './types';
 import { BUILDING_DEFS } from './buildings';
-import { notify, rng, tileAt } from './state';
+import { notify, record, rng, tileAt } from './state';
 import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
 
@@ -12,14 +12,45 @@ function approach(cur: number, target: number, rate: number): number {
   return cur + Math.max(-rate, Math.min(rate, target - cur));
 }
 
+/**
+ * Output multiplier from age: full for the first five years, then declining
+ * toward 55%. Renovation resets age; neglect is a real ongoing cost.
+ */
+export function buildingCondition(b: Building): number {
+  return Math.max(0.55, Math.min(1, 1 - (b.age - 60) * 0.0022));
+}
+
+/** Upkeep multiplier: old infrastructure costs more to keep limping along. */
+function upkeepWear(b: Building): number {
+  return 1 + Math.max(0, b.age - 60) / 400;
+}
+
+/** Population tier: bigger regions live on a faster treadmill. */
+const TIERS = [
+  { name: 'Township', min: 0, mig: 1.0, comp: 1.0, exp: 1.0 },
+  { name: 'City', min: 150, mig: 1.7, comp: 1.5, exp: 1.25 },
+  { name: 'Metropolis', min: 400, mig: 2.6, comp: 2.3, exp: 1.6 },
+  { name: 'Megaregion', min: 900, mig: 3.8, comp: 3.4, exp: 2.1 },
+];
+export function tierOf(pop: number): (typeof TIERS)[number] {
+  let t = TIERS[0];
+  for (const cand of TIERS) if (pop >= cand.min) t = cand;
+  return t;
+}
+
 export function simTick(g: GameState): void {
   if (g.gameOver && !g.asi.observer) return;
   g.tick++;
   const r = rng(g.seed + g.tick * 31);
 
-  // ---------- Construction ----------
+  const T = tierOf(g.population);
+
+  // ---------- Construction & aging ----------
   for (const b of g.buildings.values()) {
-    b.age++;
+    // Under the ASI, infrastructure is maintained to a standard no human
+    // budget ever managed. Until then, everything decays.
+    if (!g.asi.observer) b.age++;
+    else if (b.age > 0) b.age--;
     if (b.progress < 1) {
       const def = BUILDING_DEFS[b.type];
       // Industry compute allocation speeds construction; ASI builds even faster.
@@ -33,16 +64,19 @@ export function simTick(g: GameState): void {
 
   // ---------- Utility capacity & demand ----------
   let powerCap = 0, powerDem = 0, waterCap = 0, waterDem = 0;
-  let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0, pollutionEmit = 0;
+  let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0;
   const renewableBoost = g.policies.has('renewable_subsidy') ? 1.3 : 1;
 
   const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
   for (const b of done) {
     const def = BUILDING_DEFS[b.type];
-    if (def.power > 0) powerCap += def.power * (b.type === 'solar_farm' ? renewableBoost : 1);
+    const cond = buildingCondition(b);
+    if (def.power > 0) powerCap += def.power * cond * (b.type === 'solar_farm' ? renewableBoost : 1);
     else powerDem += -def.power;
-    if (def.water > 0) waterCap += def.water; else waterDem += -def.water;
+    if (def.water > 0) waterCap += def.water * cond; else waterDem += -def.water;
   }
+  powerCap = Math.round(powerCap);
+  waterCap = Math.round(waterCap);
   // Population baseline demand.
   powerDem += g.population * 0.04;
   waterDem += g.population * 0.05;
@@ -54,15 +88,14 @@ export function simTick(g: GameState): void {
   // ---------- Building activity, jobs, output ----------
   for (const b of done) {
     const def = BUILDING_DEFS[b.type];
+    const cond = buildingCondition(b);
     // Buildings that consume utilities degrade gracefully with shortages.
     b.active = def.power >= 0 && def.water >= 0 ? true : utilitySat > 0.35;
     if (!b.active) continue;
     jobsTotal += def.jobs;
     housing += def.housing;
-    upkeep += def.upkeep;
-    if (def.compute > 0) computeProduced += def.compute * utilitySat;
-    pollutionEmit += Math.max(0, def.pollution);
-    if (def.pollution < 0) pollutionEmit += def.pollution; // parks absorb
+    upkeep += def.upkeep * upkeepWear(b);
+    if (def.compute > 0) computeProduced += def.compute * utilitySat * cond;
   }
   if (g.policies.has('manual_redundancy')) jobsTotal = Math.round(jobsTotal * 1.15);
 
@@ -71,8 +104,12 @@ export function simTick(g: GameState): void {
   const unemployment = labourForce > 0 ? clamp01(1 - jobsFilled / labourForce) : 0;
 
   // ---------- Compute market ----------
+  // The demand floor grows on its own: chips get cheaper, services get
+  // hungrier, and the wider economy digitizes whether or not this region does.
+  g.computeBase = Math.min(2500, g.computeBase * (1 + 0.0035 * T.comp + g.corporateInfluence * 0.004));
   const computeDemand =
-    4 +
+    g.computeBase +
+    g.expectations * 0.12 +
     g.population * 0.03 * (1 + g.indicators.convenience / 150) + // consumer appetite grows with convenience
     (g.policies.has('public_broadband') ? 6 : 0) +
     (g.policies.has('surveillance_program') ? 8 : 0) +
@@ -98,9 +135,11 @@ export function simTick(g: GameState): void {
       inc *= 0.5 + 0.5 * computeSat;
       if (g.policies.has('corporate_incentives')) inc *= 0.7; // we gave away the margin
     }
-    income += inc;
+    income += inc * buildingCondition(b);
   }
   income += g.population * 0.06 * clamp01(1 - unemployment); // income tax
+  // A tight housing market extracts rent — and the rent gets taxed.
+  income += g.population * 0.02 * g.housingShortage;
   if (g.policies.has('automation_tax')) {
     income += [...g.buildings.values()].filter((b) => b.type === 'auto_factory' && b.active).length * 6;
   }
@@ -122,18 +161,37 @@ export function simTick(g: GameState): void {
   g.resources.data += dataRate;
 
   // ---------- Pollution field ----------
-  diffusePollution(g, pollutionEmit);
+  diffusePollution(g);
 
-  // ---------- Population ----------
+  // ---------- Population: exogenous migration pressure ----------
   const desirability =
     0.3 * utilitySat +
     0.2 * clamp01(1 - g.pollutionAvg * 2) +
     0.2 * (g.indicators.health / 100) +
     0.15 * clamp01(1 - unemployment) +
     0.15 * (g.indicators.futureConfidence / 100);
+
+  // The wider world keeps producing people who want in. Demand grows with
+  // time and tier, accelerates when the region is attractive, and only bleeds
+  // away slowly when it isn't — growth is absorbed, not authorized.
+  const pull = 0.35 + desirability;
+  g.migrationDemand += (1.4 + g.tick * 0.012) * T.mig * pull;
+  if (desirability < 0.35) g.migrationDemand -= g.migrationDemand * 0.025;
+  g.migrationDemand = Math.max(20, Math.min(g.migrationDemand, g.population * 3 + 500));
+
   const capacity = Math.max(20, housing);
-  const target = capacity * (0.5 + desirability * 0.7);
+  // People squeeze in ~10% past nominal capacity when they're desperate.
+  const target = Math.min(g.migrationDemand, capacity * 1.1) * (0.5 + desirability * 0.55);
   g.population = Math.max(10, Math.round(approach(g.population, target, Math.max(2, g.population * 0.03))));
+  g.peakPopulation = Math.max(g.peakPopulation, g.population);
+
+  // Unmet demand is not a tidy cap — it is a shortage with consequences.
+  g.housingShortage = clamp01((g.migrationDemand - capacity) / Math.max(60, g.migrationDemand));
+
+  // Stagnation is a choice with costs: investment follows growth.
+  const growth = (g.population - g.lastPopulation) / Math.max(20, g.lastPopulation);
+  g.lastPopulation = g.population;
+  g.resources.capital += income * Math.max(-0.12, Math.min(0.18, growth * 6)); // investor sentiment on top of base income
 
   // ---------- Corporate influence ----------
   const computeFootprint = done.filter((b) => BUILDING_DEFS[b.type].category === 'compute').length;
@@ -156,11 +214,22 @@ export function simTick(g: GameState): void {
   ind.convenience = clamp(approach(ind.convenience,
     30 + a.consumer * cs * 90 + (g.policies.has('public_broadband') ? 8 : 0) + utilitySat * 10, 2.2));
 
+  // The expectations ratchet: citizens quickly normalize whatever service
+  // level they get, and only very slowly forgive its loss. Yesterday's luxury
+  // is today's baseline and tomorrow's grievance.
+  if (ind.convenience > g.expectations) {
+    g.expectations = Math.min(100, g.expectations + (ind.convenience - g.expectations) * 0.05 * T.exp);
+  } else {
+    g.expectations = Math.max(25, g.expectations - 0.05);
+  }
+  const expectationGap = Math.max(0, g.expectations - ind.convenience);
+
   // Health: hospitals + healthcare compute − pollution − psych toll of heavy consumer tech.
   const hospitals = done.filter((b) => b.type === 'hospital' && b.active).length;
   const careCapacity = clamp01((hospitals * 260 * (0.6 + a.healthcare * cs * 1.2)) / Math.max(1, g.population));
   ind.health = clamp(approach(ind.health,
-    35 + careCapacity * 45 - g.pollutionAvg * 55 - Math.max(0, ind.convenience - 70) * 0.25 + (done.some((b) => b.type === 'park') ? 4 : 0), 1.6));
+    35 + careCapacity * 45 - g.pollutionAvg * 55 - Math.max(0, ind.convenience - 70) * 0.25 - g.housingShortage * 9
+      + (done.some((b) => b.type === 'park') ? 4 : 0), 1.6));
 
   // Connection: parks/plazas help; heavy consumer tech isolates.
   const greens = done.filter((b) => b.type === 'park' || b.type === 'plaza').length;
@@ -181,11 +250,13 @@ export function simTick(g: GameState): void {
   ind.trust = clamp(approach(ind.trust,
     55 + (g.policies.has('data_privacy') ? 8 : 0) - g.corporateInfluence * 25
       - (g.policies.has('moderation_ai') ? 6 : 0) + (g.policies.has('moderation_ai') ? 6 * cs * a.government : 0)
-      - g.unrest * 20 - Math.max(0, g.asi.emergence - 40) * 0.2, 1.2));
+      - g.unrest * 20 - g.housingShortage * 8 - Math.max(0, g.asi.emergence - 40) * 0.2, 1.2));
 
-  // Future confidence follows the blend.
+  // Future confidence follows the blend — plus visible momentum, minus the
+  // gap between what people have and what they now consider normal.
   ind.futureConfidence = clamp(approach(ind.futureConfidence,
-    (ind.convenience * 0.2 + ind.health * 0.25 + ind.security * 0.2 + ind.trust * 0.2 + clamp01(1 - unemployment) * 100 * 0.15), 1.5));
+    (ind.convenience * 0.2 + ind.health * 0.25 + ind.security * 0.2 + ind.trust * 0.2 + clamp01(1 - unemployment) * 100 * 0.15)
+      + Math.max(-10, Math.min(8, growth * 300)) - expectationGap * 0.2 - g.housingShortage * 6, 1.5));
 
   // ---------- Unrest ----------
   const grievance =
@@ -193,7 +264,9 @@ export function simTick(g: GameState): void {
     Math.max(0, 50 - ind.agency) / 120 +
     unemployment * (g.policies.has('ubi') ? 0.3 : 0.8) +
     Math.max(0, g.pollutionAvg - 0.15) * 1.2 +
-    Math.max(0, 1 - utilitySat) * 0.8;
+    Math.max(0, 1 - utilitySat) * 0.8 +
+    g.housingShortage * 0.35 +
+    expectationGap / 140;
   const pacification = a.consumer * cs * 0.5 + (g.policies.has('surveillance_program') ? 0.1 : 0);
   g.unrest = clamp01(approach(g.unrest, clamp01(grievance - pacification), 0.04));
 
@@ -212,14 +285,40 @@ export function simTick(g: GameState): void {
     if (powerSat < 0.85 && g.tick % 4 === 0) notify(g, 'Grid strain: electricity demand is outpacing capacity.', 'warn');
     if (waterSat < 0.85 && g.tick % 4 === 0) notify(g, 'Water reserves are running low. Cooling towers are thirsty.', 'warn');
     if (g.resources.capital < 0 && g.tick % 3 === 0) notify(g, 'The budget is in deficit.', 'warn');
+    if (g.housingShortage > 0.3 && g.tick % 5 === 0) notify(g, `Housing shortage: ${Math.round(g.migrationDemand - capacity)} would-be residents cannot find homes.`, 'warn');
+  }
+
+  // ---------- Slow-burn failure counters ----------
+  const fc = g.failCounters;
+  fc.blackout = utilitySat < 0.5 ? fc.blackout + 1 : 0;
+  fc.approval = (ind.trust + ind.futureConfidence) / 2 < 25 ? fc.approval + 1 : 0;
+  fc.environment = g.pollutionAvg > 0.35 ? fc.environment + 1 : 0;
+  const inactiveShare = done.length > 4 ? done.filter((b) => !b.active).length / done.length : 0;
+  fc.inactive = inactiveShare > 0.5 ? fc.inactive + 1 : 0;
+
+  if (!g.asi.observer) {
+    if (fc.blackout === 5) notify(g, 'Sustained blackouts and dry taps. The region cannot absorb much more of this.', 'warn');
+    if (fc.approval === 5) notify(g, 'A recall petition is circulating. Your administration is losing its mandate.', 'warn');
+    if (fc.environment === 6) notify(g, 'Air-quality alerts have become a daily fixture. Doctors are going on record.', 'warn');
   }
 
   // ---------- Conventional failure states ----------
-  if (!g.gameOver) {
+  // Visible, recognizable failures — unlike the other ending, which arrives
+  // while the numbers are improving.
+  if (!g.gameOver && !g.asi.observer) {
     if (g.resources.capital < -600) g.gameOver = 'Bankruptcy. The region enters receivership; a consortium of technology firms offers to administer essential services.';
     else if (g.unrest > 0.92) g.gameOver = 'Uncontrolled civil unrest. The regional government is dissolved after months of blockades and blackouts.';
     else if (g.indicators.health < 8) g.gameOver = 'Public-health collapse. The region empties as those who can afford to leave do so.';
-    if (g.gameOver && !g.asi.observer) notify(g, g.gameOver, 'system');
+    else if (fc.blackout >= 10) g.gameOver = 'Grid and water-system failure. After months of cascading outages, essential services cannot be restarted with the staff that remain.';
+    else if (fc.inactive >= 8) g.gameOver = 'Infrastructure collapse. Most of the region\'s facilities have gone dark, and there is no capacity left to bring them back.';
+    else if (fc.approval >= 10) g.gameOver = 'Political removal. The recall election is not close. Your successor promises "smarter, data-driven administration."';
+    else if (fc.environment >= 12) g.gameOver = 'Environmental catastrophe. The region is declared unfit for habitation; remediation is projected in decades.';
+    else if (g.corporateInfluence > 0.85) g.gameOver = 'Corporate takeover. The consortium now operates every essential system. Your office is retained for signatures.';
+    else if (g.peakPopulation > 150 && g.population < g.peakPopulation * 0.3) g.gameOver = 'Mass migration. The region empties; the last census team does not bother finishing.';
+    if (g.gameOver) {
+      notify(g, g.gameOver, 'system');
+      record(g, 'system', `Administration terminated: ${g.gameOver}`);
+    }
   }
 
   // ---------- ASI & events ----------
@@ -232,12 +331,14 @@ export function computeSatisfaction(g: GameState): number {
   return d > 0 ? Math.min(1, g.resources.compute / d) : 1;
 }
 
-function diffusePollution(g: GameState, emitted: number): void {
+function diffusePollution(g: GameState): void {
   // Deposit pollution around emitting buildings, then decay + average.
   for (const b of g.buildings.values()) {
     if (b.progress < 1 || !b.active) continue;
     const def = BUILDING_DEFS[b.type];
     if (def.pollution === 0) continue;
+    // Worn plants run dirtier; parks absorb regardless of age.
+    const wear = def.pollution > 0 ? 2 - buildingCondition(b) : 1;
     const radius = def.pollution > 0 ? 6 : 3;
     const cx = b.x + def.w / 2, cy = b.y + def.h / 2;
     for (let dy = -radius; dy <= radius; dy++) {
@@ -247,7 +348,7 @@ function diffusePollution(g: GameState, emitted: number): void {
         const dist = Math.hypot(dx, dy);
         if (dist > radius) continue;
         const falloff = (1 - dist / radius) * 0.012;
-        t.pollution = Math.max(0, Math.min(1, t.pollution + def.pollution * falloff));
+        t.pollution = Math.max(0, Math.min(1, t.pollution + def.pollution * wear * falloff));
       }
     }
   }
