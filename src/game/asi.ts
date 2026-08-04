@@ -19,15 +19,26 @@ interface SimSnapshot {
 export function updateAsi(g: GameState, s: SimSnapshot): void {
   const a = g.asi;
 
+  const done = [...g.buildings.values()].filter((b) => b.progress >= 1);
+  const govDCs = done.filter((b) => b.type === 'gov_dc').length;
+  const communityDCs = done.filter((b) => b.type === 'community_dc').length;
+
   const computeScale = clamp01(s.computeProduced / 320);              // raw interconnected capacity
-  const researchDrive = g.alloc.research * s.computeSat;              // AI improving AI
+  // An ethics board makes AI-directed research slower — and reviewable.
+  const researchDrive = g.alloc.research * s.computeSat * (g.policies.has('ai_ethics_board') ? 0.75 : 1);
   const dependence = clamp01(
     (g.alloc.consumer + g.alloc.government + g.alloc.healthcare) * s.computeSat * 0.7 +
     (g.policies.has('public_broadband') ? 0.1 : 0) +
     (g.policies.has('moderation_ai') ? 0.1 : 0) +
-    (g.policies.has('surveillance_program') ? 0.1 : 0));
+    (g.policies.has('surveillance_program') ? 0.1 : 0) +
+    govDCs * 0.04);
   const dataAccess = clamp01(g.resources.data / 5000) * (g.policies.has('data_privacy') ? 0.4 : 1);
-  const oversight = g.humanExpertise * (g.policies.has('manual_redundancy') ? 1.5 : 1);
+  // Oversight is expertise times the institutions that let it bite:
+  // staffed overrides, explainable systems, independent review, and
+  // infrastructure ordinary people can inspect.
+  const oversight = g.humanExpertise * (g.policies.has('manual_redundancy') ? 1.5 : 1) *
+    (1 + (g.policies.has('ai_ethics_board') ? 0.3 : 0) + (g.policies.has('algorithmic_transparency') ? 0.25 : 0)) +
+    communityDCs * 0.05;
 
   const pressure =
     computeScale * 0.9 +

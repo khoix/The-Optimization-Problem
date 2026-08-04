@@ -5,7 +5,7 @@
 
 import type { BuildingType, GameState, PolicyId } from '../game/types';
 import { BUILDING_DEFS, BUILD_MENU_ORDER } from '../game/buildings';
-import { POLICY_DEFS, POLICY_ORDER } from '../game/policies';
+import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
@@ -40,6 +40,7 @@ export class UI {
   private observerOverlay!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
+  private lastBuildMenuKey = '';
   private allocDragging = false;
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
@@ -204,15 +205,18 @@ export class UI {
     }
 
     const pol = bodies.Policies;
-    for (const id of POLICY_ORDER) {
-      const def = POLICY_DEFS[id];
-      const row = el('div', 'policy-row');
-      const btn = el('button', 'policy-toggle');
-      btn.dataset.policy = id;
-      btn.onclick = () => this.togglePolicy(id, btn);
-      const text = el('div', 'policy-text', `<b>${def.name}</b><br><small>${def.desc}</small>`);
-      row.append(btn, text);
-      pol.append(row);
+    for (const [cat, catLabel] of POLICY_CATEGORIES) {
+      pol.append(el('div', 'cat-label', catLabel));
+      for (const id of POLICY_ORDER.filter((p) => POLICY_DEFS[p].category === cat)) {
+        const def = POLICY_DEFS[id];
+        const row = el('div', 'policy-row');
+        const btn = el('button', 'policy-toggle');
+        btn.dataset.policy = id;
+        btn.onclick = () => this.togglePolicy(id, btn);
+        const text = el('div', 'policy-text', `<b>${def.name}</b><br><small>${def.desc}</small>`);
+        row.append(btn, text);
+        pol.append(row);
+      }
     }
 
     const sys = el('div', 'sys-section');
@@ -407,8 +411,18 @@ export class UI {
       document.body.classList.toggle('phase4', g.asi.phase >= 4);
       document.body.classList.toggle('phase5', g.asi.phase >= 5);
       document.body.classList.toggle('observer', g.asi.observer);
-      this.renderBuildPanel();
       if (g.asi.observer) this.enterObserverMode();
+    }
+
+    // Rebuild the construction menu when the set of available buildings
+    // changes (compute unlocks, phase restrictions).
+    const menuKey = BUILD_MENU_ORDER
+      .filter((t) => buildableTypes(g).has(t))
+      .filter((t) => !BUILDING_DEFS[t].unlockCompute || g.resources.compute >= BUILDING_DEFS[t].unlockCompute)
+      .join(',');
+    if (menuKey !== this.lastBuildMenuKey) {
+      this.lastBuildMenuKey = menuKey;
+      this.renderBuildPanel();
     }
 
     // Top bar --------------------------------------------------------------

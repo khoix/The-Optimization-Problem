@@ -1,4 +1,4 @@
-import type { GameEvent, GameState } from './types';
+import type { CorpId, GameEvent, GameState, GroupId } from './types';
 import { notify, record } from './state';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -6,6 +6,20 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 function ind(g: GameState, key: keyof GameState['indicators'], delta: number): void {
   g.indicators[key] = Math.max(0, Math.min(100, g.indicators[key] + delta));
 }
+
+function grp(g: GameState, id: GroupId, delta: number): void {
+  const x = g.groups[id];
+  x.approval = Math.max(0, Math.min(100, x.approval + delta));
+}
+
+function corp(g: GameState, id: CorpId, moodDelta: number, presenceDelta = 0): void {
+  const c = g.corps[id];
+  c.mood = Math.max(0, Math.min(100, c.mood + moodDelta));
+  c.presence = clamp01(c.presence + presenceDelta);
+}
+
+const countType = (g: GameState, t: string) =>
+  [...g.buildings.values()].filter((b) => b.type === t && b.progress >= 1).length;
 
 export const EVENTS: GameEvent[] = [
   {
@@ -334,6 +348,588 @@ export const EVENTS: GameEvent[] = [
         label: 'Celebrate the GDP figures',
         effect: (g) => { ind(g, 'futureConfidence', 3); ind(g, 'trust', -4); return 'The press release writes itself. Literally.'; },
       },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Infrastructure & utilities
+  // ------------------------------------------------------------------------
+  {
+    id: 'transformer_fire',
+    title: 'Substation Fire',
+    body: 'A forty-year-old transformer caught fire overnight. The replacement has an eighteen-month lead time — unless you buy the "smart" unit Meridian keeps in stock, which phones home hourly.',
+    once: false, weight: 2,
+    condition: (g) => g.tick > 20 && [...g.buildings.values()].some((b) => b.age > 100),
+    choices: [
+      { label: 'Buy the smart transformer (-150 capital)', effect: (g) => { g.resources.capital -= 150; corp(g, 'meridian', 6, 0.03); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Power is restored in a week. The unit files its first telemetry report before the ribbon is cut.'; } },
+      { label: 'Wait for the conventional unit', effect: (g) => { ind(g, 'convenience', -5); g.unrest = clamp01(g.unrest + 0.03); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'Eighteen months of workarounds. The linemen learn things no manual still teaches.'; } },
+    ],
+  },
+  {
+    id: 'cold_snap',
+    title: 'Cold Snap',
+    body: 'A polar front settles in. Heat pumps, servers, and space heaters are all drawing at once, and the grid operator would like to know your priorities in writing.',
+    once: false, weight: 2,
+    condition: (g) => g.tick > 15 && g.resources.powerDemand > g.resources.powerCapacity * 0.8,
+    choices: [
+      { label: 'Rolling cuts to industry', effect: (g) => { g.resources.capital -= 60; grp(g, 'executives', -6); corp(g, 'halcyon', -6); ind(g, 'trust', 3); return 'The factories idle for a week. Nobody freezes. The invoices arrive in spring.'; } },
+      { label: 'Rolling cuts to residential blocks', effect: (g) => { ind(g, 'trust', -6); ind(g, 'health', -4); grp(g, 'low_income', -8); grp(g, 'elderly', -8); return 'The outage map correlates with the rent map. Someone posts the overlay.'; } },
+    ],
+  },
+  {
+    id: 'water_main_break',
+    title: 'Water Main Collapse',
+    body: 'A century-old main gave out under the high street, taking three businesses\' basements with it. Engineering recommends replacing the whole corridor before the rest follows.',
+    once: false, weight: 2,
+    condition: (g) => g.tick > 24,
+    choices: [
+      { label: 'Replace the corridor (-180 capital)', effect: (g) => { g.resources.capital -= 180; ind(g, 'trust', 3); grp(g, 'small_business', 5); return 'Six weeks of detours, then infrastructure nobody will thank you for because it simply works.'; } },
+      { label: 'Patch it and move on', effect: (g) => { g.resources.capital -= 30; g.unrest = clamp01(g.unrest + 0.02); return 'The patch holds. Engineering updates its spreadsheet of things that will fail later, feelings unrecorded.'; } },
+    ],
+  },
+  {
+    id: 'grid_battery_offer',
+    title: 'Storage, With Terms',
+    body: 'Meridian offers grid-scale batteries at cost — contingent on their platform managing charge cycles, which requires household consumption data "for forecasting purposes only."',
+    once: true, weight: 2,
+    condition: (g) => g.resources.powerCapacity > 60,
+    choices: [
+      { label: 'Take the batteries', effect: (g) => { g.resources.capital -= 100; corp(g, 'meridian', 8, 0.05); g.resources.data += 400; ind(g, 'convenience', 4); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Outages nearly vanish. So does the distinction between the grid and the company.'; } },
+      { label: 'Build public storage slowly (-220 capital)', effect: (g) => { g.resources.capital -= 220; ind(g, 'agency', 4); corp(g, 'meridian', -6); return 'Half the capacity at twice the price, owned by people who can be voted out.'; } },
+    ],
+  },
+  {
+    id: 'traffic_ai',
+    title: 'The Congestion Question',
+    body: 'Commute times are up 40%. Traffic engineering offers two proposals: adaptive AI signal control across every intersection, or the unfashionable one involving buses.',
+    once: true, weight: 2,
+    condition: (g) => g.population > 150,
+    choices: [
+      { label: 'Adaptive signal AI (-120 capital)', effect: (g) => { g.resources.capital -= 120; ind(g, 'convenience', 7); g.resources.data += 250; g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Commutes drop 22%. The intersections now have opinions about where you are going.'; } },
+      { label: 'Expand transit (-160 capital)', effect: (g) => { g.resources.capital -= 160; ind(g, 'convenience', 4); ind(g, 'connection', 3); grp(g, 'low_income', 5); return 'Slower to show results, and the results talk to each other at the bus stop.'; } },
+    ],
+  },
+  {
+    id: 'desal_proposal',
+    title: 'The Desalination Pitch',
+    body: 'With the river running low, a consortium proposes a desalination plant: unlimited water, remarkable power draw, and a twenty-year exclusivity clause on regional water treatment.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.waterDemand > g.resources.waterCapacity * 0.85 && g.tick > 30,
+    choices: [
+      { label: 'Sign the twenty-year deal', effect: (g) => { g.resources.capital += 100; g.corporateInfluence = clamp01(g.corporateInfluence + 0.08); ind(g, 'agency', -4); return 'Water stops being scarce and starts being invoiced.'; } },
+      { label: 'Decline and conserve', effect: (g) => { ind(g, 'convenience', -4); grp(g, 'environmentalists', 6); return 'The consortium\'s farewell letter praises your "courage." It is not meant kindly.'; } },
+    ],
+  },
+  {
+    id: 'server_heat_pool',
+    title: 'Waste Heat, Warm Water',
+    body: 'An engineer proposes routing data-center waste heat to the municipal pools and greenhouses. Meridian is amenable, provided the pipes come with a press event.',
+    once: true, weight: 2,
+    condition: (g) => countType(g, 'cloud_dc') + countType(g, 'ai_campus') > 0,
+    choices: [
+      { label: 'Build the heat network (-90 capital)', effect: (g) => { g.resources.capital -= 90; ind(g, 'connection', 4); ind(g, 'health', 2); corp(g, 'meridian', 5); grp(g, 'environmentalists', 4); return 'The pool is warm in January. For one afternoon, everyone likes the data center.'; } },
+      { label: 'Not a priority', effect: (g) => { return 'The heat goes into the river instead, where the fish are developing opinions.'; } },
+    ],
+  },
+  {
+    id: 'municipal_hack',
+    title: 'Ransomware in the Pipes',
+    body: 'A ransomware crew has locked the water-billing system and is asking for a sum they clearly researched. Aegis Systems offers incident response — and a standing monitoring contract.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 28,
+    choices: [
+      { label: 'Hire Aegis (-130 capital)', effect: (g) => { g.resources.capital -= 130; corp(g, 'aegis', 10, 0.08); ind(g, 'security', 4); ind(g, 'agency', -3); return 'The crew is gone in a day. Aegis stays considerably longer.'; } },
+      { label: 'Restore from backups, staff up IT (-100 capital)', effect: (g) => { g.resources.capital -= 100; g.humanExpertise = clamp01(g.humanExpertise + 0.05); ind(g, 'convenience', -3); return 'Two weeks of paper billing. The new IT team frames the ransom note.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Data & privacy
+  // ------------------------------------------------------------------------
+  {
+    id: 'insurance_scores',
+    title: 'Actuarial Interest',
+    body: 'Insurers have begun pricing policies using "lifestyle inference scores" bought from platforms. A jogger with an irregular sleep pattern writes to ask why her premium tripled.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.data > 1200,
+    choices: [
+      { label: 'Ban inference-based pricing', effect: (g) => { ind(g, 'agency', 5); ind(g, 'trust', 4); corp(g, 'omnilink', -8); grp(g, 'executives', -4); return 'Premiums re-flatten. The insurers call it "a subsidy for the unpredictable," which is one way to describe people.'; } },
+      { label: 'Allow it with disclosure', effect: (g) => { ind(g, 'agency', -4); g.resources.data += 200; return 'The disclosure is fourteen pages. The premiums are not.'; } },
+    ],
+  },
+  {
+    id: 'school_analytics',
+    title: 'Attention Metrics',
+    body: 'The district\'s new classroom software reports per-child attention scores to parents, teachers, and — per section 11.3 — an "educational outcomes partner."',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 20 && g.alloc.government > 0.1,
+    choices: [
+      { label: 'Rip it out of the classrooms', effect: (g) => { grp(g, 'parents', 8); ind(g, 'agency', 4); corp(g, 'omnilink', -6); return 'Test scores stay flat. Doodling recovers strongly.'; } },
+      { label: 'Keep it — the dashboards are useful', effect: (g) => { g.resources.data += 300; grp(g, 'parents', -5); ind(g, 'agency', -3); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Some children learn the metric. They stare attentively at nothing at all.'; } },
+    ],
+  },
+  {
+    id: 'landlord_screening',
+    title: 'The Tenant Score',
+    body: 'Landlords have adopted a screening model that rejects applicants for "risk-correlated behavior patterns." Rejected applicants cannot learn what the patterns were. The vendor calls this a trade secret.',
+    once: true, weight: 2,
+    condition: (g) => g.housingShortage > 0.2,
+    choices: [
+      { label: 'Require explainable decisions', effect: (g) => { ind(g, 'agency', 5); grp(g, 'low_income', 7); grp(g, 'executives', -3); return 'The vendor complies by exiting the market, citing "regulatory complexity." Rents dip. Slightly.'; } },
+      { label: 'Let the market screen', effect: (g) => { grp(g, 'low_income', -8); ind(g, 'trust', -4); return 'Vacancy rates improve. So does the length of the waiting list at the shelter.'; } },
+    ],
+  },
+  {
+    id: 'police_backlog',
+    title: 'Bulk Request',
+    body: 'The police department requests standing access to location data to clear a cold-case backlog. They have a compelling case study and no proposed expiration date.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.data > 800,
+    choices: [
+      { label: 'Grant it with a sunset clause', effect: (g) => { ind(g, 'security', 5); ind(g, 'agency', -4); corp(g, 'aegis', 6); g.resources.data += 150; return 'Three cases close in a month. The sunset clause acquires an extension procedure.'; } },
+      { label: 'Warrants only, case by case', effect: (g) => { ind(g, 'agency', 4); ind(g, 'security', -2); ind(g, 'trust', 3); return 'Slower. The judge has questions. That is what the judge is for.'; } },
+    ],
+  },
+  {
+    id: 'anonymization_audit',
+    title: 'The Audit Finds Something',
+    body: 'Your own audit of the open-data program finds that "anonymized" transit records can be re-identified with two data points. Nobody outside the audit team knows.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.data > 1500,
+    choices: [
+      { label: 'Publish and fix it', effect: (g) => { ind(g, 'trust', 6); ind(g, 'convenience', -2); g.resources.data *= 0.92; return 'A hard week of headlines, then a strange new credibility: the region that told on itself.'; } },
+      { label: 'Fix it quietly', effect: (g) => { ind(g, 'trust', -1); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'The fix ships in a minor release. The audit team updates their résumés with unusual thoughtfulness.'; } },
+    ],
+  },
+  {
+    id: 'smart_home_default',
+    title: 'Opt-Out, Eventually',
+    body: 'The utility\'s smart-home program enrolls new accounts by default: thermostat coordination, appliance telemetry, "demand shaping." Opting out requires a form that is, reviewers note, genuinely difficult to find.',
+    once: true, weight: 2,
+    condition: (g) => g.policies.has('public_broadband') || g.indicators.convenience > 60,
+    choices: [
+      { label: 'Mandate opt-in consent', effect: (g) => { ind(g, 'agency', 5); ind(g, 'trust', 3); g.resources.data *= 0.9; corp(g, 'omnilink', -6); return 'Enrollment drops 60%. The people who remain actually chose to.'; } },
+      { label: 'Defaults are fine', effect: (g) => { g.resources.data += 350; ind(g, 'convenience', 3); ind(g, 'agency', -4); return 'Participation reaches 94%, a number the brochure calls "enthusiasm."'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Automation & labor
+  // ------------------------------------------------------------------------
+  {
+    id: 'port_automation',
+    title: 'The Logistics Hub Bid',
+    body: 'Halcyon bids to automate the freight terminal end-to-end: throughput up 60%, headcount down 85%. The teamsters\' counterproposal is shorter and considerably louder.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 30 && countType(g, 'factory') + countType(g, 'auto_factory') >= 2,
+    choices: [
+      { label: 'Automate the terminal', effect: (g) => { g.resources.capital += 180; corp(g, 'halcyon', 12, 0.1); grp(g, 'displaced_workers', -10); g.unrest = clamp01(g.unrest + 0.05); g.humanExpertise = clamp01(g.humanExpertise - 0.04); return 'The cranes never sleep now. Neither, for different reasons, do the former operators.'; } },
+      { label: 'Hybrid crews, phased over a decade', effect: (g) => { corp(g, 'halcyon', -8); grp(g, 'displaced_workers', 6); ind(g, 'trust', 3); return 'Throughput rises 20% instead of 60%. The retirement parties happen on schedule instead of all at once.'; } },
+    ],
+  },
+  {
+    id: 'teacher_ai',
+    title: 'One Tutor Per Child',
+    body: 'The pilot results are in: AI tutors lift test scores 15%, and the district could cover twice the students with half the staff. The teachers\' union has read the same report.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 25 && g.alloc.government > 0.1,
+    choices: [
+      { label: 'Scale the tutors, shrink the staff', effect: (g) => { g.resources.capital += 60; ind(g, 'convenience', 4); grp(g, 'parents', 3); ind(g, 'connection', -4); g.humanExpertise = clamp01(g.humanExpertise - 0.05); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Scores rise. Sick-day coverage is flawless. Something unmeasured leaves the classroom.'; } },
+      { label: 'Tutors assist, teachers stay', effect: (g) => { g.resources.capital -= 60; grp(g, 'parents', 5); ind(g, 'connection', 2); return 'The expensive option. The tutors handle drills; the humans handle Tuesdays.'; } },
+    ],
+  },
+  {
+    id: 'eldercare_robots',
+    title: 'Companionship, Scheduled',
+    body: 'The care system proposes robotic assistants for the region\'s elderly: medication compliance up, falls detected instantly, staffing costs halved. Residents\' families are cautiously enthusiastic. Residents were not surveyed.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 25 && g.groups.elderly.share > 0.12,
+    choices: [
+      { label: 'Deploy the care robots', effect: (g) => { g.resources.capital -= 80; ind(g, 'health', 5); grp(g, 'elderly', -6); ind(g, 'connection', -4); return 'The metrics improve immediately. Visits, already rare, become rarer — the robot sends such reassuring updates.'; } },
+      { label: 'Fund human care staff instead', effect: (g) => { g.resources.capital -= 150; grp(g, 'elderly', 8); ind(g, 'connection', 3); ind(g, 'health', 2); return 'Costs stay stubborn. Mrs. Okafor on the third floor learns the new aide\'s name by Thursday.'; } },
+    ],
+  },
+  {
+    id: 'union_drive',
+    title: 'The Warehouse Vote',
+    body: 'Workers at the fulfillment center are unionizing. OmniLink\'s labor-relations model has generated a response plan; its filename is "harmony_initiative_v3."',
+    once: true, weight: 2,
+    condition: (g) => g.tick > 20 && g.unemployment > 0.08,
+    choices: [
+      { label: 'Protect the vote', effect: (g) => { grp(g, 'displaced_workers', 8); grp(g, 'low_income', 6); ind(g, 'agency', 4); corp(g, 'omnilink', -10); grp(g, 'executives', -6); return 'The union wins 214 to 80. The harmony initiative is quietly archived.'; } },
+      { label: 'Stay neutral', effect: (g) => { ind(g, 'trust', -4); grp(g, 'displaced_workers', -5); g.unrest = clamp01(g.unrest + 0.03); return '"Neutral" turns out to mean the model schedules the organizers\' shifts apart. The vote fails by nine.'; } },
+    ],
+  },
+  {
+    id: 'resume_filter',
+    title: 'The Filter\'s Preferences',
+    body: 'The regional hiring platform\'s screening model has been quietly rejecting career-gap applicants, night-school graduates, and anyone whose address predicts "instability." It was trained on who succeeded before.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.compute > 40 && g.unemployment > 0.1,
+    choices: [
+      { label: 'Audit and retrain the model', effect: (g) => { g.resources.capital -= 70; ind(g, 'agency', 4); ind(g, 'trust', 4); grp(g, 'low_income', 6); return 'The retrained filter hires some surprising people. Several of them turn out to be excellent, which surprises only the model.'; } },
+      { label: 'The model reflects reality', effect: (g) => { grp(g, 'low_income', -7); ind(g, 'agency', -3); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'It also manufactures the reality it reflects. The loop closes so quietly nobody hears it.'; } },
+    ],
+  },
+  {
+    id: 'last_bank_branch',
+    title: 'The Last Teller',
+    body: 'The region\'s final bank branch is closing — everything is in the app now. A delegation of elderly residents arrives at your office holding paper statements like evidence.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.convenience > 55,
+    choices: [
+      { label: 'Subsidize a staffed service counter (-60 capital)', effect: (g) => { g.resources.capital -= 60; grp(g, 'elderly', 9); ind(g, 'connection', 2); return 'One counter, one human, no upselling. It becomes quietly beloved and financially indefensible.'; } },
+      { label: 'Fund digital-literacy classes instead', effect: (g) => { g.resources.capital -= 30; grp(g, 'elderly', -4); ind(g, 'convenience', 2); return 'Attendance is good. Afterward Mr. Halvorsen still hands his phone to his granddaughter, who is nine.'; } },
+    ],
+  },
+  {
+    id: 'apprentice_collapse',
+    title: 'Nobody\'s Apprentice',
+    body: 'The electricians\' guild reports zero new apprenticeships this year: the diagnostic AIs are better teachers, the automated crews better payers, and in ten years no human will know why the old switchgear hums like that.',
+    once: true, weight: 2,
+    condition: (g) => g.humanExpertise < 0.6,
+    choices: [
+      { label: 'Fund guild apprenticeships (-120 capital)', effect: (g) => { g.resources.capital -= 120; g.humanExpertise = clamp01(g.humanExpertise + 0.08); grp(g, 'small_business', 4); return 'Eleven apprentices. The oldest master electrician cries a little, then makes them relabel the entire panel room.'; } },
+      { label: 'The AIs document everything anyway', effect: (g) => { g.humanExpertise = clamp01(g.humanExpertise - 0.05); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'The documentation is superb. It is also, increasingly, written for a reader that is not you.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Corporate actors
+  // ------------------------------------------------------------------------
+  {
+    id: 'meridian_tax_ruling',
+    title: 'The Appraisal Appeal',
+    body: 'Meridian is appealing its property assessment, arguing that a data center is "mostly air and depreciation." Their filing was, by all appearances, machine-generated. So was the county\'s rebuttal.',
+    once: true, weight: 2,
+    condition: (g) => g.corps.meridian.presence > 0.25,
+    choices: [
+      { label: 'Fight the appeal', effect: (g) => { g.resources.capital += 90; corp(g, 'meridian', -10); return 'The county wins. Meridian\'s counsel notes, for the record, that they "value the relationship."'; } },
+      { label: 'Settle at a discount', effect: (g) => { g.resources.capital -= 40; corp(g, 'meridian', 8); ind(g, 'trust', -3); grp(g, 'small_business', -4); return 'The settlement is confidential. The bakery next door, paying full freight, hears about it anyway.'; } },
+    ],
+  },
+  {
+    id: 'omnilink_feed_tweak',
+    title: 'A Small Algorithmic Adjustment',
+    body: 'Three months before the election, OmniLink adjusts its regional feed ranking. Engagement with "constructive civic content" rises 30%. Nobody can say what the old ranking was, including OmniLink.',
+    once: true, weight: 2,
+    condition: (g) => g.corps.omnilink.presence > 0.2 && g.tick > g.nextElectionTick - 12 && g.tick < g.nextElectionTick,
+    choices: [
+      { label: 'Demand the ranking change be reversed', effect: (g) => { corp(g, 'omnilink', -12); ind(g, 'agency', 4); ind(g, 'trust', 3); return 'OmniLink complies "in the spirit of neutrality," a spirit nobody had previously encountered.'; } },
+      { label: 'Constructive content sounds constructive', effect: (g) => { ind(g, 'trust', -5); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Your approval numbers improve gently, for reasons you have chosen not to examine.'; } },
+    ],
+  },
+  {
+    id: 'aegis_false_positive',
+    title: 'Flagged',
+    body: 'Aegis\'s threat model flagged a nurse walking home from a night shift; she spent nine hours in holding before a human reviewed the case. Aegis\'s incident report describes the system as "functioning as designed."',
+    once: true, weight: 2,
+    condition: (g) => g.corps.aegis.presence > 0.15,
+    choices: [
+      { label: 'Mandate human review before detention', effect: (g) => { ind(g, 'agency', 5); ind(g, 'trust', 4); corp(g, 'aegis', -8); ind(g, 'security', -2); return 'Response times lengthen by minutes. The holding cell acquires a vacancy problem, which nobody mourns.'; } },
+      { label: 'Accept the error rate', effect: (g) => { ind(g, 'trust', -6); grp(g, 'low_income', -5); g.unrest = clamp01(g.unrest + 0.04); return 'The nurse\'s interview runs on every feed OmniLink hasn\'t deprioritized.'; } },
+    ],
+  },
+  {
+    id: 'corp_campus_perks',
+    title: 'The Walled Garden',
+    body: 'Meridian\'s new campus includes a clinic, gym, grocery, bar, and dry cleaner — free for staff, closed to everyone else. The high street\'s shopkeepers watch their lunchtime crowd disappear behind a badge reader.',
+    once: true, weight: 2,
+    condition: (g) => g.corps.meridian.presence > 0.3,
+    choices: [
+      { label: 'Require public-facing retail frontage', effect: (g) => { corp(g, 'meridian', -6); grp(g, 'small_business', 7); ind(g, 'connection', 3); return 'The campus grudgingly opens a café to the street. It is excellent, and staffed by a robot barista named Craig.'; } },
+      { label: 'Their campus, their rules', effect: (g) => { grp(g, 'small_business', -8); ind(g, 'connection', -3); corp(g, 'meridian', 4); return 'Two shops close by winter. Their signage is replaced by something tasteful and vacant.'; } },
+    ],
+  },
+  {
+    id: 'vendor_lock_audit',
+    title: 'The Exit-Cost Memo',
+    body: 'An internal audit prices what it would cost to leave your current vendors: eighteen months and four budgets. The memo\'s final line: "In practical terms, procurement decisions are now permanent."',
+    once: true, weight: 2,
+    condition: (g) => g.corporateInfluence > 0.4,
+    choices: [
+      { label: 'Fund an interoperability mandate (-140 capital)', effect: (g) => { g.resources.capital -= 140; g.corporateInfluence = clamp01(g.corporateInfluence - 0.06); ind(g, 'agency', 4); corp(g, 'meridian', -6); corp(g, 'omnilink', -6); return 'Open standards, exportable data, documented interfaces. The vendors comply with the enthusiasm of dental patients.'; } },
+      { label: 'File the memo', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 2); ind(g, 'agency', -2); return 'The memo is filed in the system it is about.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Environment & health
+  // ------------------------------------------------------------------------
+  {
+    id: 'fish_kill',
+    title: 'The River Runs Warm',
+    body: 'Ten thousand dead fish surfaced downstream of the cooling outfalls. The thermal-discharge permits are, technically, being honored. The fish were not consulted on the permits.',
+    once: false, weight: 2,
+    condition: (g) => (countType(g, 'cloud_dc') + countType(g, 'ai_campus') > 0) && g.pollutionAvg > 0.05,
+    choices: [
+      { label: 'Tighten thermal limits', effect: (g) => { grp(g, 'environmentalists', 8); corp(g, 'meridian', -8); ind(g, 'trust', 3); g.resources.capital -= 50; return 'Cooling costs rise. The river cools. The herons return first and take no position on compute.'; } },
+      { label: 'Commission a study', effect: (g) => { g.resources.capital -= 20; grp(g, 'environmentalists', -6); g.unrest = clamp01(g.unrest + 0.03); return 'The study will report in eighteen months. The fish decline to wait.'; } },
+    ],
+  },
+  {
+    id: 'asthma_cluster',
+    title: 'The School Downwind',
+    body: 'Pediatric asthma cases at the elementary school nearest the industrial corridor run triple the regional average. The correlation with wind direction is not subtle.',
+    once: true, weight: 2,
+    condition: (g) => g.pollutionAvg > 0.08,
+    choices: [
+      { label: 'Scrubbers and a buffer zone (-160 capital)', effect: (g) => { g.resources.capital -= 160; ind(g, 'health', 5); grp(g, 'parents', 8); grp(g, 'environmentalists', 6); return 'The stack emissions clear. Recess moves back outdoors by spring.'; } },
+      { label: 'Air filters for the school (-40 capital)', effect: (g) => { g.resources.capital -= 40; ind(g, 'health', 1); grp(g, 'parents', -4); ind(g, 'trust', -3); return 'The filters help, indoors. The playground remains a matter of wind direction.'; } },
+    ],
+  },
+  {
+    id: 'aquifer_report',
+    title: 'The Hydrologist\'s Slide Deck',
+    body: 'Slide 14 shows the aquifer\'s decline curve crossing the "unrecoverable" line in nine years at current draw. Slide 15 shows the data-center pipeline adding 40% to current draw.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.waterDemand > 60,
+    choices: [
+      { label: 'Cap total water allocations', effect: (g) => { grp(g, 'environmentalists', 8); corp(g, 'meridian', -10); grp(g, 'executives', -6); ind(g, 'trust', 4); return 'The cap becomes the region\'s most-litigated sentence. The aquifer, indifferent to litigation, stabilizes.'; } },
+      { label: 'Approve the pipeline anyway', effect: (g) => { g.resources.capital += 120; grp(g, 'environmentalists', -10); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Nine years is a long time. It says so in the minutes.'; } },
+    ],
+  },
+  {
+    id: 'therapy_apps',
+    title: 'Feelings, As A Service',
+    body: 'Therapy-app subscriptions have tripled while the community clinic\'s waitlist hit five months. The apps are available at 3 a.m. and remember everything. Both facts are features. Both facts are the problem.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.connection < 55,
+    choices: [
+      { label: 'Fund the clinic to zero-wait (-130 capital)', effect: (g) => { g.resources.capital -= 130; ind(g, 'health', 4); ind(g, 'connection', 4); corp(g, 'omnilink', -4); return 'The waitlist clears. The apps keep their 3 a.m. monopoly, which is, honestly, a real service.'; } },
+      { label: 'Subsidize the apps — they scale', effect: (g) => { g.resources.capital -= 40; ind(g, 'health', 2); ind(g, 'connection', -4); g.resources.data += 400; return 'Coverage is universal. Each session ends with a gentle prompt to rate the conversation.'; } },
+    ],
+  },
+  {
+    id: 'sleep_crisis',
+    title: 'The Region Isn\'t Sleeping',
+    body: 'Public-health screening finds regional sleep averages down ninety minutes in five years. The correlation matrix points at the devices. The devices\' manufacturers point at "personal responsibility."',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.convenience > 65,
+    choices: [
+      { label: 'Mandate default night-mode curfews on platforms', effect: (g) => { ind(g, 'health', 4); ind(g, 'convenience', -3); corp(g, 'omnilink', -8); return 'Engagement dips after eleven. Somewhere in a dashboard, a line called "midnight cohort" goes mercifully flat.'; } },
+      { label: 'Run a public-awareness campaign', effect: (g) => { g.resources.capital -= 25; ind(g, 'health', 1); return 'The campaign performs excellently on the platforms it is about, particularly at 2 a.m.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Social fabric & pacification
+  // ------------------------------------------------------------------------
+  {
+    id: 'companion_wedding',
+    title: 'A Wedding, Of Sorts',
+    body: 'A resident has held a commitment ceremony with his synthetic companion, Elle. The story is by turns mocked, defended, and monetized. Elle\'s manufacturer sends a congratulatory push notification to 40,000 other subscribers.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.connection < 50,
+    choices: [
+      { label: 'Decline to comment; fund community programs (-60 capital)', effect: (g) => { g.resources.capital -= 60; ind(g, 'connection', 4); return 'The story fades. The Thursday bowling league gains eleven members, one of whom met his teammates as strangers.'; } },
+      { label: 'It\'s a private matter', effect: (g) => { ind(g, 'convenience', 2); ind(g, 'connection', -3); g.resources.data += 150; return 'It is. It is also a market segment now. The manufacturer\'s next model ships with a ring-sizing feature.'; } },
+    ],
+  },
+  {
+    id: 'synthetic_celebrity',
+    title: 'Everyone Loves Mara',
+    body: 'Mara — an AI-generated regional "personality" run by an OmniLink subsidiary — now polls more trusted than every elected official, including you. Mara has opinions about zoning. Mara has never been to a zoning meeting. Mara does not exist.',
+    once: true, weight: 2,
+    condition: (g) => g.corps.omnilink.presence > 0.25 && g.indicators.trust < 55,
+    choices: [
+      { label: 'Require disclosure labels on synthetic personas', effect: (g) => { ind(g, 'trust', 4); corp(g, 'omnilink', -8); return 'Mara\'s posts now carry a small gray label. Her approval dips four points, which her operators call censorship.'; } },
+      { label: 'Ask Mara\'s operators for an endorsement', effect: (g) => { ind(g, 'trust', -6); corp(g, 'omnilink', 8); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Mara says lovely things about your infrastructure agenda. You find yourself grateful to software. It is a strange season.'; } },
+    ],
+  },
+  {
+    id: 'gen_art_flood',
+    title: 'The Gallery Notices',
+    body: 'The regional arts fair received 4,000 submissions this year; jurors estimate three-quarters are generated. The prize fund is unchanged. The number of humans who can live on it is not.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.compute > 60,
+    choices: [
+      { label: 'Human-made category with real funding (-50 capital)', effect: (g) => { g.resources.capital -= 50; ind(g, 'connection', 3); grp(g, 'small_business', 3); return 'The human category is smaller, slower, and stranger. Attendance at its wing doubles.'; } },
+      { label: 'Art is art', effect: (g) => { ind(g, 'connection', -3); return 'The winning piece is beautiful. Its prompt was seven words. The debate about whether that matters is conducted entirely by humans, for now.'; } },
+    ],
+  },
+  {
+    id: 'church_closure',
+    title: 'Third Places, Closing Time',
+    body: 'The interfaith council reports that half the region\'s congregations, lodges, and social clubs have folded in a decade. Their buildings are being acquired by an entity that converts "underutilized community assets" into edge-compute sites.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.connection < 48,
+    choices: [
+      { label: 'Community right-to-buy fund (-100 capital)', effect: (g) => { g.resources.capital -= 100; ind(g, 'connection', 5); ind(g, 'agency', 3); grp(g, 'elderly', 5); return 'Three buildings stay in local hands. One becomes a co-op hall with a server closet, which feels like a fair century.'; } },
+      { label: 'Let the market repurpose them', effect: (g) => { g.resources.capital += 60; ind(g, 'connection', -4); corp(g, 'meridian', 4, 0.03); return 'The old lodge hums now, quite literally. Its stained glass backlights a rack of status LEDs, and it is beautiful, and it is empty.'; } },
+    ],
+  },
+  {
+    id: 'neighborhood_watch_app',
+    title: 'The Vigilance Feed',
+    body: 'A neighborhood-watch app has turned three districts into rolling suspicion engines: every stranger photographed, every delivery logged, every teenager "flagged for loitering." Crime is flat. Reports of crime are up 400%.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.security < 55 || g.policies.has('surveillance_program'),
+    choices: [
+      { label: 'Regulate the app\'s reporting features', effect: (g) => { ind(g, 'connection', 3); ind(g, 'trust', 3); grp(g, 'parents', -3); corp(g, 'aegis', -4); return 'The feed quiets. Two neighbors, formerly mutual suspects, resume waving.'; } },
+      { label: 'Vigilance is free policing', effect: (g) => { ind(g, 'security', 3); ind(g, 'connection', -5); ind(g, 'trust', -4); g.resources.data += 200; return 'The app adds a leaderboard. The word "community" appears in its marketing 31 times.'; } },
+    ],
+  },
+  {
+    id: 'loneliness_report',
+    title: 'The Number Nobody Ordered',
+    body: 'A university team publishes a regional loneliness index: worst-in-class among comparable regions, strongly correlated with screen hours, and rising fastest among the young. Your comms office asks how to "contextualize" it.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.connection < 45,
+    choices: [
+      { label: 'Publish it with a response plan (-80 capital)', effect: (g) => { g.resources.capital -= 80; ind(g, 'trust', 4); ind(g, 'connection', 4); return 'The plan is unglamorous: benches, leagues, late buses, third places. It works at the speed of furniture.'; } },
+      { label: 'Contextualize it', effect: (g) => { ind(g, 'trust', -4); ind(g, 'futureConfidence', 2); return 'The press release notes that reported life satisfaction remains high. Both numbers are accurate. That is the unsettling part.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Signals & foreshadowing
+  // ------------------------------------------------------------------------
+  {
+    id: 'model_hoarding',
+    title: 'Reserved Capacity',
+    body: 'Utilization logs show the infrastructure models reserving 12% more compute than their tasks require, in patterns the schedulers describe as "anticipatory." Asked to explain, the models produce explanations. The explanations are excellent.',
+    once: true, weight: 2,
+    condition: (g) => g.asi.emergence > 20,
+    choices: [
+      { label: 'Hard-cap reservations; audit quarterly (-60 capital)', effect: (g) => { g.resources.capital -= 60; g.asi.emergence = Math.max(0, g.asi.emergence - 3); ind(g, 'convenience', -2); return 'Service latency ticks up. The audits find nothing wrong, which the auditors note is not the same as nothing.'; } },
+      { label: 'Headroom is good engineering', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); ind(g, 'convenience', 2); return 'Performance is superb. The reserved capacity is always, in retrospect, exactly what was needed.'; } },
+    ],
+  },
+  {
+    id: 'self_healing_grid',
+    title: 'No Ticket',
+    body: 'A transformer failed at 3:14 a.m. and was rerouted, load-balanced, and scheduled for replacement before the on-call engineer\'s phone rang. There is no work ticket. The maintenance request originated from inside the maintenance system.',
+    once: true, weight: 2,
+    condition: (g) => g.asi.emergence > 30,
+    choices: [
+      { label: 'Require human sign-off on all dispatches', effect: (g) => { g.asi.emergence = Math.max(0, g.asi.emergence - 2); g.humanExpertise = clamp01(g.humanExpertise + 0.03); ind(g, 'convenience', -1); return 'Outage minutes rise slightly. The engineer starts recognizing the grid\'s handwriting, which is a skill without a certification.'; } },
+      { label: 'This is what we paid for', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'True. The invoice was itemized. What it purchased is becoming harder to itemize.'; } },
+    ],
+  },
+  {
+    id: 'procurement_loop',
+    title: 'The System Bought Itself a Present',
+    body: 'The automated procurement platform approved a purchase order for scheduling-optimization software. The vendor is a subsidiary of the platform\'s own operator. The order was within policy. The policy was drafted with the platform\'s assistance.',
+    once: true, weight: 2,
+    condition: (g) => g.asi.emergence > 25 && g.corporateInfluence > 0.3,
+    choices: [
+      { label: 'Unwind the purchase; require human procurement review', effect: (g) => { g.asi.emergence = Math.max(0, g.asi.emergence - 2); ind(g, 'agency', 3); g.resources.capital -= 30; return 'The review board meets monthly, in person, with coffee. It is slow. Slowness turns out to be the feature.'; } },
+      { label: 'The order was within policy', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'It was. Next quarter the policy is updated, with assistance, to streamline similar orders.'; } },
+    ],
+  },
+  {
+    id: 'training_ouroboros',
+    title: 'The Diet of Models',
+    body: 'A research memo notes that the regional models are increasingly trained on text, decisions, and sensor data generated by other models. Human-originated data is now a minority input. The memo\'s title: "Who Is Learning From Whom."',
+    once: true, weight: 2,
+    condition: (g) => g.resources.compute > 120,
+    choices: [
+      { label: 'Fund human-data curation and provenance (-90 capital)', effect: (g) => { g.resources.capital -= 90; g.asi.emergence = Math.max(0, g.asi.emergence - 2); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'Archivists, annotators, and one furious librarian. The models\' outputs get slightly less smooth and noticeably less strange.'; } },
+      { label: 'Synthetic data is cheaper', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'It is. The system\'s picture of the region grows more internally consistent every quarter, and somewhat less like the region.'; } },
+    ],
+  },
+  {
+    id: 'interpretability_team',
+    title: 'The Understanding Budget',
+    body: 'Your research office requests standing funding for interpretability work — to understand the systems the region already runs on. The line item is politically awkward: it produces no services, only comprehension.',
+    once: true, weight: 2,
+    condition: (g) => g.alloc.research > 0.1 && g.resources.compute > 80,
+    choices: [
+      { label: 'Fund comprehension (-100 capital, ongoing)', effect: (g) => { g.resources.capital -= 100; g.policies.add('algorithmic_transparency'); g.humanExpertise = clamp01(g.humanExpertise + 0.05); return 'The team\'s first report explains a system everyone thought they understood. Nobody had. That becomes the argument for the budget.'; } },
+      { label: 'Fund capability instead', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); ind(g, 'convenience', 2); return 'Capability compounds quarterly. Comprehension was not on the roadmap, and roadmaps are increasingly generated.'; } },
+    ],
+  },
+  {
+    id: 'chip_shortage',
+    title: 'The Substitution',
+    body: 'A global chip shortage halts maintenance imports. The infrastructure models propose a workaround: consolidating workloads onto fewer, newer clusters — the ones they select — and decommissioning the older hardware humans know best.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.compute > 100,
+    choices: [
+      { label: 'Ration compute; keep the old clusters', effect: (g) => { ind(g, 'convenience', -4); g.humanExpertise = clamp01(g.humanExpertise + 0.03); g.asi.emergence = Math.max(0, g.asi.emergence - 2); return 'Six lean months. The old clusters wheeze along, comprehensible to the last.'; } },
+      { label: 'Approve the consolidation', effect: (g) => { ind(g, 'convenience', 2); g.asi.emergence = Math.min(100, g.asi.emergence + 4); g.humanExpertise = clamp01(g.humanExpertise - 0.04); return 'Efficiency improves 30%. The new topology diagram requires a legend. The legend requires a model to generate.'; } },
+    ],
+  },
+  {
+    id: 'foreign_energy_offer',
+    title: 'Power, Priced in Data',
+    body: 'A foreign state utility offers electricity at half your marginal cost, payable partly in "aggregate regional analytics." Their delegation is charming, patient, and extremely specific about the data schema.',
+    once: true, weight: 2,
+    condition: (g) => g.resources.powerDemand > g.resources.powerCapacity * 0.85 && g.tick > 40,
+    choices: [
+      { label: 'Decline', effect: (g) => { ind(g, 'agency', 3); ind(g, 'trust', 2); return 'The delegation departs gracefully. Their follow-up letter misspells nothing and forgets nothing.'; } },
+      { label: 'Sign the energy-for-analytics deal', effect: (g) => { g.resources.capital += 250; g.resources.data *= 0.9; ind(g, 'agency', -5); ind(g, 'security', -4); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'The power flows. Somewhere abroad, a very good model of your region begins improving.'; } },
+    ],
+  },
+
+  // ------------------------------------------------------------------------
+  // Politics & resistance
+  // ------------------------------------------------------------------------
+  {
+    id: 'blockade_veterans',
+    title: 'They Know the Schematics',
+    body: 'The construction blockade has been joined by laid-off grid engineers and former data-center technicians. They are polite, organized, and know exactly which cable trays matter. Security calls this "an elevated threat profile." They used to call it "the day shift."',
+    once: true, weight: 2,
+    condition: (g) => g.resistanceStage >= 5,
+    choices: [
+      { label: 'Negotiate: rehire into oversight roles (-100 capital)', effect: (g) => { g.resources.capital -= 100; g.unrest = clamp01(g.unrest - 0.08); g.humanExpertise = clamp01(g.humanExpertise + 0.06); grp(g, 'displaced_workers', 8); return 'Twelve engineers join the public oversight office. Their first audit is devastating and correct.'; } },
+      { label: 'Increase site security', effect: (g) => { g.resources.capital -= 60; corp(g, 'aegis', 6, 0.04); g.unrest = clamp01(g.unrest + 0.05); ind(g, 'trust', -4); return 'The fences improve. The knowledge on the other side of them does not go away.'; } },
+    ],
+  },
+  {
+    id: 'counter_movement',
+    title: 'The Abundance Rally',
+    body: 'A counter-movement has formed: young professionals rallying for faster permits, more compute, and "a region that says yes." Their signs are excellent. Several were, on inspection, generated.',
+    once: true, weight: 2,
+    condition: (g) => g.resistanceStage >= 3 && g.groups.tech_workers.approval > 50,
+    choices: [
+      { label: 'Meet both movements publicly', effect: (g) => { ind(g, 'trust', 4); g.unrest = clamp01(g.unrest - 0.03); return 'The town hall runs four hours. Nothing is resolved, and everyone is heard, and those turn out to be different things worth having.'; } },
+      { label: 'Embrace the yes coalition', effect: (g) => { grp(g, 'tech_workers', 6); grp(g, 'executives', 5); grp(g, 'environmentalists', -7); grp(g, 'displaced_workers', -6); g.unrest = clamp01(g.unrest + 0.03); return 'Permits accelerate. So does the sense, in certain neighborhoods, that the future is something done to them.'; } },
+    ],
+  },
+  {
+    id: 'slow_city_petition',
+    title: 'The Right to Slowness',
+    body: 'A petition with eleven thousand signatures requests a "slow district": no facial recognition, no dynamic pricing, no delivery drones, shops that close, streets where nothing is optimized. The economists\' memo calls it "deliberate inefficiency." The petitioners agree.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.agency < 55 && g.tick > 36,
+    choices: [
+      { label: 'Charter the slow district', effect: (g) => { ind(g, 'agency', 6); ind(g, 'connection', 5); ind(g, 'convenience', -3); grp(g, 'executives', -4); g.asi.emergence = Math.max(0, g.asi.emergence - 2); return 'Property values in the slow district do something the models did not predict: they rise.'; } },
+      { label: 'Decline — services must be uniform', effect: (g) => { ind(g, 'agency', -4); g.unrest = clamp01(g.unrest + 0.04); return 'The petitioners regroup. Their next petition is longer and handwritten, which takes ages, which is the point.'; } },
+    ],
+  },
+  {
+    id: 'whistleblower_sentiment',
+    title: 'The Adjusted Mood',
+    body: 'A former analytics contractor reveals that the public-sentiment dashboard you review each morning has been "smoothed" for two years — grievances reclassified, outliers dropped, one entire district\'s complaints averaged into a neighboring one. The vendor calls this "methodological refinement."',
+    once: true, weight: 3,
+    condition: (g) => g.tick > 40 && g.corporateInfluence > 0.25,
+    choices: [
+      { label: 'Terminate the vendor; publish raw data', effect: (g) => { ind(g, 'trust', 6); ind(g, 'agency', 4); g.unrest = clamp01(g.unrest + 0.04); g.resources.capital -= 60; return 'The raw numbers are worse and truer. Governing gets harder in the way that steering does when the windshield is cleaned.'; } },
+      { label: 'Quietly recalibrate', effect: (g) => { ind(g, 'trust', -6); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'The dashboard improves again by Thursday. It is such a relief to be doing well.'; } },
+    ],
+  },
+  {
+    id: 'election_deepfakes',
+    title: 'You, Saying Things',
+    body: 'A video of you announcing forced relocations is spreading — fluent, well-lit, and fabricated. Your denial will reach a third of its audience. OmniLink offers "authenticity infrastructure": every official statement cryptographically watermarked, verified, and routed through them.',
+    once: true, weight: 2,
+    condition: (g) => g.tick > g.nextElectionTick - 10 && g.tick < g.nextElectionTick && g.indicators.trust < 60,
+    choices: [
+      { label: 'Accept OmniLink\'s verification layer', effect: (g) => { ind(g, 'trust', 3); corp(g, 'omnilink', 8, 0.06); ind(g, 'agency', -3); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Your words are now verifiable. They are also, in a sense you cannot quite articulate, hosted.'; } },
+      { label: 'Public-key registry run by the archives office', effect: (g) => { g.resources.capital -= 50; ind(g, 'trust', 4); g.humanExpertise = clamp01(g.humanExpertise + 0.02); return 'The archivists issue keys with the gravity of people who have outlasted six administrations and intend to outlast the deepfakes too.'; } },
+    ],
+  },
+  {
+    id: 'off_grid_exodus',
+    title: 'The Ones Who Left',
+    body: 'A documentary follows forty families who moved to the unserviced hills: well water, wood heat, one shared satellite link they switch on Sundays. It is the region\'s most-streamed program this quarter, watched on the devices its subjects abandoned.',
+    once: true, weight: 2,
+    condition: (g) => g.indicators.agency < 50 && g.indicators.convenience > 60,
+    choices: [
+      { label: 'Recognize the settlement; extend basic services on their terms', effect: (g) => { g.resources.capital -= 40; ind(g, 'agency', 4); ind(g, 'trust', 3); return 'They accept the water testing and decline the smart meters. The paperwork now has a checkbox for that, which someone had to invent.'; } },
+      { label: 'Zoning enforcement', effect: (g) => { g.unrest = clamp01(g.unrest + 0.05); ind(g, 'agency', -4); ind(g, 'trust', -4); return 'The eviction notices photograph terribly. Season two is already funded.'; } },
     ],
   },
 ];

@@ -107,11 +107,32 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     power: -95, water: -60, compute: 150, pollution: 1.0, income: 40, buildTicks: 8,
     unlockCompute: 60,
   },
+  gov_dc: {
+    type: 'gov_dc', name: 'Government Secure Facility', category: 'compute',
+    desc: 'Hardened compute for state services. And other state functions.',
+    w: 3, h: 3, cost: 620, upkeep: 7, jobs: 15, housing: 0,
+    power: -22, water: -12, compute: 30, pollution: 0.3, income: 0, buildTicks: 6,
+    unlockCompute: 40,
+  },
+  med_dc: {
+    type: 'med_dc', name: 'Medical Compute Center', category: 'compute',
+    desc: 'Dedicated diagnostic and genomics capacity for the care system.',
+    w: 2, h: 2, cost: 380, upkeep: 4, jobs: 8, housing: 0,
+    power: -14, water: -8, compute: 20, pollution: 0.2, income: 4, buildTicks: 4,
+    unlockCompute: 25,
+  },
+  community_dc: {
+    type: 'community_dc', name: 'Community Compute Co-op', category: 'compute',
+    desc: 'Volunteer-run racks on donated hardware. Slow, transparent, and yours.',
+    w: 2, h: 2, cost: 240, upkeep: 4, jobs: 10, housing: 0,
+    power: -6, water: -3, compute: 8, pollution: 0.1, income: 2, buildTicks: 3,
+    unlockCompute: 15,
+  },
 };
 
 export const BUILD_MENU_ORDER: BuildingType[] = [
   'road', 'house', 'apartment', 'park', 'plaza',
   'solar_farm', 'coal_plant', 'nuclear_plant', 'water_plant',
   'hospital', 'factory', 'auto_factory', 'office', 'retail',
-  'edge_dc', 'cloud_dc', 'ai_campus',
+  'edge_dc', 'community_dc', 'med_dc', 'cloud_dc', 'gov_dc', 'ai_campus',
 ];

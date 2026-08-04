@@ -103,29 +103,40 @@ function updateGroups(g: GameState, ctx: PoliticsContext, b: { computeFootprint:
   const targets: Record<GroupId, number> = {
     tech_workers:
       42 + ctx.computeSat * 22 + ind.convenience * 0.2 + Math.min(12, b.computeFootprint * 2)
-      - g.housingShortage * 28 - ctx.unemployment * 15,
+      - g.housingShortage * 28 - ctx.unemployment * 15 + (has('public_ai_option') ? 4 : 0),
     displaced_workers:
       48 - ctx.unemployment * 55 - ctx.automationShare * 25 + (has('ubi') ? 16 : 0)
-      + (has('retraining') ? 12 : 0) + (has('manual_redundancy') ? 6 : 0) + ind.connection * 0.08,
+      + (has('retraining') ? 12 : 0) + (has('manual_redundancy') ? 6 : 0)
+      + (has('public_employment') ? 10 : 0) + (has('gig_protections') ? 5 : 0)
+      + (has('reduced_workweek') ? 4 : 0) + ind.connection * 0.08,
     small_business:
       38 + clamp01(1 - ctx.unemployment) * 22 - g.corporateInfluence * 28 + ctx.utilitySat * 12
-      - (has('corporate_incentives') ? 10 : 0) + ind.convenience * 0.08,
+      - (has('corporate_incentives') ? 10 : 0) + (has('local_procurement') ? 9 : 0)
+      + (has('antitrust_enforcement') ? 8 : 0) + (has('ewaste_program') ? 2 : 0) + ind.convenience * 0.08,
     executives:
       30 + g.corporateInfluence * 35 + (has('corporate_incentives') ? 16 : 0)
       - (has('automation_tax') ? 12 : 0) - (has('data_privacy') ? 8 : 0)
+      - (has('antitrust_enforcement') ? 15 : 0) - (has('carbon_tax') ? 8 : 0)
+      - (has('gig_protections') ? 5 : 0)
       + ctx.computeSat * 14 + Math.max(-10, Math.min(12, ctx.growth * 350)),
     environmentalists:
       62 - g.pollutionAvg * 130 - Math.min(20, b.computeFootprint * 2.5) - b.coalPlants * 7
-      + (has('renewable_subsidy') ? 12 : 0) + b.greens * 2.5 + (has('data_privacy') ? 4 : 0),
+      + (has('renewable_subsidy') ? 12 : 0) + (has('carbon_tax') ? 10 : 0)
+      + (has('green_belt') ? 10 : 0) + (has('ewaste_program') ? 5 : 0)
+      + (has('free_transit') ? 4 : 0) + (has('water_rationing') ? 5 : 0)
+      + b.greens * 2.5 + (has('data_privacy') ? 4 : 0),
     parents:
       36 + ind.health * 0.26 + ind.security * 0.2 - g.housingShortage * 24
+      + (has('childrens_privacy') ? 8 : 0) + (has('free_transit') ? 3 : 0) + (has('green_belt') ? 3 : 0)
       + g.alloc.government * ctx.computeSat * 14 + Math.min(6, b.greens * 1.5),
     elderly:
       36 + ind.health * 0.3 + ind.security * 0.24 + ind.trust * 0.1
+      + (has('human_staffing') ? 6 : 0) + (has('free_transit') ? 4 : 0)
       - ctx.expectationGap * 0.2 - Math.abs(ctx.growth) * 150,
     low_income:
       42 - g.housingShortage * 42 - ctx.unemployment * 32 + (has('ubi') ? 20 : 0)
-      + ctx.utilitySat * 14 + (has('public_broadband') ? 5 : 0),
+      + (has('public_employment') ? 8 : 0) + (has('gig_protections') ? 6 : 0)
+      + (has('free_transit') ? 5 : 0) + ctx.utilitySat * 14 + (has('public_broadband') ? 5 : 0),
   };
   for (const id of Object.keys(targets) as GroupId[]) {
     gr[id].approval = clamp(approach(gr[id].approval, clamp(targets[id]), 2));
@@ -153,17 +164,28 @@ function updateCorps(g: GameState, ctx: PoliticsContext, b: { computeFootprint: 
   const c = g.corps;
   const cs = ctx.computeSat;
 
+  const govDCs = [...g.buildings.values()].filter((x) => x.type === 'gov_dc' && x.progress >= 1).length;
+  const communityDCs = [...g.buildings.values()].filter((x) => x.type === 'community_dc' && x.progress >= 1).length;
   const presence: Record<CorpId, number> = {
-    meridian: clamp01(b.computeFootprint * 0.09),
+    meridian: clamp01(b.computeFootprint * 0.09 - communityDCs * 0.03),
     halcyon: clamp01(b.autoFactories * 0.18 + g.alloc.industry * cs * 0.3),
     omnilink: clamp01(g.alloc.consumer * cs * 0.6 + (has('public_broadband') ? 0.15 : 0) + clamp01(g.resources.data / 6000) * 0.3),
-    aegis: clamp01(g.alloc.surveillance * cs * 1.2 + (has('surveillance_program') ? 0.3 : 0) + g.alloc.government * cs * 0.2),
+    aegis: clamp01(g.alloc.surveillance * cs * 1.2 + (has('surveillance_program') ? 0.3 : 0) + (has('biometric_surveillance') ? 0.2 : 0) + g.alloc.government * cs * 0.2 + govDCs * 0.06),
   };
   const mood: Record<CorpId, number> = {
-    meridian: 45 + cs * 25 + (has('corporate_incentives') ? 15 : 0) - (has('data_privacy') ? 10 : 0) + ctx.utilitySat * 15,
-    halcyon: 45 + g.alloc.industry * cs * 35 + (has('corporate_incentives') ? 12 : 0) - (has('automation_tax') ? 22 : 0),
-    omnilink: 45 + g.alloc.consumer * cs * 30 - (has('data_privacy') ? 26 : 0) + (has('moderation_ai') ? 8 : 0),
-    aegis: 40 + g.alloc.surveillance * cs * 45 + (has('surveillance_program') ? 20 : 0) + (has('data_privacy') ? -8 : 0),
+    meridian: 45 + cs * 25 + (has('corporate_incentives') ? 15 : 0) - (has('data_privacy') ? 10 : 0)
+      - (has('data_localization') ? 12 : 0) - (has('public_ai_option') ? 10 : 0)
+      - (has('antitrust_enforcement') ? 10 : 0) - (has('carbon_tax') ? 5 : 0) + ctx.utilitySat * 15,
+    halcyon: 45 + g.alloc.industry * cs * 35 + (has('corporate_incentives') ? 12 : 0)
+      - (has('automation_tax') ? 22 : 0) - (has('human_staffing') ? 15 : 0)
+      - (has('reduced_workweek') ? 8 : 0) - (has('antitrust_enforcement') ? 8 : 0),
+    omnilink: 45 + g.alloc.consumer * cs * 30 - (has('data_privacy') ? 26 : 0)
+      - (has('childrens_privacy') ? 12 : 0) - (has('citizen_royalties') ? 10 : 0)
+      - (has('right_to_delete') ? 8 : 0) - (has('gig_protections') ? 10 : 0)
+      - (has('antitrust_enforcement') ? 8 : 0) + (has('moderation_ai') ? 8 : 0),
+    aegis: 40 + g.alloc.surveillance * cs * 45 + (has('surveillance_program') ? 20 : 0)
+      + (has('biometric_surveillance') ? 18 : 0) - (has('algorithmic_transparency') ? 10 : 0)
+      + (has('data_privacy') ? -8 : 0),
   };
   for (const id of CORP_ORDER) {
     c[id].presence = clamp01(approach(c[id].presence, presence[id], 0.01));
@@ -175,7 +197,9 @@ function updateCorps(g: GameState, ctx: PoliticsContext, b: { computeFootprint: 
     0.03 +
     c.meridian.presence * 0.4 + c.halcyon.presence * 0.2 +
     c.omnilink.presence * 0.25 + c.aegis.presence * 0.25 +
-    (has('corporate_incentives') ? 0.15 : 0) - (has('data_privacy') ? 0.05 : 0));
+    (has('corporate_incentives') ? 0.15 : 0) - (has('data_privacy') ? 0.05 : 0) -
+    (has('antitrust_enforcement') ? 0.12 : 0) - (has('public_ai_option') ? 0.05 : 0) -
+    communityDCs * 0.02);
   g.corporateInfluence = clamp01(approach(g.corporateInfluence, influence, 0.01));
 
   // A large, unhappy corporation does not sulk quietly — it relocates capacity.

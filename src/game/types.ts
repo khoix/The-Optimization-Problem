@@ -27,7 +27,10 @@ export type BuildingType =
   | 'retail'
   | 'edge_dc'
   | 'cloud_dc'
-  | 'ai_campus';
+  | 'ai_campus'
+  | 'gov_dc'
+  | 'med_dc'
+  | 'community_dc';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -71,22 +74,50 @@ export interface ComputeAllocation {
 }
 
 export type PolicyId =
+  // labor & welfare
   | 'ubi'
   | 'automation_tax'
-  | 'data_privacy'
-  | 'surveillance_program'
-  | 'renewable_subsidy'
-  | 'manual_redundancy'
   | 'retraining'
-  | 'corporate_incentives'
+  | 'reduced_workweek'
+  | 'public_employment'
+  | 'human_staffing'
+  | 'gig_protections'
+  // data & privacy
+  | 'data_privacy'
+  | 'citizen_royalties'
+  | 'data_localization'
+  | 'right_to_delete'
+  | 'childrens_privacy'
+  | 'biometric_surveillance'
+  | 'surveillance_program'
+  // environment & infrastructure
+  | 'renewable_subsidy'
+  | 'carbon_tax'
+  | 'water_rationing'
+  | 'green_belt'
+  | 'ewaste_program'
+  | 'free_transit'
+  | 'public_broadband'
+  // information & AI oversight
   | 'moderation_ai'
-  | 'public_broadband';
+  | 'open_data_portal'
+  | 'algorithmic_transparency'
+  | 'ai_ethics_board'
+  | 'public_ai_option'
+  | 'manual_redundancy'
+  // corporate governance
+  | 'corporate_incentives'
+  | 'antitrust_enforcement'
+  | 'local_procurement';
+
+export type PolicyCategory = 'labor' | 'data' | 'environment' | 'information' | 'corporate';
 
 export interface PolicyDef {
   id: PolicyId;
   name: string;
   desc: string;
   costPerTick: number;
+  category: PolicyCategory;
 }
 
 export interface Indicators {

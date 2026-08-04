@@ -445,6 +445,63 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(2, h - 4, 1, 1, '#7aff9a');
   },
 
+  gov_dc: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#6e7078'); p.dither(0, 0, w, h, '#7a7c84', 0.25, seed);
+    // double security fence with dead zone
+    p.outline(0, 0, w, h, '#4a4c54');
+    p.outline(2, 2, w - 4, h - 4, '#4a4c54');
+    // windowless navy bunker
+    boxBuilding(p, 5, 5, w - 10, h - 12, { wall: '#3a4258', wallDark: '#2c3244', roof: '#333a4e', roofHi: '#454e66', roofLo: '#252b3a', outlineC: '#151820' });
+    // roof: antenna array + dish
+    p.r(9, 9, 1, 6, '#8a8a92'); p.p(9, 8, '#c94f4f');
+    p.r(w - 14, 10, 5, 4, '#8a8a92'); p.r(w - 13, 11, 3, 2, '#b0b0b8');
+    p.r(20, 12, 6, 5, '#2c3244'); p.outline(20, 12, 6, 5, '#151820');
+    // gatehouse
+    p.r(w - 10, h - 6, 6, 4, '#565e74'); p.outline(w - 10, h - 6, 6, 4, '#2c3244');
+    p.r(w - 8, h - 4, 2, 2, '#8a94b0');
+    // single reinforced door, keypad glow
+    p.r(10, h - 10, 3, 3, '#2c3244');
+    e.p(14, h - 9, '#7aff9a');
+    e.p(9, 8, '#ff6a6a');                 // antenna beacon
+    for (let i = 0; i < 4; i++) e.p(6 + i * 9, h - 8, '#4aa8ff'); // perimeter status LEDs
+  },
+
+  med_dc: (p, e, w, h, seed) => {
+    p.r(0, 0, w, h, '#8a9a94'); p.dither(0, 0, w, h, '#96a6a0', 0.25, seed);
+    boxBuilding(p, 1, 1, w - 2, h - 3, { wall: '#e2ecea', wallDark: '#b8c6c2', roof: '#d0dedb', roofHi: '#eaf4f2', roofLo: '#a8b8b4' });
+    // teal medical stripe + cross on roof
+    p.r(2, 6, w - 4, 2, '#3aa8a0');
+    p.r(7, 12, 2, 6, '#3aa8a0'); p.r(5, 14, 6, 2, '#3aa8a0');
+    // chiller + vent slits
+    p.r(w - 12, 3, 8, 5, '#b8c6c2'); p.outline(w - 12, 3, 8, 5, '#6e7e7a');
+    for (let i = 0; i < 3; i++) p.r(w - 11 + i * 2, 4, 1, 3, '#8a9a96');
+    // facade: records vault door + status wall
+    p.r(4, h - 5, 3, 3, '#6e7e7a');
+    for (let i = 0; i < 4; i++) p.r(12 + i * 4, h - 4, 2, 1, '#9cc3dd');
+    e.r(7, 12, 2, 6, '#5affe0'); e.r(5, 14, 6, 2, '#5affe0'); // glowing cross
+    for (let i = 0; i < 4; i++) e.r(12 + i * 4, h - 4, 2, 1, '#7ae9ff');
+  },
+
+  community_dc: (p, e, w, h, seed) => {
+    const rand = rng(seed);
+    p.r(0, 0, w, h, '#7d8a5e'); p.dither(0, 0, w, h, '#8a9a6a', 0.3, seed);
+    // patchwork shed: reused panels in mismatched colors
+    boxBuilding(p, 1, 2, w - 2, h - 4, { wall: '#a8926a', wallDark: '#86744e', roof: '#8a7a5c', roofHi: '#9e8e6e', roofLo: '#6e6046' });
+    const patches = ['#7a8ac9', '#c97a5a', '#6aa86a', '#c9b05a'];
+    for (let i = 0; i < 6; i++) {
+      p.r(3 + Math.floor(rand() * (w - 10)), 4 + Math.floor(rand() * 8), 4, 3, patches[i % patches.length]);
+    }
+    // rooftop: salvaged panel + box fan
+    p.r(4, 4, 8, 5, '#1e3a5f'); p.r(4, 4, 8, 1, '#3d6a9e'); p.outline(4, 4, 8, 5, '#101c2e');
+    p.r(w - 10, 5, 5, 5, '#86744e'); p.r(w - 9, 6, 3, 3, '#5e5036'); p.p(w - 8, 7, '#2e2a20');
+    // mural stripe + open door + bikes
+    p.r(2, h - 6, w - 12, 1, '#c97ab0'); p.r(2, h - 5, w - 12, 1, '#7ac9c9');
+    p.r(w - 8, h - 6, 3, 4, '#5e5036');
+    p.r(3, h - 2, 4, 1, '#3a3a40'); p.p(4, h - 3, '#3a3a40'); p.p(6, h - 3, '#3a3a40');
+    e.r(w - 8, h - 5, 3, 2, '#ffd9a0'); // warm open doorway
+    for (let i = 0; i < 3; i++) e.p(14 + i * 3, h - 4, '#7aff9a'); // mismatched status LEDs
+  },
+
   ai_campus: (p, e, w, h, seed) => {
     p.r(0, 0, w, h, '#6a6a74'); p.dither(0, 0, w, h, '#76767e', 0.25, seed);
     // main slab
