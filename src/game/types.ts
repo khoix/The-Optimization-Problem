@@ -277,8 +277,11 @@ export interface GameState {
   asi: AsiState;
   notifications: Notification[];
   pendingEvent: GameEvent | null;
+  /** A one-button informational modal (election results, region reclassification). */
+  pendingReport: { title: string; body: string } | null;
   firedEvents: Set<string>;
   eventCooldowns: Record<string, number>; // last-fired tick for repeatable events
+  tierName: string; // last announced region class
 
   speed: 0 | 1 | 2 | 3;
   gameOver: string | null; // conventional failure description, if any

@@ -229,6 +229,34 @@ export function simTick(g: GameState): void {
   g.lastPopulation = g.population;
   g.resources.capital += income * Math.max(-0.12, Math.min(0.18, growth * 6)); // investor sentiment on top of base income
 
+  // ---------- Region reclassification ----------
+  const tierNow = tierOf(g.population).name;
+  if (tierNow !== g.tierName) {
+    const upgraded = tierOf(g.population).min > (TIERS.find((x) => x.name === g.tierName)?.min ?? 0);
+    g.tierName = tierNow;
+    record(g, 'system', `Region reclassified: ${tierNow}.`);
+    if (g.asi.observer) {
+      // nothing to announce; nobody to announce it to
+    } else if (g.asi.phase >= 4) {
+      notify(g, 'Regional classification updated for administrative efficiency.', 'asi');
+    } else if (upgraded) {
+      notify(g, `The region has been reclassified as a ${tierNow}.`, 'system');
+      g.pendingReport = {
+        title: `Region Reclassified: ${tierNow}`,
+        body: `The census bureau confirms it: this is a <b>${tierNow}</b> now.<br><br>` +
+          'Congratulations are in order, and so is a warning. Larger regions attract migrants faster, ' +
+          'normalize services quicker, and demand more compute for everything. The treadmill does not slow down at the next class. It speeds up.',
+      };
+    } else {
+      notify(g, `The region has been reclassified as a ${tierNow}. The census is unsentimental.`, 'warn');
+      g.pendingReport = {
+        title: `Reclassification: ${tierNow}`,
+        body: `Population decline has moved the region down a class. Investors read the census too.<br><br>` +
+          'Migration pressure eases at this size — which is another way of saying fewer people want to be here.',
+      };
+    }
+  }
+
   // ---------- Human expertise ----------
   const automationShare = jobsTotal > 0 ? clamp01(done.filter((b) => b.type === 'auto_factory').length * 0.1 + computeSat * g.alloc.industry) : 0;
   let expertiseTarget = clamp01(0.9 - automationShare * 0.5 - g.asi.emergence / 300);

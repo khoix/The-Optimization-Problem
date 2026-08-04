@@ -54,6 +54,8 @@ export function deserialize(env: SaveEnvelope): GameState {
   // Saves from before newer systems get sensible defaults.
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
+  g.pendingReport ??= null;
+  g.tierName ??= 'Township';
   g.asi.shadowPolicies ??= [];
   g.asi.diluted ??= [];
   g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };

@@ -281,8 +281,26 @@ function runElections(g: GameState): void {
   const top = blocs[0], bottom = blocs[blocs.length - 1];
   const result = `${Math.round(approval)}% weighted support — strongest with ${GROUP_DEFS[top.id].name}, weakest with ${GROUP_DEFS[bottom.id].name}.`;
   g.lastElectionResult = result;
+  const won = approval >= 42;
 
-  if (approval < 42) {
+  // Full returns, bloc by bloc, as a report the player actually sees.
+  const rows = GROUP_ORDER.map((id) => {
+    const grp = g.groups[id];
+    const v = Math.round(grp.approval);
+    const cls = v < 35 ? 'bad' : v < 55 ? 'mid' : 'good';
+    return `<div class="report-row"><span class="report-label">${GROUP_DEFS[id].name} <small>(${Math.round(grp.share * 100)}% of electorate)</small></span>` +
+      `<span class="report-bar"><span class="report-fill ${cls}" style="width:${v}%"></span></span><span class="report-val">${v}</span></div>`;
+  }).join('');
+  g.pendingReport = {
+    title: `Year ${Math.floor(g.tick / 12) + 1} Election: ${won ? 'Re-elected' : 'Defeated'}`,
+    body: `<p><b>${Math.round(approval)}% weighted support.</b> Strongest with ${GROUP_DEFS[top.id].name}; weakest with ${GROUP_DEFS[bottom.id].name}.</p>` +
+      `<div class="report-list">${rows}</div>` +
+      (won
+        ? '<p class="hint">Another four years. The coalition that elected you is already drifting.</p>'
+        : '<p class="hint">Your successor promises "smarter, data-driven administration."</p>'),
+  };
+
+  if (!won) {
     g.gameOver = `Political removal. The election is not close: ${Math.round(approval)}% support. Your successor promises "smarter, data-driven administration."`;
     notify(g, g.gameOver, 'system');
     record(g, 'system', `Lost the Year ${Math.floor(g.tick / 12) + 1} election with ${Math.round(approval)}% support.`);
