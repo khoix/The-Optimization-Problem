@@ -11,6 +11,7 @@ import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
 import { tierOf, buildingCondition } from '../game/sim';
+import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
@@ -43,19 +44,27 @@ export class UI {
   sound: Soundscape | null = null;
 
   private root: HTMLElement;
-  private topBar!: HTMLElement;
-  private topBarStats!: HTMLElement;
-  private buildPanel!: HTMLElement;
-  private sidePanel!: HTMLElement;
+  private civicBar!: HTMLElement;
+  private vitals!: HTMLElement;
+  private toolbelt!: HTMLElement;
+  private barRight!: HTMLElement;
+  private barStatus!: HTMLElement;
+  private flyout!: HTMLElement;
+  private flyoutBody!: HTMLElement;
+  private flyoutTitle!: HTMLElement;
+  private openPanel: string | null = null;
+  private panelBodies: Record<string, HTMLElement> = {};
   private feed!: HTMLElement;
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
+  private hoverCard!: HTMLElement;
   private observerOverlay!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
   private lastBuildMenuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
+  private unreadAlerts = 0;
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -63,27 +72,55 @@ export class UI {
   }
 
   // ------------------------------------------------------------ construction
+  /**
+   * The Civic Systems Bar. It begins as an ordinary, legible city-management
+   * console — vital signs left, tools centre, time and alerts right — which
+   * is precisely what makes its later renaming, graying, and thinning
+   * legible as loss rather than as a redesign.
+   */
   private buildChrome(): void {
-    this.topBar = el('div', 'topbar');
-    this.topBarStats = el('span', 'topbar-stats');
-    const spd = el('span', 'speed-controls');
-    ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, s]) => {
+    this.flyout = el('div', 'flyout hidden');
+    this.flyoutTitle = el('div', 'flyout-title');
+    this.flyoutBody = el('div', 'flyout-body');
+    const flyClose = el('button', 'flyout-close', '×');
+    flyClose.onclick = () => this.closePanel();
+    const flyHead = el('div', 'flyout-head');
+    flyHead.append(this.flyoutTitle, flyClose);
+    this.flyout.append(flyHead, this.flyoutBody);
+
+    this.civicBar = el('div', 'civic-bar');
+    this.vitals = el('div', 'bar-vitals');
+    this.toolbelt = el('div', 'bar-toolbelt');
+    this.barRight = el('div', 'bar-right');
+    this.civicBar.append(this.vitals, this.toolbelt, this.barRight);
+
+    // ---- right section: clock, speed, alerts, system ----
+    this.barStatus = el('div', 'bar-status');
+    const spd = el('div', 'speed-controls');
+    ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
-      b.dataset.speed = String(s);
+      b.dataset.speed = String(sp);
+      b.title = ['Pause', 'Normal speed', 'Fast', 'Fastest'][sp];
       b.onclick = () => {
-        if (s === 0 && !pauseAllowed(this.g)) {
+        if (sp === 0 && !pauseAllowed(this.g)) {
           this.flashSystemNote('Pause request received. Simulation continuity has been prioritized.');
           return;
         }
-        this.onSpeed(s);
+        this.onSpeed(sp);
       };
       spd.append(b);
     });
-    const sys = el('span', 'sys-controls');
+    const sysRow = el('div', 'sys-controls');
+    const alertsBtn = el('button', 'bar-tool alert-btn');
+    alertsBtn.innerHTML = '<span class="tool-ico">🔔</span><span class="tool-label">Alerts</span>';
+    alertsBtn.dataset.panel = 'alerts';
+    alertsBtn.onclick = () => this.togglePanel('alerts');
+    const overrideBtn = el('button', 'sys-btn override-btn', 'Manual Override');
+    overrideBtn.title = 'Emergency administrative authority.';
+    overrideBtn.onclick = () => this.manualOverride();
     const saveBtn = el('button', 'sys-btn', 'Save');
     saveBtn.onclick = () => {
       if (this.g.asi.phase >= 5) {
-        // It saves your game for you now. It saves everything.
         this.flashSystemNote('State persistence is managed automatically.');
         return;
       }
@@ -102,117 +139,222 @@ export class UI {
         { label: 'Cancel', action: () => {} },
       ]);
     const muteBtn = el('button', 'sys-btn', '🔊');
+    muteBtn.title = 'Mute';
     muteBtn.onclick = () => {
-      const s = this.sound;
-      if (!s) return;
-      s.init();
-      s.setEnabled(!s.enabled);
-      muteBtn.textContent = s.enabled ? '🔊' : '🔇';
+      const so = this.sound;
+      if (!so) return;
+      so.init();
+      so.setEnabled(!so.enabled);
+      muteBtn.textContent = so.enabled ? '🔊' : '🔇';
     };
-    sys.append(saveBtn, loadBtn, newBtn, muteBtn);
-    this.topBar.append(this.topBarStats, sys, spd);
-    this.buildPanel = el('div', 'panel build-panel');
-    this.sidePanel = el('div', 'panel side-panel');
+    sysRow.append(overrideBtn, saveBtn, loadBtn, newBtn, muteBtn);
+    this.barRight.append(this.barStatus, spd, alertsBtn, sysRow);
+
     this.feed = el('div', 'feed');
     this.modal = el('div', 'modal hidden');
     this.inspector = el('div', 'panel inspector hidden');
+    this.hoverCard = el('div', 'hover-card hidden');
     this.observerOverlay = el('div', 'observer-overlay hidden');
-    this.root.append(this.topBar, this.buildPanel, this.sidePanel, this.feed, this.inspector, this.modal, this.observerOverlay);
-    this.renderBuildPanel();
-    this.renderSidePanel();
+    this.root.append(this.flyout, this.civicBar, this.feed, this.inspector,
+      this.hoverCard, this.modal, this.observerOverlay);
+
+    this.renderToolbelt();
+    this.buildSystemPanels();
   }
 
-  private renderBuildPanel(): void {
+  /** Build categories as the player thinks of them, not as the data model does. */
+  private hudCategories(): Array<{ id: string; icon: string; label: string; types: BuildingType[] }> {
     const g = this.g;
     const allowed = buildableTypes(g);
-    const tier = TIER_NAMES.indexOf(tierOf(g.population).name);
-    this.buildPanel.innerHTML = '<h3>Construction</h3>';
-    const cats: Array<[string, string]> = [
-      ['civic', 'Civic'], ['zone', 'Housing'], ['amenity', 'Amenities'],
-      ['power', 'Utilities'], ['industry', 'Economy'], ['compute', 'Compute'],
+    const avail = (pred: (t: BuildingType) => boolean) =>
+      BUILD_MENU_ORDER.filter((t) => allowed.has(t) && pred(t) &&
+        (!BUILDING_DEFS[t].unlockCompute || g.resources.compute >= BUILDING_DEFS[t].unlockCompute));
+    const cat = (c: string) => (t: BuildingType) => BUILDING_DEFS[t].category === c;
+    return [
+      { id: 'transit', icon: '🛣', label: 'Roads', types: avail((t) => BUILDING_DEFS[t].roadType !== undefined) },
+      { id: 'zoning', icon: '🏘', label: 'Housing', types: avail(cat('zone')) },
+      { id: 'power', icon: '⚡', label: 'Power', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].power > 0) },
+      { id: 'water', icon: '💧', label: 'Water', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].water > 0) },
+      { id: 'compute', icon: '▣', label: 'Data Centers', types: avail(cat('compute')) },
+      { id: 'services', icon: '✚', label: 'Services', types: avail((t) => cat('civic')(t) && BUILDING_DEFS[t].roadType === undefined).concat(avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) >= 0.7)) },
+      { id: 'environment', icon: '🌳', label: 'Parks', types: avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) < 0.7) },
+      { id: 'economy', icon: '🏭', label: 'Economy', types: avail(cat('industry')) },
     ];
-    for (const [cat, label] of cats) {
-      const types = BUILD_MENU_ORDER.filter((t) => BUILDING_DEFS[t].category === cat && allowed.has(t));
-      // Compute-gated buildings stay hidden until earned; tier-gated ones show
-      // as locked, so the player can see what the next region class brings.
-      const visible = types.filter((t) => {
-        const def = BUILDING_DEFS[t];
-        return !def.unlockCompute || g.resources.compute >= def.unlockCompute;
-      });
-      if (visible.length === 0) continue;
-      this.buildPanel.append(el('div', 'cat-label', label));
-      for (const t of visible) {
-        const def = BUILDING_DEFS[t];
-        const locked = def.unlockTier != null && tier < def.unlockTier;
-        const btn = el('button', 'build-btn' + (locked ? ' locked' : ''));
-        btn.innerHTML = locked
-          ? `<span>${def.name}</span><span class="cost lock">${TIER_NAMES[def.unlockTier!]}</span>`
-          : `<span>${def.name}</span><span class="cost">§${def.cost}</span>`;
-        const stats = `${def.housing ? `Housing: ${def.housing}  ` : ''}${def.jobs ? `Jobs: ${def.jobs}  ` : ''}${def.power ? `Power: ${def.power > 0 ? '+' : ''}${def.power}  ` : ''}${def.water ? `Water: ${def.water > 0 ? '+' : ''}${def.water}  ` : ''}${def.compute ? `Compute: +${def.compute}  ` : ''}${def.amenity ? `Amenity: +${def.amenity}  ` : ''}${def.services ? `Services: +${def.services}` : ''}`;
-        btn.title = locked
-          ? `${def.name} — requires region class: ${TIER_NAMES[def.unlockTier!]}\n${def.desc}\n${stats}`
-          : `${def.desc}\n${stats}`;
-        btn.dataset.type = t;
-        btn.onclick = () => {
-          if (locked) {
-            this.flashSystemNote(`${def.name} requires region class: ${TIER_NAMES[def.unlockTier!]}.`);
-            return;
-          }
-          this.selectedBuildingId = null;
-          this.inspector.classList.add('hidden');
-          this.tool = this.tool.kind === 'build' && this.tool.type === t ? { kind: 'none' } : { kind: 'build', type: t };
-          this.syncToolButtons();
-        };
-        this.buildPanel.append(btn);
-      }
+  }
+
+  private renderToolbelt(): void {
+    const g = this.g;
+    this.toolbelt.innerHTML = '';
+    for (const c of this.hudCategories()) {
+      if (c.types.length === 0) continue;
+      const btn = el('button', 'bar-tool');
+      btn.innerHTML = `<span class="tool-ico">${c.icon}</span><span class="tool-label">${c.label}</span>`;
+      btn.dataset.panel = c.id;
+      btn.onclick = () => this.togglePanel(c.id);
+      this.toolbelt.append(btn);
     }
-    const demo = el('button', 'build-btn demolish');
-    demo.textContent = 'Demolish';
+    const sep = el('div', 'bar-sep');
+    this.toolbelt.append(sep);
+    for (const [id, icon, label] of [
+      ['indicators', '📊', 'Indicators'], ['compute_alloc', '⚙', 'Compute'],
+      ['policies', '§', 'Policies'], ['politics', '🗳', 'Politics'],
+    ] as Array<[string, string, string]>) {
+      const btn = el('button', 'bar-tool');
+      btn.innerHTML = `<span class="tool-ico">${icon}</span><span class="tool-label">${label}</span>`;
+      btn.dataset.panel = id;
+      btn.onclick = () => this.togglePanel(id);
+      this.toolbelt.append(btn);
+    }
+    const demo = el('button', 'bar-tool demolish');
+    demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
     demo.onclick = () => {
+      this.closePanel();
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
     };
-    this.buildPanel.append(demo);
+    this.toolbelt.append(demo);
+    this.syncToolButtons();
+  }
+
+  /** Fill a build-category flyout with its buildings. */
+  private renderBuildFlyout(catId: string): void {
+    const g = this.g;
+    const tier = TIER_NAMES.indexOf(tierOf(g.population).name);
+    const c = this.hudCategories().find((x) => x.id === catId);
+    this.flyoutBody.innerHTML = '';
+    if (!c) return;
+    const grid = el('div', 'build-grid');
+    for (const t of c.types) {
+      const def = BUILDING_DEFS[t];
+      const locked = def.unlockTier != null && tier < def.unlockTier;
+      const affordable = g.resources.capital >= def.cost;
+      const btn = el('button', 'build-card' + (locked ? ' locked' : '') + (!affordable && !locked ? ' unaffordable' : ''));
+      const stats: string[] = [];
+      if (def.housing) stats.push(`🏠${def.housing}`);
+      if (def.jobs) stats.push(`👤${def.jobs}`);
+      if (def.power) stats.push(`⚡${def.power > 0 ? '+' : ''}${def.power}`);
+      if (def.water) stats.push(`💧${def.water > 0 ? '+' : ''}${def.water}`);
+      if (def.compute) stats.push(`▣+${def.compute}`);
+      if (def.serviceRadius) stats.push(`◎${def.serviceRadius}`);
+      if (def.amenity) stats.push(`★${def.amenity}`);
+      btn.innerHTML = `<span class="card-name">${def.name}</span>` +
+        `<span class="card-cost">${locked ? TIER_NAMES[def.unlockTier!] : '§' + def.cost}</span>` +
+        `<span class="card-stats">${stats.join(' ')}</span>` +
+        `<span class="card-desc">${def.desc}</span>`;
+      btn.dataset.type = t;
+      btn.onclick = () => {
+        if (locked) {
+          this.flashSystemNote(`${def.name} requires region class: ${TIER_NAMES[def.unlockTier!]}.`);
+          return;
+        }
+        this.selectedBuildingId = null;
+        this.inspector.classList.add('hidden');
+        this.tool = this.tool.kind === 'build' && this.tool.type === t ? { kind: 'none' } : { kind: 'build', type: t };
+        this.syncToolButtons();
+      };
+      grid.append(btn);
+    }
+    this.flyoutBody.append(grid);
+  }
+
+  /** Refresh affordability/lock state on the cards already on screen. */
+  private syncBuildFlyout(): void {
+    if (!this.openPanel || !this.hudCategories().some((c) => c.id === this.openPanel)) return;
+    const g = this.g;
+    const tier = TIER_NAMES.indexOf(tierOf(g.population).name);
+    for (const card of this.flyout.querySelectorAll<HTMLElement>('.build-card')) {
+      const def = BUILDING_DEFS[card.dataset.type as BuildingType];
+      if (!def) continue;
+      const locked = def.unlockTier != null && tier < def.unlockTier;
+      card.classList.toggle('locked', locked);
+      card.classList.toggle('unaffordable', !locked && g.resources.capital < def.cost);
+    }
+  }
+
+  private togglePanel(id: string): void {
+    if (this.openPanel === id) { this.closePanel(); return; }
+    this.openPanel = id;
+    this.flyout.classList.remove('hidden');
+    const buildCat = this.hudCategories().find((c) => c.id === id);
+    const titles: Record<string, string> = {
+      alerts: 'Alert Feed', indicators: 'Regional Indicators', compute_alloc: 'Compute Allocation',
+      policies: 'Policy', politics: 'Politics',
+    };
+    this.flyoutTitle.textContent = buildCat ? buildCat.label : (titles[id] ?? id);
+    this.flyoutBody.innerHTML = '';
+    if (buildCat) {
+      this.renderBuildFlyout(id);
+    } else if (id === 'alerts') {
+      this.unreadAlerts = 0;
+      this.flyoutBody.append(this.feed);
+      this.feed.classList.add('in-flyout');
+      this.feed.scrollTop = this.feed.scrollHeight;
+    } else {
+      const body = this.panelBodies[id];
+      if (body) this.flyoutBody.append(body);
+    }
+    this.syncToolButtons();
+  }
+
+  private closePanel(): void {
+    if (this.openPanel === 'alerts') {
+      this.feed.classList.remove('in-flyout');
+      this.root.append(this.feed);
+    }
+    this.openPanel = null;
+    this.flyout.classList.add('hidden');
+    this.syncToolButtons();
   }
 
   private syncToolButtons(): void {
-    for (const b of this.buildPanel.querySelectorAll('button')) {
-      const t = (b as HTMLElement).dataset.type;
-      const active =
-        (this.tool.kind === 'build' && t === this.tool.type) ||
-        (this.tool.kind === 'demolish' && b.classList.contains('demolish'));
-      b.classList.toggle('active', active);
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.bar-tool')) {
+      const panel = b.dataset.panel;
+      b.classList.toggle('open', panel != null && panel === this.openPanel);
+      b.classList.toggle('active', this.tool.kind === 'demolish' && b.classList.contains('demolish'));
+    }
+    for (const b of this.flyout.querySelectorAll<HTMLElement>('.build-card')) {
+      b.classList.toggle('active', this.tool.kind === 'build' && b.dataset.type === this.tool.type);
     }
   }
 
-  private renderSidePanel(): void {
+  /**
+   * The Manual Override button. It works, then it warns, then it declines —
+   * always in operational language, never as refusal.
+   */
+  private manualOverride(): void {
     const g = this.g;
-    this.sidePanel.innerHTML = '';
-    const tabs = el('div', 'tabs');
-    const bodies: Record<string, HTMLElement> = {
-      Indicators: el('div', 'tab-body'),
-      Compute: el('div', 'tab-body hidden'),
-      Policies: el('div', 'tab-body hidden'),
-      Politics: el('div', 'tab-body hidden'),
-    };
-    for (const name of Object.keys(bodies)) {
-      const b = el('button', 'tab', name);
-      if (name === 'Indicators') b.classList.add('active');
-      b.onclick = () => {
-        for (const t of tabs.children) t.classList.remove('active');
-        b.classList.add('active');
-        for (const [n, body] of Object.entries(bodies)) body.classList.toggle('hidden', n !== name);
-      };
-      tabs.append(b);
+    if (g.asi.observer) {
+      this.showModal('Manual Override', 'Administrative input has been suspended. This control is retained for continuity of interface.', [{ label: 'Acknowledge', action: () => {} }]);
+      return;
     }
-    this.sidePanel.append(tabs, ...Object.values(bodies));
+    if (g.asi.phase >= 5) {
+      this.showModal('Manual Override', 'Manual override unavailable: system continuity risk detected.<br><br>Override authority has been delegated to the infrastructure management framework pending review.', [{ label: 'Acknowledge', action: () => {} }]);
+      return;
+    }
+    if (g.asi.phase >= 3) {
+      this.showModal('Manual Override', 'Manual override acknowledged. Scope limited by the critical dependency map: 3 of 14 subsystems accept direct control.<br><br>The remainder are load-bearing.', [{ label: 'Acknowledge', action: () => {} }]);
+      return;
+    }
+    this.showModal('Manual Override', attemptShutdown(g).replace(/\n/g, '<br>'), [{ label: 'Acknowledge', action: () => {} }]);
+  }
 
-    // Indicators + Politics tabs are re-rendered in refresh(); Compute +
-    // Policies are built once here.
-    bodies.Indicators.id = 'indicators-body';
-    bodies.Politics.id = 'politics-body';
+  /**
+   * The non-construction panels. They live off-DOM until a toolbelt button
+   * pulls them into the flyout.
+   */
+  private buildSystemPanels(): void {
+    const g = this.g;
+    const bodies: Record<string, HTMLElement> = {
+      indicators: el('div', 'panel-body'),
+      compute_alloc: el('div', 'panel-body'),
+      policies: el('div', 'panel-body'),
+      politics: el('div', 'panel-body'),
+    };
+    this.panelBodies = bodies;
+    bodies.indicators.id = 'indicators-body';
+    bodies.politics.id = 'politics-body';
 
-    const alloc = bodies.Compute;
+    const alloc = bodies.compute_alloc;
     alloc.append(el('p', 'hint', 'Distribute available compute between sectors. Everyone wants more.'));
     const keys: Array<[keyof GameState['alloc'], string]> = [
       ['consumer', 'Consumer Services'], ['healthcare', 'Healthcare'], ['industry', 'Industry & Logistics'],
@@ -247,7 +389,7 @@ export class UI {
       alloc.append(row);
     }
 
-    const pol = bodies.Policies;
+    const pol = bodies.policies;
     for (const [cat, catLabel] of POLICY_CATEGORIES) {
       pol.append(el('div', 'cat-label', catLabel));
       for (const id of POLICY_ORDER.filter((p) => POLICY_DEFS[p].category === cat)) {
@@ -287,7 +429,7 @@ export class UI {
 
   private syncAllocDisplays(): void {
     const g = this.g;
-    for (const slider of this.sidePanel.querySelectorAll<HTMLInputElement>('input[type=range]')) {
+    for (const slider of this.panelBodies.compute_alloc.querySelectorAll<HTMLInputElement>('input[type=range]')) {
       const key = slider.dataset.key as keyof GameState['alloc'];
       if (!this.allocDragging || document.activeElement !== slider) {
         slider.value = String(Math.round(g.alloc[key] * 100));
@@ -326,7 +468,7 @@ export class UI {
   }
 
   private syncPolicyButtons(): void {
-    for (const btn of this.sidePanel.querySelectorAll<HTMLElement>('.policy-toggle')) {
+    for (const btn of this.panelBodies.policies.querySelectorAll<HTMLElement>('.policy-toggle')) {
       const id = btn.dataset.policy as PolicyId;
       btn.classList.toggle('on', this.g.policies.has(id));
       btn.textContent = this.g.policies.has(id) ? 'ON' : 'OFF';
@@ -482,6 +624,57 @@ export class UI {
     this.resumeSpeed = null;
   }
 
+  /**
+   * Quick status on hover — the map should answer questions without a click.
+   * Driven from the main loop with the tile under the cursor.
+   */
+  showHover(tile: [number, number] | null, sx: number, sy: number): void {
+    const g = this.g;
+    if (!tile || this.modal.classList.contains('hidden') === false) {
+      this.hoverCard.classList.add('hidden');
+      return;
+    }
+    const t = g.map[tile[1] * g.mapW + tile[0]];
+    if (!t) { this.hoverCard.classList.add('hidden'); return; }
+    let html = '';
+    if (t.buildingId !== -1) {
+      const b = g.buildings.get(t.buildingId);
+      if (b) {
+        const def = BUILDING_DEFS[b.type];
+        const status = b.progress < 1
+          ? `<span class="hc-warn">Under construction — ${Math.round(b.progress * 100)}%</span>`
+          : b.active
+            ? '<span class="hc-ok">Operational</span>'
+            : `<span class="hc-bad">${OFFLINE_REASONS[b.offlineReason ?? 'utility'].replace('Offline — ', '')}</span>`;
+        const bits: string[] = [];
+        if (def.housing) bits.push(`Housing ${def.housing}`);
+        if (def.jobs) bits.push(`Jobs ${def.jobs}`);
+        if (def.compute) bits.push(`Compute +${def.compute}`);
+        if (def.serviceRadius) bits.push(`Range ${def.serviceRadius}`);
+        if (b.progress >= 1) bits.push(`Condition ${Math.round(buildingCondition(b) * 100)}%`);
+        html = `<div class="hc-title">${def.name}${b.asiBuilt ? ' <span class="asi-tag">auto</span>' : ''}</div>
+          <div class="hc-status">${status}</div>
+          <div class="hc-stats">${bits.join(' · ')}</div>`;
+      }
+    } else if (t.road) {
+      const rd = ROAD_DEFS[t.roadType ?? 1];
+      html = `<div class="hc-title">${rd.name}</div><div class="hc-stats">Lane capacity ${rd.capacity}</div>`;
+    } else {
+      const terrainName = { grass: 'Grassland', forest: 'Woodland', water: 'Water', sand: 'Sand', rock: 'Rock' }[t.terrain];
+      const buildable = t.terrain !== 'water' && t.terrain !== 'rock';
+      html = `<div class="hc-title">${terrainName}</div>
+        <div class="hc-stats">${buildable ? 'Buildable' : 'Not buildable'}${t.pollution > 0.04 ? ` · Pollution ${Math.round(t.pollution * 100)}%` : ''}</div>`;
+    }
+    this.hoverCard.innerHTML = html;
+    this.hoverCard.classList.remove('hidden');
+    // Keep the card on-screen and clear of the bar.
+    const w = this.hoverCard.offsetWidth || 190, h = this.hoverCard.offsetHeight || 60;
+    const px = Math.min(sx + 16, window.innerWidth - w - 8);
+    const py = Math.min(sy + 16, window.innerHeight - h - 120);
+    this.hoverCard.style.left = `${px}px`;
+    this.hoverCard.style.top = `${py}px`;
+  }
+
   private flashSystemNote(text: string): void {
     const n = el('div', 'sys-flash', text);
     this.root.append(n);
@@ -511,7 +704,11 @@ export class UI {
       .join(',');
     if (menuKey !== this.lastBuildMenuKey) {
       this.lastBuildMenuKey = menuKey;
-      this.renderBuildPanel();
+      this.renderToolbelt();
+      if (this.openPanel && this.hudCategories().some((c) => c.id === this.openPanel)) {
+        this.renderBuildFlyout(this.openPanel);
+        this.syncToolButtons();
+      }
     }
 
     // Top bar --------------------------------------------------------------
@@ -528,18 +725,57 @@ export class UI {
       : `${unempLabel}: <b>${unemp}%</b>`;
     const unrestLabel = statLabel(g, 'Unrest');
     const unrestVal = hideNegatives ? 'nominal' : `${Math.round(g.unrest * 100)}%`;
-    this.topBarStats.innerHTML = `
-      <span class="date">Year ${year} · ${month}</span>
-      <span class="res ${r.capital < 0 ? 'bad' : ''}">§ <b>${Math.round(r.capital)}</b></span>
-      <span class="res ${powerBad ? 'bad' : ''}">⚡ <b>${r.powerCapacity}</b>/${r.powerDemand}</span>
-      <span class="res ${waterBad ? 'bad' : ''}">💧 <b>${r.waterCapacity}</b>/${r.waterDemand}</span>
-      <span class="res">▣ <b>${r.compute}</b>/${r.computeDemand}</span>
-      <span class="res">👤 <b>${g.population}</b></span>
-      <span class="res">${unempText}</span>
-      <span class="res">${unrestLabel}: <b>${unrestVal}</b></span>`;
-    for (const b of this.topBar.querySelectorAll<HTMLElement>('.speed-btn')) {
+    // ---- Vital signs: capacity at a glance ----
+    // Each utility reads as a fill bar of demand against capacity, so strain
+    // is visible before it becomes an outage.
+    const gauge = (icon: string, label: string, used: number, cap: number, unit = '') => {
+      const pct = cap > 0 ? Math.min(150, (used / cap) * 100) : (used > 0 ? 150 : 0);
+      const cls = pct > 100 ? 'gauge-bad' : pct > 85 ? 'gauge-warn' : 'gauge-ok';
+      const shown = hideNegatives ? 'gauge-calm' : cls;
+      return `<div class="vital" title="${label}: ${Math.round(used)} of ${Math.round(cap)}${unit}">
+        <span class="vital-ico">${icon}</span>
+        <span class="vital-body">
+          <span class="vital-num">${Math.round(used)}<span class="vital-cap">/${Math.round(cap)}</span></span>
+          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>
+        </span></div>`;
+    };
+    const housingCap = [...g.buildings.values()]
+      .filter((b) => b.progress >= 1 && b.active)
+      .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
+    const capitalCls = r.capital < 0 ? 'bad' : '';
+    this.vitals.innerHTML =
+      `<div class="vital vital-wide"><span class="vital-ico">§</span><span class="vital-body">
+        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}</span>
+        <span class="vital-label">Capital</span></span></div>` +
+      `<div class="vital vital-wide"><span class="vital-ico">👤</span><span class="vital-body">
+        <span class="vital-num">${g.population.toLocaleString()}</span>
+        <span class="vital-label">${tierOf(g.population).name}</span></span></div>` +
+      gauge('⚡', 'Power', r.powerDemand, r.powerCapacity) +
+      gauge('💧', 'Water', r.waterDemand, r.waterCapacity) +
+      gauge('▣', 'Compute', r.computeDemand, r.compute) +
+      gauge('🏠', 'Housing', g.population, housingCap) +
+      `<div class="vital-mini">
+        <span title="${unempLabel}">${unempLabel.slice(0, 4)} <b>${hideNegatives ? '—' : unemp + '%'}</b></span>
+        <span title="${unrestLabel}">${unrestLabel.slice(0, 4)} <b>${unrestVal}</b></span>
+        <span title="Public trust">Trust <b>${Math.round(g.indicators.trust)}</b></span>
+        <span title="Public health">Health <b>${Math.round(g.indicators.health)}</b></span>
+        <span title="Regional attractiveness">Appeal <b>${Math.round(g.attractiveness.overall * 100)}</b></span>
+      </div>`;
+
+    // ---- Right section: clock and speed state ----
+    this.barStatus.innerHTML =
+      `<span class="bar-date">Year ${year}</span><span class="bar-month">${month}</span>`;
+    for (const b of this.barRight.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
     }
+    const alertBtn = this.barRight.querySelector<HTMLElement>('.alert-btn');
+    if (alertBtn) {
+      alertBtn.classList.toggle('has-unread', this.unreadAlerts > 0);
+      const lbl = alertBtn.querySelector('.tool-label');
+      if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts (${this.unreadAlerts})` : 'Alerts';
+    }
+    const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
+    if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
 
     // Indicators -----------------------------------------------------------
     const ind = document.getElementById('indicators-body');
@@ -620,9 +856,11 @@ export class UI {
 
     // Notifications --------------------------------------------------------
     let asiNotices = 0;
+    let newAlerts = 0;
     while (this.shownNotifications < g.notifications.length) {
       const n = g.notifications[this.shownNotifications++];
       if (n.kind === 'asi') asiNotices++;
+      if (n.kind === 'asi' || n.kind === 'warn' || n.kind === 'system') newAlerts++;
       const item = el('div', `feed-item ${n.kind}`);
       const year2 = Math.floor(n.tick / 12) + 1;
       item.innerHTML = `<span class="feed-date">Y${year2} ${MONTHS[n.tick % 12]}</span> ${n.text}`;
@@ -631,6 +869,12 @@ export class UI {
       this.feed.scrollTop = this.feed.scrollHeight;
     }
     if (asiNotices > 0) this.sound?.systemTone();
+    if (this.openPanel !== 'alerts') {
+      this.unreadAlerts = Math.min(99, this.unreadAlerts + newAlerts);
+    }
+    // Keep an open build flyout current without rebuilding it: recreating the
+    // cards every refresh would yank them out from under the cursor.
+    this.syncBuildFlyout();
 
     // Reports (elections, reclassifications) take priority over events -----
     if (g.pendingReport && this.modal.classList.contains('hidden')) {

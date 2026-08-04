@@ -72,6 +72,7 @@ window.addEventListener('mousemove', (ev) => {
   const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
     renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
     renderer.camY -= (ev.clientY - lastMy) / renderer.zoom;

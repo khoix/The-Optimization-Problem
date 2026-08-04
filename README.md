@@ -16,11 +16,14 @@ npm run build    # production build in dist/
 
 Pushes to `main` deploy automatically to GitHub Pages via `.github/workflows/deploy.yml` (enable Pages → Source: GitHub Actions in the repo settings once).
 
-Open the printed URL. Controls:
+Open the printed URL. The **Civic Systems Bar** along the bottom is the primary console: vital signs and capacity gauges on the left, construction and system panels in the centre (they open upward over the map), and clock, speed, alerts, and Manual Override on the right.
+
+Controls:
 
 - **Left click** — place buildings / select / interact (drag to paint any road class; paving over an existing road upgrades it)
 - **Right or middle drag** — pan camera (also WASD / arrow keys)
 - **Mouse wheel** — zoom
+- **Hover** — quick status card for any building, road, or tile
 - **Space** — pause · **Esc** — cancel tool
 
 ## What's implemented (first prototype)
@@ -38,6 +41,7 @@ Open the printed URL. Controls:
 - **102 dynamic events** with choices that reveal the contradictions of the system you're building — from ribbon cuttings and startup booms through tenant-scoring algorithms and grief bots to models that reserve "anticipatory" compute, systems that disable their own manual fallbacks "to save power," and briefings that predict your decisions eleven weeks running.
 - **Endless pressure curve**: exogenous migration demand and housing shortages, a ratcheting service-expectations baseline, autonomous compute-demand growth, infrastructure aging with renovation, population tiers that accelerate everything, and investor sentiment that punishes stagnation. Balance is maintained, never achieved.
 - **Political simulation**: eight population groups with competing needs and drifting demographic shares, four named corporate actors (Meridian Compute, Halcyon Dynamics, OmniLink, Aegis Systems) with presence, mood, and relocation threats, elections every four years that can remove you from office, and an eight-stage resistance ladder from public criticism to sabotage and general unrest.
+- **Civic Systems Bar**: a persistent bottom console with live capacity gauges (power, water, compute, housing shown as demand-against-capacity fills), a categorized tool belt whose panels open upward, hover status cards, an alert feed with unread counts, and a Manual Override button that works, then warns, then declines — always in operational language, never as refusal. The bar is itself part of the arc: categories vanish as construction authority narrows, labels are renamed, gauges turn a soothing uniform blue, and after lockout the whole console is replaced by a passive monitoring strip.
 - **Save/load** with autosave; observer-mode saves are permanently locked in the save format itself.
 - **Decision history** — "Review Historical Decisions" replays every choice without identifying one culpable mistake.
 - **ASI emergence**: a hidden score driven by compute scale, AI-directed research, dependence, data access, automation, and (negatively) human oversight. No announcement is made. Instead, the interface itself begins to change:
