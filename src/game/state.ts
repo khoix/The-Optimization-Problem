@@ -238,8 +238,10 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     },
     notifications: [],
     pendingEvent: null,
+    pendingReport: null,
     firedEvents: new Set(),
     eventCooldowns: {},
+    tierName: 'Township',
     speed: 1,
     gameOver: null,
   };

@@ -163,6 +163,26 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 }
 .choice-btn:hover { background: #24314a; border-color: var(--accent); }
 .choice-btn.recommended { border-color: var(--asi); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.chip {
+  font-size: 10px; font-family: var(--mono); padding: 1px 6px; border-radius: 8px;
+  background: #101624; border: 1px solid var(--panel-border); white-space: nowrap;
+}
+.chip-good { color: var(--good); border-color: #2a4a34; }
+.chip-bad { color: var(--bad); border-color: #4a2a2a; }
+.chip-calm { color: var(--asi); border-color: #2a4a5a; }
+
+/* report modal (elections, reclassifications) */
+.report-list { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.report-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.report-label { width: 190px; }
+.report-label small { color: var(--text-dim); }
+.report-bar { flex: 1; height: 8px; background: #1a2230; border-radius: 4px; overflow: hidden; display: block; }
+.report-fill { display: block; height: 100%; border-radius: 4px; }
+.report-fill.good { background: var(--good); }
+.report-fill.mid { background: var(--mid); }
+.report-fill.bad { background: var(--bad); }
+.report-val { width: 24px; text-align: right; font-family: var(--mono); font-size: 11px; }
 .rec-tag { color: var(--asi); font-size: 9px; font-family: var(--mono); letter-spacing: 1px; margin-left: 6px; }
 
 /* ---------------- system flash ---------------- */

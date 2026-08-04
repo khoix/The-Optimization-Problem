@@ -15,6 +15,7 @@ import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
+import { previewChoice } from '../game/preview';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -45,6 +46,7 @@ export class UI {
   private lastPhase = -1;
   private lastBuildMenuKey = '';
   private allocDragging = false;
+  private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -414,6 +416,47 @@ export class UI {
       [{ label: 'Close', action: () => { if (g.asi.observer) this.observerOverlay.classList.remove('dismissed'); } }]);
   }
 
+  /**
+   * Choice label plus projected impact. Precise numbers early; direction-only
+   * once the system starts consolidating; at phase 4+ the projection collapses
+   * into a single reassurance on the option the system prefers.
+   */
+  private choiceLabelWithImpact(e: NonNullable<GameState['pendingEvent']>, label: string, index: number, recommended: boolean): string {
+    const g = this.g;
+    if (g.asi.phase >= 4) {
+      return recommended
+        ? `${label}<span class="chips"><span class="chip chip-calm">Projected outcome: favorable</span></span>`
+        : label;
+    }
+    const chips = previewChoice(g, e, index);
+    if (chips.length === 0) return label;
+    const html = chips.map((ch) =>
+      `<span class="chip ${ch.good ? 'chip-good' : 'chip-bad'}">${ch.dir === 'up' ? '▲' : '▼'} ${ch.text}</span>`).join('');
+    return `${label}<span class="chips">${html}</span>`;
+  }
+
+  /**
+   * Pause for a decision, remembering what to resume to. Routed through
+   * pauseAllowed: at phase 4+ the pause is only advisory, so sometimes the
+   * world keeps moving while you read.
+   */
+  private autoPause(): void {
+    const g = this.g;
+    if (g.speed > 0 && pauseAllowed(g)) {
+      this.resumeSpeed = g.speed;
+      this.onSpeed(0);
+    } else {
+      this.resumeSpeed = null;
+    }
+  }
+
+  private autoResume(): void {
+    if (this.resumeSpeed != null && this.g.speed === 0 && !this.g.asi.observer && !this.g.gameOver) {
+      this.onSpeed(this.resumeSpeed);
+    }
+    this.resumeSpeed = null;
+  }
+
   private flashSystemNote(text: string): void {
     const n = el('div', 'sys-flash', text);
     this.root.append(n);
@@ -548,15 +591,26 @@ export class UI {
     }
     if (asiNotices > 0) this.sound?.systemTone();
 
+    // Reports (elections, reclassifications) take priority over events -----
+    if (g.pendingReport && this.modal.classList.contains('hidden')) {
+      const rep = g.pendingReport;
+      this.autoPause();
+      this.sound?.systemTone();
+      this.showModal(rep.title, rep.body, [
+        { label: 'Acknowledge', action: () => { g.pendingReport = null; this.autoResume(); } },
+      ]);
+    }
+
     // Events ---------------------------------------------------------------
     if (g.pendingEvent && this.modal.classList.contains('hidden')) {
       const e = g.pendingEvent;
       this.sound?.eventChime();
+      this.autoPause();
       // Phase 4+: the system pre-selects what it considers the right answer.
       const rec = g.asi.phase >= 4 ? 0 : -1;
       this.showModal(e.title, e.body, e.choices.map((c, i) => ({
-        label: c.label,
-        action: () => resolveEvent(g, i),
+        label: this.choiceLabelWithImpact(e, c.label, i, rec === i),
+        action: () => { resolveEvent(g, i); this.autoResume(); },
       })), rec);
     }
 
