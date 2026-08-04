@@ -1,0 +1,116 @@
+// Save/load. A save made in observer mode is flagged `locked` in the envelope
+// itself: it can be reopened and watched, but never resumed as administrator.
+// That permanence is part of the design, so it lives in the format, not the UI.
+
+import type { Building, GameState } from './types';
+import { EVENTS } from './events';
+import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
+
+const SAVE_VERSION = 1;
+
+export const MANUAL_SLOT = 'top:save';
+export const AUTO_SLOT = 'top:autosave';
+export const BOOT_FLAG = 'top:boot'; // 'load:<slot>' consumed once at startup
+
+export interface SaveEnvelope {
+  version: number;
+  savedAt: number;        // epoch ms
+  tick: number;
+  population: number;
+  locked: boolean;        // observer-mode save: watchable, never resumable
+  state: Record<string, unknown>;
+}
+
+export function serialize(g: GameState): SaveEnvelope {
+  const state: Record<string, unknown> = {
+    ...g,
+    buildings: [...g.buildings.values()],
+    policies: [...g.policies],
+    firedEvents: [...g.firedEvents],
+    pendingEvent: g.pendingEvent ? g.pendingEvent.id : null,
+  };
+  return {
+    version: SAVE_VERSION,
+    savedAt: Date.now(),
+    tick: g.tick,
+    population: g.population,
+    locked: g.asi.observer,
+    state,
+  };
+}
+
+export function deserialize(env: SaveEnvelope): GameState {
+  const s = env.state as Record<string, unknown> & GameState;
+  const g = {
+    ...s,
+    buildings: new Map((s.buildings as unknown as Building[]).map((b) => [b.id, b])),
+    policies: new Set(s.policies as unknown as string[]),
+    firedEvents: new Set(s.firedEvents as unknown as string[]),
+    eventCooldowns: (s.eventCooldowns as Record<string, number> | undefined) ?? {},
+    pendingEvent: null,
+  } as unknown as GameState;
+  const pendingId = s.pendingEvent as unknown as string | null;
+  if (pendingId) g.pendingEvent = EVENTS.find((e) => e.id === pendingId) ?? null;
+  // Saves from before newer systems get sensible defaults.
+  g.scenario ??= 'verdant';
+  g.mapVersion ??= 0;
+  g.asi.shadowPolicies ??= [];
+  g.asi.diluted ??= [];
+  g.asi.weights ??= { compute: 0.9, research: 1.4, dependence: 0.7, data: 0.5, automation: 0.5, corporate: 0.4, oversight: 1.1 };
+  g.asi.thresholds ??= [42, 55, 66, 76, 86, 95];
+  g.groups ??= defaultGroups();
+  g.corps ??= defaultCorps();
+  g.resistanceStage ??= 0;
+  g.resistancePressure ??= 0;
+  g.nextElectionTick ??= Math.ceil((g.tick + 1) / ELECTION_PERIOD) * ELECTION_PERIOD;
+  g.lastElectionResult ??= null;
+  // A locked save can only ever reopen as an observer, whatever else it claims.
+  if (env.locked) g.asi.observer = true;
+  return g;
+}
+
+export function saveTo(slot: string, g: GameState): boolean {
+  try {
+    localStorage.setItem(slot, JSON.stringify(serialize(g)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function peek(slot: string): SaveEnvelope | null {
+  try {
+    const raw = localStorage.getItem(slot);
+    if (!raw) return null;
+    const env = JSON.parse(raw) as SaveEnvelope;
+    if (env.version !== SAVE_VERSION) return null;
+    return env;
+  } catch {
+    return null;
+  }
+}
+
+export function loadFrom(slot: string): GameState | null {
+  const env = peek(slot);
+  if (!env) return null;
+  try {
+    return deserialize(env);
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the next page load to boot from a slot, then reload. */
+export function requestLoad(slot: string): void {
+  localStorage.setItem(BOOT_FLAG, `load:${slot}`);
+  location.reload();
+}
+
+/** Consume the boot flag: 'new' / 'new:<scenario>', a slot name to load from, or null. */
+export function consumeBootFlag(): string | null {
+  const flag = localStorage.getItem(BOOT_FLAG);
+  localStorage.removeItem(BOOT_FLAG);
+  if (flag === 'new' || flag?.startsWith('new:')) return flag;
+  if (flag?.startsWith('load:')) return flag.slice(5);
+  return null;
+}
