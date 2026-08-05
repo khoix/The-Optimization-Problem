@@ -24,7 +24,8 @@ import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
 /** Corner badge naming a button's key, so the belt teaches its own shortcuts. */
-const keyBadge = (k: string | undefined) => (k ? `<span class="tool-key">${k}</span>` : '');
+const keyBadge = (k: string | undefined) =>
+  (k ? `<span class="tool-key${/^[0-9]$/.test(k) ? ' num' : ''}">${k}</span>` : '');
 
 /** One reconciled entry in a metrics panel: a meter row, or a block of markup. */
 type PanelItem =
@@ -540,6 +541,7 @@ export class UI {
     this.flyoutBody.innerHTML = '';
     if (!c) return;
     const grid = el('div', 'build-grid');
+    let n = 0;
     for (const t of c.types) {
       const def = BUILDING_DEFS[t];
       const locked = def.unlockTier != null && tier < def.unlockTier;
@@ -553,10 +555,16 @@ export class UI {
       if (def.compute) stats.push(`▣+${def.compute}`);
       if (def.serviceRadius) stats.push(`◎${def.serviceRadius}`);
       if (def.amenity) stats.push(`★${def.amenity}`);
+      // Numbered by position, locked cards included: numbering only what is
+      // unlocked would renumber a building the moment the region grew, which
+      // breaks the habit exactly when it has been learned. The top right is
+      // already the cost, so the key sits bottom right.
+      n++;
       btn.innerHTML = `<span class="card-name">${def.name}</span>` +
         `<span class="card-cost">${locked ? TIER_NAMES[def.unlockTier!] : '§' + def.cost}</span>` +
         `<span class="card-stats">${stats.join(' ')}</span>` +
-        `<span class="card-desc">${def.desc}</span>`;
+        `<span class="card-desc">${def.desc}</span>` +
+        (n <= 9 ? `<span class="card-key">${n}</span>` : '');
       btn.dataset.type = t;
       btn.onclick = () => {
         if (locked) {
@@ -1117,6 +1125,11 @@ export class UI {
   }
 
   private syncToolButtons(): void {
+    // While a build drawer is open the digits belong to its cards, so the
+    // belt's own numbers step aside rather than claiming keys they no longer
+    // answer to. The letters keep working and keep their badges.
+    const buildOpen = this.openPanel != null && this.hudCategories().some((c) => c.id === this.openPanel);
+    this.civicBar.classList.toggle('submenu-owns-digits', buildOpen);
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.sys-btn[data-panel]')) {
       b.classList.toggle('open', b.dataset.panel === this.openPanel);
     }

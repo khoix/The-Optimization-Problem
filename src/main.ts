@@ -88,7 +88,12 @@ window.addEventListener('mousemove', (ev) => {
   const rect = canvas.getBoundingClientRect();
   const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
-  hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  // The listener is on the window so dragging keeps working past the canvas
+  // edge, which means the pointer may be over the bar, a drawer or a toast —
+  // all of which sit above map tiles. Those are not the map, so nothing about
+  // the tile underneath them should be reported.
+  const onMap = ev.target === canvas;
+  hoverTile = onMap && tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
   hoverWorld = hoverTile ? [wx, wy] : null;
   xrayHeld = modifierHeld(ev);
   ui.showHover(hoverTile, ev.clientX, ev.clientY);
