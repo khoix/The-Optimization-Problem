@@ -219,7 +219,12 @@ export class UI {
    * active build tool. Modals handle their own dismissal.
    */
   handleEscape(): void {
-    if (!this.modal.classList.contains('hidden')) return;
+    // A pending decision is never dismissable — but the instruments consulted
+    // over the top of it are, so the panel step still runs.
+    if (!this.modal.classList.contains('hidden')) {
+      if (this.openPanel) this.closePanel();
+      return;
+    }
     if (this.openPanel) { this.closePanel(); return; }
     if (!this.inspector.classList.contains('hidden')) {
       this.selectedBuildingId = null;

@@ -8,6 +8,7 @@ import { BUILDING_DEFS } from './game/buildings';
 import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
+import { rawDeltas } from './game/preview';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -43,7 +44,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 // Debug/testing handles (also lets the curious peek behind the curtain).
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
-(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS };
+(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas };
 
 // ---------------------------------------------------------------- input
 let dragging = false;

@@ -251,6 +251,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     pendingReport: null,
     firedEvents: new Set(),
     eventCooldowns: {},
+    lastEventTick: 0,
     tierName: 'Township',
     speed: 1,
     gameOver: null,

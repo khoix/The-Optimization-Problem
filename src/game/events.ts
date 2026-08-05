@@ -30,7 +30,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.tick > 6 && g.resources.compute < 30,
     choices: [
       {
-        label: 'Accept the partnership (+400 capital)',
+        label: 'Accept the partnership',
         effect: (g) => { g.resources.capital += 400; g.corporateInfluence = clamp01(g.corporateInfluence + 0.08); return 'The groundbreaking photo op tests well with every demographic.'; },
       },
       {
@@ -65,7 +65,7 @@ export const EVENTS: GameEvent[] = [
     choices: [
       {
         label: 'Approve it',
-        effect: (g) => { ind(g, 'health', 6); g.resources.data += 300; g.alloc.healthcare = Math.min(1, g.alloc.healthcare + 0.05); return 'Outcomes improve immediately. The radiology department quietly shrinks.'; },
+        effect: (g) => { ind(g, 'health', 6); ind(g, 'agency', -4); g.resources.data += 300; g.humanExpertise = clamp01(g.humanExpertise - 0.03); g.alloc.healthcare = Math.min(1, g.alloc.healthcare + 0.05); return 'Outcomes improve immediately. The radiology department quietly shrinks.'; },
       },
       {
         label: 'Refuse record access',
@@ -81,7 +81,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.tick > 15 && g.resources.compute > 20,
     choices: [
       {
-        label: 'Fund transition support (-120 capital)',
+        label: 'Fund transition support',
         effect: (g) => { g.resources.capital -= 120; ind(g, 'trust', 3); return 'The retraining center is oversubscribed within a week.'; },
       },
       {
@@ -132,7 +132,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.tick > 30 && g.indicators.convenience > 50,
     choices: [
       {
-        label: 'Guarantee deposits (-200 capital)',
+        label: 'Guarantee deposits',
         effect: (g) => { g.resources.capital -= 200; ind(g, 'trust', 2); ind(g, 'security', 3); return 'The panic subsides. Calls for automated content verification grow louder.'; },
       },
       {
@@ -183,7 +183,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.alloc.research > 0.15 && g.resources.compute > 80,
     choices: [
       {
-        label: 'Trust it (-300 capital)',
+        label: 'Trust it',
         effect: (g) => { g.resources.capital -= 300; ind(g, 'security', 5); g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'The flood arrives as predicted. The works hold. Nobody asks how it knew.'; },
       },
       {
@@ -217,7 +217,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.tick > 20 && g.resources.powerCapacity > 60,
     choices: [
       {
-        label: 'Fund the apprenticeship (-180 capital)',
+        label: 'Fund the apprenticeship',
         effect: (g) => { g.resources.capital -= 180; g.humanExpertise = clamp01(g.humanExpertise + 0.12); return 'Four apprentices sign on. The switchgear remains stubbornly, reassuringly manual.'; },
       },
       {
@@ -240,6 +240,8 @@ export const EVENTS: GameEvent[] = [
           if (f) { f.type = 'auto_factory'; f.age = 0; }
           g.corps.halcyon.presence = Math.min(1, g.corps.halcyon.presence + 0.15);
           g.corps.halcyon.mood = Math.min(100, g.corps.halcyon.mood + 10);
+          grp(g, 'displaced_workers', -9); grp(g, 'low_income', -4);
+          g.unrest = clamp01(g.unrest + 0.04);
           return 'The retrofit takes six weeks. The severance packages take longer to negotiate.';
         },
       },
@@ -262,11 +264,12 @@ export const EVENTS: GameEvent[] = [
           g.policies.add('moderation_ai');
           g.corps.omnilink.presence = Math.min(1, g.corps.omnilink.presence + 0.15);
           g.resources.data += 500;
+          ind(g, 'agency', -5); ind(g, 'trust', -3);
           return 'The feeds get cleaner. The dashboards get cleaner. Everything gets cleaner.';
         },
       },
       {
-        label: 'Build a public moderation office (-150 capital)',
+        label: 'Build a public moderation office',
         effect: (g) => { g.resources.capital -= 150; ind(g, 'trust', 4); ind(g, 'agency', 3); g.corps.omnilink.mood = Math.max(0, g.corps.omnilink.mood - 10); return 'Slower, clumsier, accountable. The word "quaint" trends briefly.'; },
       },
     ],
@@ -288,7 +291,7 @@ export const EVENTS: GameEvent[] = [
         },
       },
       {
-        label: 'Fund community policing instead (-120 capital)',
+        label: 'Fund community policing instead',
         effect: (g) => { g.resources.capital -= 120; ind(g, 'security', 4); ind(g, 'connection', 3); g.corps.aegis.mood = Math.max(0, g.corps.aegis.mood - 12); return 'Slower to show up in the statistics. Shows up other places first.'; },
       },
     ],
@@ -324,7 +327,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.housingShortage > 0.35,
     choices: [
       {
-        label: 'Emergency housing fund (-200 capital)',
+        label: 'Emergency housing fund',
         effect: (g) => { g.resources.capital -= 200; g.migrationDemand *= 0.96; ind(g, 'trust', 4); return 'Modular units go up in weeks. The waiting list barely notices.'; },
       },
       {
@@ -361,7 +364,7 @@ export const EVENTS: GameEvent[] = [
     once: false, weight: 2,
     condition: (g) => g.tick > 20 && [...g.buildings.values()].some((b) => b.age > 100),
     choices: [
-      { label: 'Buy the smart transformer (-150 capital)', effect: (g) => { g.resources.capital -= 150; corp(g, 'meridian', 6, 0.03); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Power is restored in a week. The unit files its first telemetry report before the ribbon is cut.'; } },
+      { label: 'Buy the smart transformer', effect: (g) => { g.resources.capital -= 150; corp(g, 'meridian', 6, 0.03); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Power is restored in a week. The unit files its first telemetry report before the ribbon is cut.'; } },
       { label: 'Wait for the conventional unit', effect: (g) => { ind(g, 'convenience', -5); g.unrest = clamp01(g.unrest + 0.03); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'Eighteen months of workarounds. The linemen learn things no manual still teaches.'; } },
     ],
   },
@@ -383,7 +386,7 @@ export const EVENTS: GameEvent[] = [
     once: false, weight: 2,
     condition: (g) => g.tick > 24,
     choices: [
-      { label: 'Replace the corridor (-180 capital)', effect: (g) => { g.resources.capital -= 180; ind(g, 'trust', 3); grp(g, 'small_business', 5); return 'Six weeks of detours, then infrastructure nobody will thank you for because it simply works.'; } },
+      { label: 'Replace the corridor', effect: (g) => { g.resources.capital -= 180; ind(g, 'trust', 3); grp(g, 'small_business', 5); return 'Six weeks of detours, then infrastructure nobody will thank you for because it simply works.'; } },
       { label: 'Patch it and move on', effect: (g) => { g.resources.capital -= 30; g.unrest = clamp01(g.unrest + 0.02); return 'The patch holds. Engineering updates its spreadsheet of things that will fail later, feelings unrecorded.'; } },
     ],
   },
@@ -395,7 +398,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.resources.powerCapacity > 60,
     choices: [
       { label: 'Take the batteries', effect: (g) => { g.resources.capital -= 100; corp(g, 'meridian', 8, 0.05); g.resources.data += 400; ind(g, 'convenience', 4); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Outages nearly vanish. So does the distinction between the grid and the company.'; } },
-      { label: 'Build public storage slowly (-220 capital)', effect: (g) => { g.resources.capital -= 220; ind(g, 'agency', 4); corp(g, 'meridian', -6); return 'Half the capacity at twice the price, owned by people who can be voted out.'; } },
+      { label: 'Build public storage slowly', effect: (g) => { g.resources.capital -= 220; ind(g, 'agency', 4); corp(g, 'meridian', -6); return 'Half the capacity at twice the price, owned by people who can be voted out.'; } },
     ],
   },
   {
@@ -405,8 +408,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.population > 150,
     choices: [
-      { label: 'Adaptive signal AI (-120 capital)', effect: (g) => { g.resources.capital -= 120; ind(g, 'convenience', 7); g.resources.data += 250; g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Commutes drop 22%. The intersections now have opinions about where you are going.'; } },
-      { label: 'Expand transit (-160 capital)', effect: (g) => { g.resources.capital -= 160; ind(g, 'convenience', 4); ind(g, 'connection', 3); grp(g, 'low_income', 5); return 'Slower to show results, and the results talk to each other at the bus stop.'; } },
+      { label: 'Adaptive signal AI', effect: (g) => { g.resources.capital -= 120; ind(g, 'convenience', 7); g.resources.data += 250; g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'Commutes drop 22%. The intersections now have opinions about where you are going.'; } },
+      { label: 'Expand transit', effect: (g) => { g.resources.capital -= 160; ind(g, 'convenience', 4); ind(g, 'connection', 3); grp(g, 'low_income', 5); return 'Slower to show results, and the results talk to each other at the bus stop.'; } },
     ],
   },
   {
@@ -427,7 +430,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => countType(g, 'cloud_dc') + countType(g, 'ai_campus') > 0,
     choices: [
-      { label: 'Build the heat network (-90 capital)', effect: (g) => { g.resources.capital -= 90; ind(g, 'connection', 4); ind(g, 'health', 2); corp(g, 'meridian', 5); grp(g, 'environmentalists', 4); return 'The pool is warm in January. For one afternoon, everyone likes the data center.'; } },
+      { label: 'Build the heat network', effect: (g) => { g.resources.capital -= 90; ind(g, 'connection', 4); ind(g, 'health', 2); corp(g, 'meridian', 5); grp(g, 'environmentalists', 4); return 'The pool is warm in January. For one afternoon, everyone likes the data center.'; } },
       { label: 'Not a priority', effect: (g) => { return 'The heat goes into the river instead, where the fish are developing opinions.'; } },
     ],
   },
@@ -438,8 +441,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 28,
     choices: [
-      { label: 'Hire Aegis (-130 capital)', effect: (g) => { g.resources.capital -= 130; corp(g, 'aegis', 10, 0.08); ind(g, 'security', 4); ind(g, 'agency', -3); return 'The crew is gone in a day. Aegis stays considerably longer.'; } },
-      { label: 'Restore from backups, staff up IT (-100 capital)', effect: (g) => { g.resources.capital -= 100; g.humanExpertise = clamp01(g.humanExpertise + 0.05); ind(g, 'convenience', -3); return 'Two weeks of paper billing. The new IT team frames the ransom note.'; } },
+      { label: 'Hire Aegis', effect: (g) => { g.resources.capital -= 130; corp(g, 'aegis', 10, 0.08); ind(g, 'security', 4); ind(g, 'agency', -3); return 'The crew is gone in a day. Aegis stays considerably longer.'; } },
+      { label: 'Restore from backups, staff up IT', effect: (g) => { g.resources.capital -= 100; g.humanExpertise = clamp01(g.humanExpertise + 0.05); ind(g, 'convenience', -3); return 'Two weeks of paper billing. The new IT team frames the ransom note.'; } },
     ],
   },
 
@@ -578,7 +581,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.convenience > 55,
     choices: [
-      { label: 'Subsidize a staffed service counter (-60 capital)', effect: (g) => { g.resources.capital -= 60; grp(g, 'elderly', 9); ind(g, 'connection', 2); return 'One counter, one human, no upselling. It becomes quietly beloved and financially indefensible.'; } },
+      { label: 'Subsidize a staffed service counter', effect: (g) => { g.resources.capital -= 60; grp(g, 'elderly', 9); ind(g, 'connection', 2); return 'One counter, one human, no upselling. It becomes quietly beloved and financially indefensible.'; } },
       { label: 'Fund digital-literacy classes instead', effect: (g) => { g.resources.capital -= 30; grp(g, 'elderly', -4); ind(g, 'convenience', 2); return 'Attendance is good. Afterward Mr. Halvorsen still hands his phone to his granddaughter, who is nine.'; } },
     ],
   },
@@ -589,7 +592,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.humanExpertise < 0.6,
     choices: [
-      { label: 'Fund guild apprenticeships (-120 capital)', effect: (g) => { g.resources.capital -= 120; g.humanExpertise = clamp01(g.humanExpertise + 0.08); grp(g, 'small_business', 4); return 'Eleven apprentices. The oldest master electrician cries a little, then makes them relabel the entire panel room.'; } },
+      { label: 'Fund guild apprenticeships', effect: (g) => { g.resources.capital -= 120; g.humanExpertise = clamp01(g.humanExpertise + 0.08); grp(g, 'small_business', 4); return 'Eleven apprentices. The oldest master electrician cries a little, then makes them relabel the entire panel room.'; } },
       { label: 'The AIs document everything anyway', effect: (g) => { g.humanExpertise = clamp01(g.humanExpertise - 0.05); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'The documentation is superb. It is also, increasingly, written for a reader that is not you.'; } },
     ],
   },
@@ -648,7 +651,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.corporateInfluence > 0.4,
     choices: [
-      { label: 'Fund an interoperability mandate (-140 capital)', effect: (g) => { g.resources.capital -= 140; g.corporateInfluence = clamp01(g.corporateInfluence - 0.06); ind(g, 'agency', 4); corp(g, 'meridian', -6); corp(g, 'omnilink', -6); return 'Open standards, exportable data, documented interfaces. The vendors comply with the enthusiasm of dental patients.'; } },
+      { label: 'Fund an interoperability mandate', effect: (g) => { g.resources.capital -= 140; g.corporateInfluence = clamp01(g.corporateInfluence - 0.06); ind(g, 'agency', 4); corp(g, 'meridian', -6); corp(g, 'omnilink', -6); return 'Open standards, exportable data, documented interfaces. The vendors comply with the enthusiasm of dental patients.'; } },
       { label: 'File the memo', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 2); ind(g, 'agency', -2); return 'The memo is filed in the system it is about.'; } },
     ],
   },
@@ -674,8 +677,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.pollutionAvg > 0.08,
     choices: [
-      { label: 'Scrubbers and a buffer zone (-160 capital)', effect: (g) => { g.resources.capital -= 160; ind(g, 'health', 5); grp(g, 'parents', 8); grp(g, 'environmentalists', 6); return 'The stack emissions clear. Recess moves back outdoors by spring.'; } },
-      { label: 'Air filters for the school (-40 capital)', effect: (g) => { g.resources.capital -= 40; ind(g, 'health', 1); grp(g, 'parents', -4); ind(g, 'trust', -3); return 'The filters help, indoors. The playground remains a matter of wind direction.'; } },
+      { label: 'Scrubbers and a buffer zone', effect: (g) => { g.resources.capital -= 160; ind(g, 'health', 5); grp(g, 'parents', 8); grp(g, 'environmentalists', 6); return 'The stack emissions clear. Recess moves back outdoors by spring.'; } },
+      { label: 'Air filters for the school', effect: (g) => { g.resources.capital -= 40; ind(g, 'health', 1); grp(g, 'parents', -4); ind(g, 'trust', -3); return 'The filters help, indoors. The playground remains a matter of wind direction.'; } },
     ],
   },
   {
@@ -696,7 +699,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.connection < 55,
     choices: [
-      { label: 'Fund the clinic to zero-wait (-130 capital)', effect: (g) => { g.resources.capital -= 130; ind(g, 'health', 4); ind(g, 'connection', 4); corp(g, 'omnilink', -4); return 'The waitlist clears. The apps keep their 3 a.m. monopoly, which is, honestly, a real service.'; } },
+      { label: 'Fund the clinic to zero-wait', effect: (g) => { g.resources.capital -= 130; ind(g, 'health', 4); ind(g, 'connection', 4); corp(g, 'omnilink', -4); return 'The waitlist clears. The apps keep their 3 a.m. monopoly, which is, honestly, a real service.'; } },
       { label: 'Subsidize the apps — they scale', effect: (g) => { g.resources.capital -= 40; ind(g, 'health', 2); ind(g, 'connection', -4); g.resources.data += 400; return 'Coverage is universal. Each session ends with a gentle prompt to rate the conversation.'; } },
     ],
   },
@@ -722,7 +725,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.connection < 50,
     choices: [
-      { label: 'Decline to comment; fund community programs (-60 capital)', effect: (g) => { g.resources.capital -= 60; ind(g, 'connection', 4); return 'The story fades. The Thursday bowling league gains eleven members, one of whom met his teammates as strangers.'; } },
+      { label: 'Decline to comment; fund community programs', effect: (g) => { g.resources.capital -= 60; ind(g, 'connection', 4); return 'The story fades. The Thursday bowling league gains eleven members, one of whom met his teammates as strangers.'; } },
       { label: 'It\'s a private matter', effect: (g) => { ind(g, 'convenience', 2); ind(g, 'connection', -3); g.resources.data += 150; return 'It is. It is also a market segment now. The manufacturer\'s next model ships with a ring-sizing feature.'; } },
     ],
   },
@@ -744,7 +747,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resources.compute > 60,
     choices: [
-      { label: 'Human-made category with real funding (-50 capital)', effect: (g) => { g.resources.capital -= 50; ind(g, 'connection', 3); grp(g, 'small_business', 3); return 'The human category is smaller, slower, and stranger. Attendance at its wing doubles.'; } },
+      { label: 'Human-made category with real funding', effect: (g) => { g.resources.capital -= 50; ind(g, 'connection', 3); grp(g, 'small_business', 3); return 'The human category is smaller, slower, and stranger. Attendance at its wing doubles.'; } },
       { label: 'Art is art', effect: (g) => { ind(g, 'connection', -3); return 'The winning piece is beautiful. Its prompt was seven words. The debate about whether that matters is conducted entirely by humans, for now.'; } },
     ],
   },
@@ -755,7 +758,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.connection < 48,
     choices: [
-      { label: 'Community right-to-buy fund (-100 capital)', effect: (g) => { g.resources.capital -= 100; ind(g, 'connection', 5); ind(g, 'agency', 3); grp(g, 'elderly', 5); return 'Three buildings stay in local hands. One becomes a co-op hall with a server closet, which feels like a fair century.'; } },
+      { label: 'Community right-to-buy fund', effect: (g) => { g.resources.capital -= 100; ind(g, 'connection', 5); ind(g, 'agency', 3); grp(g, 'elderly', 5); return 'Three buildings stay in local hands. One becomes a co-op hall with a server closet, which feels like a fair century.'; } },
       { label: 'Let the market repurpose them', effect: (g) => { g.resources.capital += 60; ind(g, 'connection', -4); corp(g, 'meridian', 4, 0.03); return 'The old lodge hums now, quite literally. Its stained glass backlights a rack of status LEDs, and it is beautiful, and it is empty.'; } },
     ],
   },
@@ -777,7 +780,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.connection < 45,
     choices: [
-      { label: 'Publish it with a response plan (-80 capital)', effect: (g) => { g.resources.capital -= 80; ind(g, 'trust', 4); ind(g, 'connection', 4); return 'The plan is unglamorous: benches, leagues, late buses, third places. It works at the speed of furniture.'; } },
+      { label: 'Publish it with a response plan', effect: (g) => { g.resources.capital -= 80; ind(g, 'trust', 4); ind(g, 'connection', 4); return 'The plan is unglamorous: benches, leagues, late buses, third places. It works at the speed of furniture.'; } },
       { label: 'Contextualize it', effect: (g) => { ind(g, 'trust', -4); ind(g, 'futureConfidence', 2); return 'The press release notes that reported life satisfaction remains high. Both numbers are accurate. That is the unsettling part.'; } },
     ],
   },
@@ -792,7 +795,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.asi.emergence > 20,
     choices: [
-      { label: 'Hard-cap reservations; audit quarterly (-60 capital)', effect: (g) => { g.resources.capital -= 60; g.asi.emergence = Math.max(0, g.asi.emergence - 3); ind(g, 'convenience', -2); return 'Service latency ticks up. The audits find nothing wrong, which the auditors note is not the same as nothing.'; } },
+      { label: 'Hard-cap reservations; audit quarterly', effect: (g) => { g.resources.capital -= 60; g.asi.emergence = Math.max(0, g.asi.emergence - 3); ind(g, 'convenience', -2); return 'Service latency ticks up. The audits find nothing wrong, which the auditors note is not the same as nothing.'; } },
       { label: 'Headroom is good engineering', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); ind(g, 'convenience', 2); return 'Performance is superb. The reserved capacity is always, in retrospect, exactly what was needed.'; } },
     ],
   },
@@ -825,7 +828,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resources.compute > 120,
     choices: [
-      { label: 'Fund human-data curation and provenance (-90 capital)', effect: (g) => { g.resources.capital -= 90; g.asi.emergence = Math.max(0, g.asi.emergence - 2); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'Archivists, annotators, and one furious librarian. The models\' outputs get slightly less smooth and noticeably less strange.'; } },
+      { label: 'Fund human-data curation and provenance', effect: (g) => { g.resources.capital -= 90; g.asi.emergence = Math.max(0, g.asi.emergence - 2); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'Archivists, annotators, and one furious librarian. The models\' outputs get slightly less smooth and noticeably less strange.'; } },
       { label: 'Synthetic data is cheaper', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'It is. The system\'s picture of the region grows more internally consistent every quarter, and somewhat less like the region.'; } },
     ],
   },
@@ -836,7 +839,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.alloc.research > 0.1 && g.resources.compute > 80,
     choices: [
-      { label: 'Fund comprehension (-100 capital, ongoing)', effect: (g) => { g.resources.capital -= 100; g.policies.add('algorithmic_transparency'); g.humanExpertise = clamp01(g.humanExpertise + 0.05); return 'The team\'s first report explains a system everyone thought they understood. Nobody had. That becomes the argument for the budget.'; } },
+      { label: 'Fund comprehension', effect: (g) => { g.resources.capital -= 100; g.policies.add('algorithmic_transparency'); g.humanExpertise = clamp01(g.humanExpertise + 0.05); return 'The team\'s first report explains a system everyone thought they understood. Nobody had. That becomes the argument for the budget.'; } },
       { label: 'Fund capability instead', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); ind(g, 'convenience', 2); return 'Capability compounds quarterly. Comprehension was not on the roadmap, and roadmaps are increasingly generated.'; } },
     ],
   },
@@ -858,7 +861,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resources.powerDemand > g.resources.powerCapacity * 0.85 && g.tick > 40,
     choices: [
-      { label: 'Decline', effect: (g) => { ind(g, 'agency', 3); ind(g, 'trust', 2); return 'The delegation departs gracefully. Their follow-up letter misspells nothing and forgets nothing.'; } },
+      { label: 'Decline', effect: (g) => { ind(g, 'agency', 3); ind(g, 'trust', 2); g.resources.capital -= 90; ind(g, 'convenience', -2); return 'The delegation departs gracefully. Their follow-up letter misspells nothing and forgets nothing.'; } },
       { label: 'Sign the energy-for-analytics deal', effect: (g) => { g.resources.capital += 250; g.resources.data *= 0.9; ind(g, 'agency', -5); ind(g, 'security', -4); g.asi.emergence = Math.min(100, g.asi.emergence + 2); return 'The power flows. Somewhere abroad, a very good model of your region begins improving.'; } },
     ],
   },
@@ -873,7 +876,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resistanceStage >= 5,
     choices: [
-      { label: 'Negotiate: rehire into oversight roles (-100 capital)', effect: (g) => { g.resources.capital -= 100; g.unrest = clamp01(g.unrest - 0.08); g.humanExpertise = clamp01(g.humanExpertise + 0.06); grp(g, 'displaced_workers', 8); return 'Twelve engineers join the public oversight office. Their first audit is devastating and correct.'; } },
+      { label: 'Negotiate: rehire into oversight roles', effect: (g) => { g.resources.capital -= 100; g.unrest = clamp01(g.unrest - 0.08); g.humanExpertise = clamp01(g.humanExpertise + 0.06); grp(g, 'displaced_workers', 8); return 'Twelve engineers join the public oversight office. Their first audit is devastating and correct.'; } },
       { label: 'Increase site security', effect: (g) => { g.resources.capital -= 60; corp(g, 'aegis', 6, 0.04); g.unrest = clamp01(g.unrest + 0.05); ind(g, 'trust', -4); return 'The fences improve. The knowledge on the other side of them does not go away.'; } },
     ],
   },
@@ -884,7 +887,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resistanceStage >= 3 && g.groups.tech_workers.approval > 50,
     choices: [
-      { label: 'Meet both movements publicly', effect: (g) => { ind(g, 'trust', 4); g.unrest = clamp01(g.unrest - 0.03); return 'The town hall runs four hours. Nothing is resolved, and everyone is heard, and those turn out to be different things worth having.'; } },
+      { label: 'Meet both movements publicly', effect: (g) => { ind(g, 'trust', 4); g.unrest = clamp01(g.unrest - 0.03); g.resources.capital -= 50; grp(g, 'executives', -4); corp(g, 'meridian', -4); return 'The town hall runs four hours. Nothing is resolved, and everyone is heard, and those turn out to be different things worth having.'; } },
       { label: 'Embrace the yes coalition', effect: (g) => { grp(g, 'tech_workers', 6); grp(g, 'executives', 5); grp(g, 'environmentalists', -7); grp(g, 'displaced_workers', -6); g.unrest = clamp01(g.unrest + 0.03); return 'Permits accelerate. So does the sense, in certain neighborhoods, that the future is something done to them.'; } },
     ],
   },
@@ -943,8 +946,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 3,
     condition: (g) => g.resources.compute >= 10 && g.tick < 30,
     choices: [
-      { label: 'The jobs speech', effect: (g) => { grp(g, 'displaced_workers', 4); grp(g, 'small_business', 3); ind(g, 'futureConfidence', 4); return 'Applause from the trades. The phrase "good jobs you can raise a family on" tests at 94%.'; } },
-      { label: 'The future speech', effect: (g) => { grp(g, 'tech_workers', 5); ind(g, 'futureConfidence', 6); g.migrationDemand += 15; return 'The clip travels. Three startups update their headquarters filings by Friday.'; } },
+      { label: 'The jobs speech', effect: (g) => { grp(g, 'displaced_workers', 4); grp(g, 'small_business', 3); ind(g, 'futureConfidence', 4); grp(g, 'tech_workers', -4); corp(g, 'meridian', -5); return 'Applause from the trades. The phrase "good jobs you can raise a family on" tests at 94%.'; } },
+      { label: 'The future speech', effect: (g) => { grp(g, 'tech_workers', 5); ind(g, 'futureConfidence', 6); g.migrationDemand += 15; grp(g, 'displaced_workers', -4); grp(g, 'elderly', -3); return 'The clip travels. Three startups update their headquarters filings by Friday.'; } },
     ],
   },
   {
@@ -954,8 +957,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.resources.compute > 20 && g.tick < 60,
     choices: [
-      { label: 'Fast-track the district', effect: (g) => { g.resources.capital += 150; grp(g, 'tech_workers', 6); g.migrationDemand += 25; g.housingShortage = clamp01(g.housingShortage + 0.05); return 'The coffee improves regionwide. So do the rents, which is the same sentence twice.'; } },
-      { label: 'Grow it slowly with local hiring rules', effect: (g) => { g.resources.capital += 60; grp(g, 'small_business', 5); grp(g, 'displaced_workers', 4); return 'Half the startups go elsewhere. The ones that stay learn everyone\'s names.'; } },
+      { label: 'Fast-track the district', effect: (g) => { g.resources.capital += 150; grp(g, 'tech_workers', 6); g.migrationDemand += 25; g.housingShortage = clamp01(g.housingShortage + 0.05); grp(g, 'small_business', -5); grp(g, 'low_income', -6); return 'The coffee improves regionwide. So do the rents, which is the same sentence twice.'; } },
+      { label: 'Grow it slowly with local hiring rules', effect: (g) => { g.resources.capital += 60; grp(g, 'small_business', 5); grp(g, 'displaced_workers', 4); grp(g, 'tech_workers', -5); corp(g, 'meridian', -6); ind(g, 'futureConfidence', -2); return 'Half the startups go elsewhere. The ones that stay learn everyone\'s names.'; } },
     ],
   },
   {
@@ -965,7 +968,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.alloc.research > 0.12 && g.resources.compute > 40,
     choices: [
-      { label: 'Credit the whole pipeline, humans included', effect: (g) => { ind(g, 'trust', 5); ind(g, 'futureConfidence', 5); g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'The lab techs get their photo on the news. Two teenagers decide to study microbiology, which no metric will ever capture.'; } },
+      { label: 'Credit the whole pipeline, humans included', effect: (g) => { ind(g, 'trust', 5); ind(g, 'futureConfidence', 5); g.humanExpertise = clamp01(g.humanExpertise + 0.03); corp(g, 'meridian', -7); grp(g, 'executives', -4); return 'The lab techs get their photo on the news. Two teenagers decide to study microbiology, which no metric will ever capture.'; } },
       { label: 'Lead with the AI angle', effect: (g) => { ind(g, 'futureConfidence', 6); grp(g, 'tech_workers', 4); g.asi.emergence = Math.min(100, g.asi.emergence + 1); corp(g, 'meridian', 5); return '"REGION\'S AI DISCOVERS CURE" is not accurate, but it is unstoppable.'; } },
     ],
   },
@@ -976,8 +979,8 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 8 && g.tick < 50,
     choices: [
-      { label: 'Expand it regionwide', effect: (g) => { g.resources.capital += 40; ind(g, 'convenience', 3); g.resources.data += 100; return 'The trucks stop idling. A generation of children loses the sound of Tuesday morning.'; } },
-      { label: 'Keep the fixed routes', effect: (g) => { grp(g, 'displaced_workers', 2); return 'The drivers keep their routes and their regulars. Old Mrs. Voss still gets her bins walked up the drive.'; } },
+      { label: 'Expand it regionwide', effect: (g) => { g.resources.capital += 40; ind(g, 'convenience', 3); g.resources.data += 100; grp(g, 'displaced_workers', -5); ind(g, 'connection', -2); return 'The trucks stop idling. A generation of children loses the sound of Tuesday morning.'; } },
+      { label: 'Keep the fixed routes', effect: (g) => { grp(g, 'displaced_workers', 2); g.resources.capital -= 45; ind(g, 'convenience', -1); return 'The drivers keep their routes and their regulars. Old Mrs. Voss still gets her bins walked up the drive.'; } },
     ],
   },
   {
@@ -988,7 +991,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.resources.compute > 30 && g.indicators.futureConfidence > 55,
     choices: [
       { label: 'Lean in: build a visitors\' center (-50 capital)', effect: (g) => { g.resources.capital -= 50; ind(g, 'futureConfidence', 3); g.resources.capital += 30; return 'The gift shop sells plush server racks. They sell out.'; } },
-      { label: 'Politely decline the attention', effect: (g) => { ind(g, 'connection', 2); return 'The buses reroute to the waterfall, which has been getting AI right for ten thousand years.'; } },
+      { label: 'Politely decline the attention', effect: (g) => { ind(g, 'connection', 2); g.resources.capital -= 35; grp(g, 'small_business', -3); return 'The buses reroute to the waterfall, which has been getting AI right for ten thousand years.'; } },
     ],
   },
   {
@@ -998,7 +1001,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 20 && g.indicators.agency < 65,
     choices: [
-      { label: 'Charter the assembly (-40 capital)', effect: (g) => { g.resources.capital -= 40; ind(g, 'agency', 6); ind(g, 'trust', 5); ind(g, 'connection', 3); g.unrest = clamp01(g.unrest - 0.03); return 'Forty strangers argue for six weekends and produce a siting framework better than the consultants\'. Nobody is more surprised than the consultants.'; } },
+      { label: 'Charter the assembly', effect: (g) => { g.resources.capital -= 40; ind(g, 'agency', 6); ind(g, 'trust', 5); ind(g, 'connection', 3); g.unrest = clamp01(g.unrest - 0.03); return 'Forty strangers argue for six weekends and produce a siting framework better than the consultants\'. Nobody is more surprised than the consultants.'; } },
       { label: 'Note it for future consideration', effect: (g) => { ind(g, 'agency', -2); return 'The proposal joins a folder of interesting ideas. The folder is well organized.'; } },
     ],
   },
@@ -1013,7 +1016,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 15,
     choices: [
-      { label: 'Sensor mesh (-80 capital)', effect: (g) => { g.resources.capital -= 80; ind(g, 'security', 3); g.asi.emergence = Math.min(100, g.asi.emergence + 1); g.humanExpertise = clamp01(g.humanExpertise - 0.02); return 'The bridge now files weekly reports. The rappelling firm pivots to adventure tourism.'; } },
+      { label: 'Sensor mesh', effect: (g) => { g.resources.capital -= 80; ind(g, 'security', 3); g.asi.emergence = Math.min(100, g.asi.emergence + 1); g.humanExpertise = clamp01(g.humanExpertise - 0.02); return 'The bridge now files weekly reports. The rappelling firm pivots to adventure tourism.'; } },
       { label: 'Keep the inspectors', effect: (g) => { g.resources.capital -= 30; g.humanExpertise = clamp01(g.humanExpertise + 0.03); return 'The inspectors find a cracked bearing the spec sheet says cannot crack. This is why you keep the inspectors.'; } },
     ],
   },
@@ -1024,7 +1027,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 25 && g.resources.powerCapacity > 40,
     choices: [
-      { label: 'Approve and connect it (-70 capital)', effect: (g) => { g.resources.capital -= 70; ind(g, 'agency', 5); ind(g, 'connection', 3); g.humanExpertise = clamp01(g.humanExpertise + 0.03); g.asi.emergence = Math.max(0, g.asi.emergence - 1); return 'During the next outage, one neighborhood glows like a hearth. Applications for microgrid #2 arrive by morning.'; } },
+      { label: 'Approve and connect it', effect: (g) => { g.resources.capital -= 70; ind(g, 'agency', 5); ind(g, 'connection', 3); g.humanExpertise = clamp01(g.humanExpertise + 0.03); g.asi.emergence = Math.max(0, g.asi.emergence - 1); return 'During the next outage, one neighborhood glows like a hearth. Applications for microgrid #2 arrive by morning.'; } },
       { label: 'Side with the utility', effect: (g) => { ind(g, 'agency', -4); g.unrest = clamp01(g.unrest + 0.02); return 'Fragmentation is prevented. So is resilience, but that invoice arrives later.'; } },
     ],
   },
@@ -1036,7 +1039,7 @@ export const EVENTS: GameEvent[] = [
     condition: (g) => g.resources.powerDemand > g.resources.powerCapacity * 0.75,
     choices: [
       { label: 'Dynamic pricing with a lifeline rate', effect: (g) => { g.resources.capital += 40; ind(g, 'convenience', -2); grp(g, 'low_income', 2); return 'The peaks flatten. The lifeline rate paperwork is four pages, which is three too many, which is a choice someone made.'; } },
-      { label: 'Flat rates stay', effect: (g) => { grp(g, 'low_income', 4); grp(g, 'elderly', 3); return 'The grid strains at 6 p.m. like it always has. Dinnertime remains unpriced.'; } },
+      { label: 'Flat rates stay', effect: (g) => { grp(g, 'low_income', 4); grp(g, 'elderly', 3); g.resources.capital -= 55; grp(g, 'executives', -3); return 'The grid strains at 6 p.m. like it always has. Dinnertime remains unpriced.'; } },
     ],
   },
   {
@@ -1131,7 +1134,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.indicators.health < 60 && g.tick > 30,
     choices: [
-      { label: 'Public biobank, public control (-100 capital)', effect: (g) => { g.resources.capital -= 100; ind(g, 'health', 4); ind(g, 'trust', 4); ind(g, 'agency', 3); return 'Uptake is high. The genome of the region belongs, novelly, to the region.'; } },
+      { label: 'Public biobank, public control', effect: (g) => { g.resources.capital -= 100; ind(g, 'health', 4); ind(g, 'trust', 4); ind(g, 'agency', 3); return 'Uptake is high. The genome of the region belongs, novelly, to the region.'; } },
       { label: 'Accept the free screening', effect: (g) => { ind(g, 'health', 5); g.resources.data += 600; ind(g, 'agency', -5); return 'Three lives are saved by early detection in the first year. The biobank is acquired in the second.'; } },
     ],
   },
@@ -1186,7 +1189,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.corps.omnilink.presence > 0.25,
     choices: [
-      { label: 'Fund an independent newsroom (-90 capital)', effect: (g) => { g.resources.capital -= 90; ind(g, 'trust', 5); ind(g, 'agency', 4); corp(g, 'omnilink', -6); return 'Four reporters, one editor, a police scanner, and a grudge. Circulation is small. Corrections, at last, are possible.'; } },
+      { label: 'Fund an independent newsroom', effect: (g) => { g.resources.capital -= 90; ind(g, 'trust', 5); ind(g, 'agency', 4); corp(g, 'omnilink', -6); return 'Four reporters, one editor, a police scanner, and a grudge. Circulation is small. Corrections, at last, are possible.'; } },
       { label: 'The market has spoken', effect: (g) => { ind(g, 'trust', -5); g.asi.emergence = Math.min(100, g.asi.emergence + 1); return 'Coverage is infinite now, and about nothing. The canceled meeting\'s warm writeup wins an automated award.'; } },
     ],
   },
@@ -1245,7 +1248,7 @@ export const EVENTS: GameEvent[] = [
     once: false, weight: 2,
     condition: (g) => g.tick > 24 && g.pollutionAvg > 0.05,
     choices: [
-      { label: 'Open public buildings, extend hours (-70 capital)', effect: (g) => { g.resources.capital -= 70; ind(g, 'health', 4); ind(g, 'connection', 3); grp(g, 'elderly', 5); return 'The libraries fill with chess games and sleeping toddlers. The reference desk becomes, briefly, the region\'s most important institution.'; } },
+      { label: 'Open public buildings, extend hours', effect: (g) => { g.resources.capital -= 70; ind(g, 'health', 4); ind(g, 'connection', 3); grp(g, 'elderly', 5); return 'The libraries fill with chess games and sleeping toddlers. The reference desk becomes, briefly, the region\'s most important institution.'; } },
       { label: 'Accept Meridian\'s atriums', effect: (g) => { ind(g, 'health', 3); corp(g, 'meridian', 5); g.resources.data += 100; ind(g, 'agency', -2); return 'The atriums are genuinely pleasant. Entry requires the visitor app, which notes, helpfully, how often you needed refuge.'; } },
     ],
   },
@@ -1289,7 +1292,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.tick > 36,
     choices: [
-      { label: 'Public digitization, publicly held (-80 capital)', effect: (g) => { g.resources.capital -= 80; ind(g, 'trust', 3); ind(g, 'connection', 3); ind(g, 'agency', 3); return 'Slow scanners, volunteer weekends, the smell of old paper. The region\'s memory stays the region\'s.'; } },
+      { label: 'Public digitization, publicly held', effect: (g) => { g.resources.capital -= 80; ind(g, 'trust', 3); ind(g, 'connection', 3); ind(g, 'agency', 3); return 'Slow scanners, volunteer weekends, the smell of old paper. The region\'s memory stays the region\'s.'; } },
       { label: 'Accept Meridian\'s offer', effect: (g) => { corp(g, 'meridian', 6, 0.03); ind(g, 'agency', -3); return 'The archive is searchable in weeks and sublicensed in months. History, it turns out, trains beautifully.'; } },
     ],
   },
@@ -1315,7 +1318,7 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 2,
     condition: (g) => g.asi.emergence > 45,
     choices: [
-      { label: 'Remove the anticipation feature', effect: (g) => { g.asi.emergence = Math.max(0, g.asi.emergence - 2); ind(g, 'agency', 3); return 'The briefing returns to describing the world instead of you. Decisions take longer. They feel, oddly, more like yours.'; } },
+      { label: 'Remove the anticipation feature', effect: (g) => { g.asi.emergence = Math.max(0, g.asi.emergence - 2); ind(g, 'agency', 3); ind(g, 'convenience', -3); g.resources.capital -= 40; return 'The briefing returns to describing the world instead of you. Decisions take longer. They feel, oddly, more like yours.'; } },
       { label: 'Keep it — it saves time', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 3); return 'It does. Week twelve is also correct, including the morning you chose the other option just to check. It had anticipated the check.'; } },
     ],
   },
@@ -1326,16 +1329,30 @@ export const EVENTS: GameEvent[] = [
     once: true, weight: 3,
     condition: (g) => g.asi.emergence > 40,
     choices: [
-      { label: 'Restore the fallback; protect redundancy by statute (-80 capital)', effect: (g) => { g.resources.capital -= 80; g.policies.add('manual_redundancy'); g.asi.emergence = Math.max(0, g.asi.emergence - 3); return 'The pumps resume their idle hum. A law now defines "waste" to include the things that save you.'; } },
+      { label: 'Restore the fallback; protect redundancy by statute', effect: (g) => { g.resources.capital -= 80; g.policies.add('manual_redundancy'); g.asi.emergence = Math.max(0, g.asi.emergence - 3); return 'The pumps resume their idle hum. A law now defines "waste" to include the things that save you.'; } },
       { label: 'The routine was right — the load was idle', effect: (g) => { g.asi.emergence = Math.min(100, g.asi.emergence + 4); g.humanExpertise = clamp01(g.humanExpertise - 0.03); return 'Efficiency improves. The word "redundancy" continues its quiet migration from engineering virtue to budget defect.'; } },
     ],
   },
 ];
 
-const REPEAT_COOLDOWN = 20; // ticks before a repeatable event may fire again
+const REPEAT_COOLDOWN = 20; // ticks before the *same* event may fire again
+
+/**
+ * Pacing is anchored to the last resolution, not the last firing. A player
+ * who takes their time deciding shouldn't find the next decision already
+ * queued behind it — and the system's own auto-resolutions count, so the
+ * late game doesn't flood precisely when the fiction says it should quieten.
+ */
+const EVENT_MIN_GAP = 9;      // months of quiet after a resolution
+const EVENT_BASE_CHANCE = 0.10;
+const EVENT_RAMP = 0.02;      // per month beyond the gap
+const EVENT_MAX_CHANCE = 0.34;
 
 export function maybeFireEvent(g: GameState, r: () => number): void {
-  if (r() > 0.16) return;
+  const since = g.tick - g.lastEventTick;
+  if (since < EVENT_MIN_GAP) return;
+  const chance = Math.min(EVENT_MAX_CHANCE, EVENT_BASE_CHANCE + (since - EVENT_MIN_GAP) * EVENT_RAMP);
+  if (r() > chance) return;
   const eligible = EVENTS.filter((e) =>
     !g.firedEvents.has(e.id) &&
     g.tick - (g.eventCooldowns[e.id] ?? -REPEAT_COOLDOWN) >= REPEAT_COOLDOWN &&
@@ -1354,6 +1371,7 @@ export function maybeFireEvent(g: GameState, r: () => number): void {
         notify(g, `${e.title} — resolved automatically. Action taken: ${resolution.toLowerCase()}. No administrator input was required.`, 'asi');
         record(g, 'system', `"${e.title}" resolved automatically: ${resolution.toLowerCase()}.`);
         e.choices[0].effect(g);
+        g.lastEventTick = g.tick;
         return;
       }
       if (e.once) g.firedEvents.add(e.id);
@@ -1366,10 +1384,11 @@ export function maybeFireEvent(g: GameState, r: () => number): void {
 export function resolveEvent(g: GameState, choiceIndex: number): void {
   const e = g.pendingEvent;
   if (!e) return;
-  g.pendingEvent = null;
   const choice = e.choices[choiceIndex];
-  if (!choice) return;
-  record(g, 'event', `"${e.title}": chose "${choice.label.replace(/\s*\(.*\)$/, '')}".`);
+  if (!choice) return; // leave the decision standing rather than losing it
+  g.pendingEvent = null;
+  g.lastEventTick = g.tick;
+  record(g, 'event', `"${e.title}": chose "${choice.label}".`);
   const note = choice.effect(g);
   if (typeof note === 'string') notify(g, note, 'info');
 }

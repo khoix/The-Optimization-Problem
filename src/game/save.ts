@@ -56,6 +56,7 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
+  g.lastEventTick ??= 0;
   g.tierName ??= 'Township';
   g.attractiveness ??= { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 };
   g.asi.shadowPolicies ??= [];

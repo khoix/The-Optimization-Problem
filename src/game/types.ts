@@ -323,6 +323,7 @@ export interface GameState {
   pendingReport: { title: string; body: string } | null;
   firedEvents: Set<string>;
   eventCooldowns: Record<string, number>; // last-fired tick for repeatable events
+  lastEventTick: number;   // tick the last event was *resolved*, not fired
   tierName: string; // last announced region class
 
   speed: 0 | 1 | 2 | 3;
