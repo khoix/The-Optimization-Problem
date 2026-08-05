@@ -96,18 +96,27 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
   flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column; gap: 4px;
 }
-.vital-group { display: flex; gap: 12px; flex-wrap: wrap; }
-.vital { display: flex; align-items: center; gap: 5px; min-width: 92px; }
+/* Both rows share one column track, so a vital always sits under the vital
+   above it. Flex-wrap sized each cell to its own content, which left the two
+   rows drifting apart as the numbers changed width. */
+.vital-group { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px 12px; }
+.vital { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .vital-ico { font-size: 12px; width: 14px; text-align: center; opacity: 0.85; }
-.vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .vital-num {
   font-family: var(--mono); font-size: 12px; color: #fff; line-height: 1;
   display: flex; align-items: baseline; gap: 4px; white-space: nowrap;
+  min-width: 0; overflow: hidden;
 }
+/* Now that the columns are a fixed track, a long label ("UNEMPLOYMENT") no
+   longer gets to push into its neighbour: the figure always survives, the
+   name truncates, and hovering gives the full reading either way. */
 .vital-label-inline {
   font-family: var(--font); font-size: 8.5px; color: var(--text-dim);
   text-transform: uppercase; letter-spacing: 0.5px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+.vitals-dock .vital-label-inline { overflow: visible; }
 .gauge-void { background: transparent; }
 .vital-num.bad { color: var(--bad); }
 .vital-cap { color: var(--text-dim); font-size: 10px; }
@@ -131,7 +140,6 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .collapse-btn { padding: 6px 7px; }
 /* anchored UI follows the bar up when it folds */
 body.bar-collapsed .inspector { bottom: 62px; }
-body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 /* collapsed, the console lies down: LCD beside the transport, not above it */
 .civic-bar.collapsed .console { flex-direction: row; align-items: center; gap: 8px; padding: 3px 8px; }
 .civic-bar.collapsed .lcd { min-width: 132px; }
@@ -154,6 +162,18 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
   border: 1px solid #08101f;
   box-shadow: inset 0 2px 5px rgba(0,0,0,0.78), 0 0 11px rgba(90,150,255,0.12);
 }
+/* Region-class progress, hairline across the foot of the display. */
+.lcd-tier {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: rgba(8, 16, 32, 0.75);
+}
+.lcd-tier-fill {
+  display: block; height: 100%; width: 0;
+  background: #6fb6ff; box-shadow: 0 0 5px rgba(120, 180, 255, 0.75);
+  transition: width 0.5s;
+}
+.lcd-tier.at-top .lcd-tier-fill { background: #8fe0c0; box-shadow: 0 0 5px rgba(140, 230, 190, 0.7); }
+
 .lcd-glass {
   position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(148deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 26%, transparent 52%);
@@ -190,15 +210,27 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 /* invisible twin of the Demolish button: reserves the mirrored width */
 .tool-spacer { visibility: hidden; pointer-events: none; flex-shrink: 0; }
 .bar-tool {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   min-width: 56px; height: 46px; padding: 3px 6px; cursor: pointer;
   background: #161d2b; color: var(--text-dim); border: 1px solid var(--panel-border);
   border-radius: 5px; font-size: 10px; flex-shrink: 0;
 }
 .bar-tool:hover { background: #1f293b; color: var(--text); }
-.bar-tool.open { background: #24344f; color: #fff; border-color: var(--accent); }
+.bar-tool.open, .sys-btn.open {
+  background: #24344f; color: #fff; border-color: var(--accent);
+  box-shadow: 0 -2px 10px rgba(90, 168, 232, 0.25);
+}
 .bar-tool.active { background: #4a2020; color: #fff; border-color: var(--bad); }
 .tool-ico { font-size: 15px; line-height: 1; }
+/* The key, in the corner of its own button — the belt teaches its shortcuts
+   rather than hiding them behind the help overlay. */
+.tool-key {
+  position: absolute; top: 2px; right: 4px;
+  font-family: var(--mono); font-size: 8px; line-height: 1;
+  color: var(--text-dim); opacity: 0.75; pointer-events: none;
+}
+.bar-tool:hover .tool-key, .bar-tool.open .tool-key { color: #fff; opacity: 1; }
 .tool-label { letter-spacing: 0.3px; white-space: nowrap; }
 .bar-tool.demolish { color: var(--bad); flex-shrink: 0; }
 .bar-sep { width: 1px; height: 40px; background: var(--panel-border); margin: 0 6px; flex-shrink: 0; }
@@ -231,16 +263,42 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
   .bar-tool { min-width: 42px; height: 42px; }
 }
 
-/* flyout panels open upward from the bar */
+/* Drawers. A panel belongs to the button that opened it: it sits on top of the
+   bar rather than floating over the map, aligns to that button, and grows
+   upward out of it. `left` and the connector position are set in script from
+   the button's own rect; everything else is here. */
 .flyout {
-  position: absolute; left: 10px; bottom: 116px;
-  width: 560px; max-width: calc(100% - 20px); max-height: calc(100% - 220px);
+  position: absolute; bottom: var(--bar-h, 130px); left: 10px;
+  width: var(--drawer-w, 560px); max-width: calc(100% - 20px);
+  max-height: calc(100% - var(--bar-h, 130px) - 24px);
   display: flex; flex-direction: column;
   background: var(--panel-bg); border: 1px solid var(--panel-border);
-  border-radius: 6px 6px 0 0; box-shadow: 0 -8px 28px rgba(0,0,0,0.45);
-  animation: flyup 0.14s ease-out;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5), 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
 }
-@keyframes flyup { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* The connector: a short tab bridging the gap to the button below, so the
+   panel reads as having come out of it rather than appeared near it. */
+.flyout::after {
+  content: ''; position: absolute; bottom: -7px; left: var(--connector-x, 50%);
+  width: 38px; height: 8px; margin-left: -19px;
+  background: var(--panel-bg);
+  /* Panel and bar are near-identical darks, so a plain tab is invisible
+     against the bar. The accent picks up the lit button directly below. */
+  border: 1px solid var(--accent);
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  box-shadow: 0 2px 8px rgba(90, 168, 232, 0.3);
+}
+/* Re-triggered on every open by toggling the class, since the element persists. */
+.flyout.opening {
+  transform-origin: var(--connector-x, 50%) 100%;
+  animation: drawer-up 0.17s cubic-bezier(0.22, 0.85, 0.3, 1);
+}
+@keyframes drawer-up {
+  from { transform: translateY(6px) scaleY(0.86); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
 .flyout-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; border-bottom: 1px solid var(--panel-border);
@@ -253,6 +311,15 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 .flyout-close:hover { color: #fff; }
 .flyout-body { padding: 10px 12px; overflow-y: auto; }
 .panel-body { display: block; }
+
+.menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 10px; margin-bottom: 2px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text); font-size: 12px;
+}
+.menu-item:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--panel-border); }
+.menu-ico { width: 16px; text-align: center; opacity: 0.85; }
 
 /* build cards inside a flyout */
 .build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 6px; }
@@ -363,7 +430,7 @@ body.at-title .modal { padding-bottom: 0; }
   max-height: calc(100% - var(--bar-h, 130px) - 24px); overflow-y: auto;
 }
 /* Stacked rather than strung out, now that width is the scarce axis. */
-.vitals-dock .vital-group { flex-direction: column; gap: 9px; }
+.vitals-dock .vital-group { grid-template-columns: 1fr; gap: 9px; }
 .vitals-dock .vital { min-width: 0; }
 /* The console is centred by the equal flex of the vitals and the system
    buttons either side of it. With the vitals docked elsewhere that balance is
@@ -490,8 +557,8 @@ body.bar-collapsed .modal { padding-bottom: 58px; }
 /* A pending decision blocks the map, not the instruments: the bar and its
    panels stay above the backdrop so indicators can be consulted first. */
 .civic-bar { z-index: 62; }
-.flyout { z-index: 61; }
-.hover-card { z-index: 63; }
+.flyout { z-index: 63; }
+.hover-card { z-index: 65; }
 .modal-box {
   width: 440px; max-width: 90%; background: #131926; border: 1px solid #34405a;
   border-radius: 8px; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);

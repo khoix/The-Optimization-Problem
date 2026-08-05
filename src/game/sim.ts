@@ -36,6 +36,15 @@ const TIERS = [
   { name: 'Metropolis', min: 400, mig: 2.6, comp: 2.3, exp: 1.6 },
   { name: 'Megaregion', min: 900, mig: 3.8, comp: 3.4, exp: 2.1 },
 ];
+/** How far the region has come toward its next class, 0..1 (1 at the top). */
+export function tierProgress(pop: number): number {
+  const i = TIERS.findIndex((t) => t === tierOf(pop));
+  const next = TIERS[i + 1];
+  if (!next) return 1;
+  const from = TIERS[i].min;
+  return Math.max(0, Math.min(1, (pop - from) / (next.min - from)));
+}
+
 export function tierOf(pop: number): (typeof TIERS)[number] {
   let t = TIERS[0];
   for (const cand of TIERS) if (pop >= cand.min) t = cand;

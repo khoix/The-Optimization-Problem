@@ -112,6 +112,12 @@ window.addEventListener('keyup', (ev) => { xrayHeld = modifierHeld(ev); });
 window.addEventListener('blur', () => { xrayHeld = false; });
 window.addEventListener('keydown', (ev) => {
   xrayHeld = modifierHeld(ev);
+  // Bar shortcuts get first refusal, but never while a modifier is held —
+  // Ctrl+R should still reload the page rather than trip Manual Override.
+  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && ui.handleKey(ev.key)) {
+    ev.preventDefault();
+    return;
+  }
   const pan = 24 / renderer.zoom * 8;
   switch (ev.key) {
     case 'ArrowUp': case 'w': renderer.camY -= pan; break;
