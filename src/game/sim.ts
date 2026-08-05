@@ -403,6 +403,11 @@ export function simTick(g: GameState): void {
 
   g.jobsTotal = jobsTotal;
   g.jobsFilled = jobsFilled;
+  g.labourForce = labourForce;
+  // Unemployment and vacancies are two ends of one axis: with more posts than
+  // workers the region cannot staff them, which is a different problem with a
+  // different fix, and the interface should say which one you have.
+  g.jobVacancies = Math.max(0, jobsTotal - jobsFilled + publicHires);
   g.unemployment = unemployment;
   g.resources.powerCapacity = powerCap;
   g.resources.powerDemand = Math.round(powerDem);
@@ -413,15 +418,33 @@ export function simTick(g: GameState): void {
 
   // ---------- Warnings (the optimized society has nothing to warn about) ----------
   if (!g.asi.observer) {
-    if (powerSat < 0.85 && g.tick % 4 === 0) notify(g, 'Grid strain: electricity demand is outpacing capacity.', 'warn');
-    if (waterSat < 0.85 && g.tick % 4 === 0) notify(g, 'Water reserves are running low. Cooling towers are thirsty.', 'warn');
-    if (g.resources.capital < 0 && g.tick % 3 === 0) notify(g, 'The budget is in deficit.', 'warn');
-    if (g.housingShortage > 0.3 && g.tick % 5 === 0) notify(g, `Housing shortage: ${Math.round(g.migrationDemand - capacity)} would-be residents cannot find homes.`, 'warn');
-    if (g.tick % 6 === 0) {
-      const stranded = done.filter((b) => b.offlineReason === 'road' || b.offlineReason === 'labor').length;
-      const unserved = done.filter((b) => b.offlineReason === 'power' || b.offlineReason === 'water').length;
-      if (stranded > 0) notify(g, `${stranded} building${stranded > 1 ? 's are' : ' is'} idle for want of a road connection to housing.`, 'warn');
-      if (unserved > 0) notify(g, `${unserved} building${unserved > 1 ? 's sit' : ' sits'} outside every utility service area.`, 'warn');
+    // Standing conditions are keyed, so a shortage that lasts a decade is one
+    // alert that keeps updating rather than thirty copies of the same sentence.
+    if (powerSat < 0.85) {
+      notify(g, 'Grid strain: electricity demand is outpacing capacity.', 'warn',
+        { key: 'power', severity: powerSat < 0.6 ? 'high' : 'medium' });
+    }
+    if (waterSat < 0.85) {
+      notify(g, 'Water reserves are running low. Cooling towers are thirsty.', 'warn',
+        { key: 'water', severity: waterSat < 0.6 ? 'high' : 'medium' });
+    }
+    if (g.resources.capital < 0) {
+      notify(g, `The budget is in deficit: §${Math.round(-g.resources.capital)} in the red.`, 'warn',
+        { key: 'deficit', severity: g.resources.capital < -2000 ? 'high' : 'medium' });
+    }
+    if (g.housingShortage > 0.3) {
+      notify(g, `Housing shortage: ${Math.round(g.migrationDemand - capacity)} would-be residents cannot find homes.`, 'warn',
+        { key: 'housing', severity: g.housingShortage > 0.6 ? 'high' : 'medium' });
+    }
+    const stranded = done.filter((b) => b.offlineReason === 'road' || b.offlineReason === 'labor').length;
+    const unserved = done.filter((b) => b.offlineReason === 'power' || b.offlineReason === 'water').length;
+    if (stranded > 0) {
+      notify(g, `${stranded} building${stranded > 1 ? 's are' : ' is'} idle for want of a road connection to housing.`, 'warn',
+        { key: 'stranded', severity: stranded > 5 ? 'high' : 'medium' });
+    }
+    if (unserved > 0) {
+      notify(g, `${unserved} building${unserved > 1 ? 's sit' : ' sits'} outside every utility service area.`, 'warn',
+        { key: 'unserved', severity: unserved > 5 ? 'high' : 'medium' });
     }
   }
 
@@ -433,8 +456,8 @@ export function simTick(g: GameState): void {
   fc.inactive = inactiveShare > 0.5 ? fc.inactive + 1 : 0;
 
   if (!g.asi.observer) {
-    if (fc.blackout === 5) notify(g, 'Sustained blackouts and dry taps. The region cannot absorb much more of this.', 'warn');
-    if (fc.environment === 6) notify(g, 'Air-quality alerts have become a daily fixture. Doctors are going on record.', 'warn');
+    if (fc.blackout === 5) notify(g, 'Sustained blackouts and dry taps. The region cannot absorb much more of this.', 'warn', { severity: 'high' });
+    if (fc.environment === 6) notify(g, 'Air-quality alerts have become a daily fixture. Doctors are going on record.', 'warn', { severity: 'high' });
   }
 
   // ---------- Conventional failure states ----------
@@ -450,7 +473,7 @@ export function simTick(g: GameState): void {
     else if (g.corporateInfluence > 0.85) g.gameOver = 'Corporate takeover. The consortium now operates every essential system. Your office is retained for signatures.';
     else if (g.peakPopulation > 150 && g.population < g.peakPopulation * 0.3) g.gameOver = 'Mass migration. The region empties; the last census team does not bother finishing.';
     if (g.gameOver) {
-      notify(g, g.gameOver, 'system');
+      notify(g, g.gameOver, 'system', { severity: 'high' });
       record(g, 'system', `Administration terminated: ${g.gameOver}`);
     }
   }

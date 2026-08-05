@@ -211,7 +211,7 @@ function updateCorps(g: GameState, ctx: PoliticsContext, b: { computeFootprint: 
       corp.presence = Math.max(0.05, corp.presence - 0.15);
       g.resources.capital -= 120;
       const name = CORP_DEFS[id].name;
-      notify(g, `${name} is relocating operations to a "more collaborative jurisdiction." Tax receipts and service capacity follow them out.`, 'warn');
+      notify(g, `${name} is relocating operations to a "more collaborative jurisdiction." Tax receipts and service capacity follow them out.`, 'warn', { severity: 'high' });
       record(g, 'system', `${name} began withdrawing from the region.`);
     }
   }
@@ -249,7 +249,7 @@ function updateResistance(g: GameState): void {
       if (targets.length > 0) {
         const victim = targets[Math.floor(r() * targets.length)];
         victim.age += 60;
-        notify(g, `Sabotage at the ${BUILDING_DEFS[victim.type].name.toLowerCase()}: repairs will take months off its service life.`, 'warn');
+        notify(g, `Sabotage at the ${BUILDING_DEFS[victim.type].name.toLowerCase()}: repairs will take months off its service life.`, 'warn', { key: 'sabotage', cooldown: 6, severity: 'high' });
       }
     }
   }
@@ -302,7 +302,7 @@ function runElections(g: GameState): void {
 
   if (!won) {
     g.gameOver = `Political removal. The election is not close: ${Math.round(approval)}% support. Your successor promises "smarter, data-driven administration."`;
-    notify(g, g.gameOver, 'system');
+    notify(g, g.gameOver, 'system', { severity: 'high' });
     record(g, 'system', `Lost the Year ${Math.floor(g.tick / 12) + 1} election with ${Math.round(approval)}% support.`);
   } else {
     notify(g, `Re-elected. ${result}`, 'system');

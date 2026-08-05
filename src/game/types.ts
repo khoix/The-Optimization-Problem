@@ -229,10 +229,28 @@ export interface GameEvent {
   choices: EventChoice[];
 }
 
+export type NotifyKind = 'info' | 'warn' | 'system' | 'asi';
+
+/**
+ * How loudly an alert asks to be looked at. Drives toast lifetime and how
+ * readily a toast is dropped when the feed is busy — the archive keeps
+ * everything regardless.
+ */
+export type Severity = 'low' | 'medium' | 'high';
+
 export interface Notification {
+  /** Stable identity, assigned once. */
+  id: number;
+  /** Bumped on every raise, including coalesced repeats, so the UI can diff. */
+  seq: number;
   tick: number;
   text: string;
-  kind: 'info' | 'warn' | 'system' | 'asi';
+  kind: NotifyKind;
+  severity: Severity;
+  /** Identity of an ongoing condition, so repeats fold together. */
+  key?: string;
+  /** Times this condition has re-reported since it was first raised. */
+  count: number;
 }
 
 export interface HistoryEntry {
@@ -289,6 +307,10 @@ export interface GameState {
   population: number;
   jobsFilled: number;
   jobsTotal: number;
+  /** Working-age residents available to fill jobs. */
+  labourForce: number;
+  /** Posts the region cannot staff — the other end of the unemployment axis. */
+  jobVacancies: number;
   unemployment: number;    // 0..1
   humanExpertise: number;  // 0..1, decays with automation
   corporateInfluence: number; // 0..1
@@ -318,11 +340,14 @@ export interface GameState {
 
   asi: AsiState;
   notifications: Notification[];
+  /** Monotonic counter behind Notification.id / .seq. */
+  notificationSeq: number;
   pendingEvent: GameEvent | null;
   /** A one-button informational modal (election results, region reclassification). */
   pendingReport: { title: string; body: string } | null;
   firedEvents: Set<string>;
   eventCooldowns: Record<string, number>; // last-fired tick for repeatable events
+  lastEventTick: number;   // tick the last event was *resolved*, not fired
   tierName: string; // last announced region class
 
   speed: 0 | 1 | 2 | 3;

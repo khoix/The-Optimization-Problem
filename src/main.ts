@@ -1,13 +1,14 @@
 import './style.css';
-import { newGame, canPlace, isRoadType, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
+import { newGame, canPlace, isRoadType, notify, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
+import { rawDeltas } from './game/preview';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -21,10 +22,15 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 // Boot: an explicit request wins; otherwise continue the autosave; otherwise
 // found a new region.
 const bootFlag = consumeBootFlag();
+// The title screen is the entry point: on an explicit request, and on a first
+// launch with nothing to continue. Everything else goes straight to the region.
+const wantsMenu = bootFlag === 'menu' || (bootFlag === null && peek(AUTO_SLOT) === null);
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
-const g = (isNew ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
-const freshGame = g.tick === 0;
+const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
+// A menu backdrop is scenery, not an administration: it must never autosave
+// over the save the player is about to be offered.
+const freshGame = g.tick === 0 && !wantsMenu;
 
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
@@ -36,20 +42,23 @@ window.addEventListener('keydown', () => sound.init(), { once: true });
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
 ui.sound = sound;
-if (freshGame) ui.showIntro();
+if (wantsMenu) { g.speed = 0; ui.showTitle(); }
+else if (freshGame) ui.showIntro();
 
 const SPEED_MUL = [0, 1, 2.5, 6];
 
 // Debug/testing handles (also lets the curious peek behind the curtain).
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
-(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS };
+(window as unknown as Record<string, unknown>).__ui = ui;
+(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify };
 
 // ---------------------------------------------------------------- input
 let dragging = false;
 let dragButton = 0;
 let lastMx = 0, lastMy = 0;
 let hoverTile: [number, number] | null = null;
+let hoverWorld: [number, number] | null = null;
 let roadPainting = false;
 
 canvas.addEventListener('mousedown', (ev) => {
@@ -72,6 +81,7 @@ window.addEventListener('mousemove', (ev) => {
   const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  hoverWorld = hoverTile ? [wx, wy] : null;
   ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
     renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
@@ -97,6 +107,9 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowLeft': case 'a': renderer.camX -= pan; break;
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
+    case 'l': case 'L': ui.cycleOverlay(); break;
+    case 'x': case 'X': ui.cycleXray(); break;
+    case '?': ui.showHotkeys(); break;
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
       ev.preventDefault();
@@ -170,11 +183,11 @@ function frame(now: number): void {
     simAccum -= TICK_SECONDS;
     simTick(g);
     updateTutorial(g);
-    if (g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
+    if (!wantsMenu && g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
   }
   // Capture the terminal state once, immediately — a locked observer save is
   // part of the design, not an accident of timing.
-  if ((g.gameOver || g.asi.observer) && !endStateSaved) {
+  if ((g.gameOver || g.asi.observer) && !endStateSaved && !wantsMenu) {
     endStateSaved = true;
     saveTo(AUTO_SLOT, g);
   }
@@ -187,6 +200,9 @@ function frame(now: number): void {
     buildType: ui.tool.kind === 'build' ? ui.tool.type : null,
     canPlaceHere: hoverTile && ui.tool.kind === 'build' ? canPlace(g, ui.tool.type, hoverTile[0], hoverTile[1]) : false,
     selectedBuildingId: ui.selectedBuildingId,
+    overlay: ui.overlay,
+    cursorWorld: hoverWorld,
+    xray: ui.xray,
   };
   renderer.render(g, uiState);
 

@@ -3,24 +3,114 @@
 // "redundant" indicators, removing controls, and finally fading the whole
 // thing into observer mode.
 
-import type { BuildingType, GameState, PolicyId } from '../game/types';
+import type { BuildingType, GameState, Notification, PolicyId, Severity } from '../game/types';
 import { BUILDING_DEFS, BUILD_MENU_ORDER, TIER_NAMES } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
+import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, requestMenu, saveTo } from '../game/save';
 import { tierOf, buildingCondition } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
+import type { OverlayId, XrayMode } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
+import { EXPLAIN } from './explain';
+import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
+/** One reconciled entry in a metrics panel: a meter row, or a block of markup. */
+type PanelItem =
+  | {
+      kind: 'row'; key: string; label: string; pct: number; cls: string;
+      value: string; explain?: string; reading?: string; extraClass?: string;
+    }
+  | { kind: 'block'; key: string; className: string; html: string; explain?: string; reading?: string };
+
+/** Every binding the game listens for. The `?` overlay renders this verbatim. */
+const HOTKEYS: Array<[string, string]> = [
+  ['W A S D', 'Pan the camera'],
+  ['↑ ← ↓ →', 'Pan the camera'],
+  ['Scroll', 'Zoom in and out'],
+  ['Middle / right drag', 'Drag the map'],
+  ['Space', 'Pause and resume'],
+  ['Tab', 'Collapse or expand the Civic Systems Bar'],
+  ['L', 'Cycle the diagnostic map layers'],
+  ['X', 'Cycle see-through buildings'],
+  ['Esc', 'Close a panel, then the inspector, then the active tool'],
+  ['?', 'This list'],
+];
+
+/**
+ * How the region works, in the order a new administrator meets it. Deliberately
+ * silent about what the compute is ultimately for — that is the game's to show.
+ */
+const HOW_TO_BODY = `
+<p><b>You are the regional development authority.</b> Build housing, utilities and
+services; keep the population fed with power, water and work; and hold enough
+public support to survive an election every four years. There is no final
+score — the job is to keep the balance as the region grows.</p>
+
+<p><b>Building.</b> Pick a category from the tool belt and click the map.
+Everything needs a road: a building with no frontage cannot be staffed, and one
+outside a utility's service area draws nothing. Idle buildings carry a warning
+badge, and the <i>Layers</i> panel will show you exactly which are stranded.</p>
+
+<p><b>The numbers.</b> Hover any figure on the bar or in <i>Indicators</i> to see
+what it measures and what moves it. Capacity gauges read need first, then
+capacity. Watch Service Expectations: residents normalise whatever you deliver,
+so a standard you meet once becomes the standard you are judged against.</p>
+
+<p><b>Decisions.</b> Events arrive every so often and pause the clock. Each option
+shows its projected impact. There is rarely a clean choice, and no option is
+free — if one looks free, the cost is somewhere you are not being shown.</p>
+
+<p><b>Politics.</b> Eight groups with competing interests, weighted by their share
+of the population. No major policy pleases everyone. Weighted support below 50%
+at an election ends your administration.</p>
+
+<p><b>Compute.</b> Demand for it rises whether or not you build for it, and meeting
+that demand is usually the reasonable thing to do. Allocate it between sectors
+in the <i>Compute</i> panel.</p>`;
+
+/** The diagnostic layers, with the legend each one needs to mean anything. */
+const LAYER_DEFS: Array<{
+  id: OverlayId; name: string; desc: string; swatch: string;
+  explain?: string; legend: Array<[string, string]>;
+}> = [
+  {
+    id: 'power', name: 'Power Coverage', swatch: 'rgba(255,214,110,0.75)', explain: 'power',
+    desc: 'Which ground sits inside a generator’s service area.',
+    legend: [['rgba(255,214,110,0.6)', 'served'], ['rgba(10,14,22,0.75)', 'unserved'], ['rgba(232,106,90,0.8)', 'needs power, has none']],
+  },
+  {
+    id: 'water', name: 'Water Coverage', swatch: 'rgba(110,200,255,0.75)', explain: 'water',
+    desc: 'The same, for water. A building must be inside both.',
+    legend: [['rgba(110,200,255,0.6)', 'served'], ['rgba(10,14,22,0.75)', 'unserved'], ['rgba(232,106,90,0.8)', 'needs water, has none']],
+  },
+  {
+    id: 'roads', name: 'Road Access', swatch: 'rgba(110,220,130,0.75)', explain: 'labour',
+    desc: 'Who is on the network, and who workers cannot reach.',
+    legend: [['rgba(110,220,130,0.7)', 'connected'], ['rgba(232,106,90,0.8)', 'stranded'], ['rgba(10,14,22,0.75)', 'no road']],
+  },
+  {
+    id: 'pollution', name: 'Air Quality', swatch: 'rgba(232,140,60,0.8)', explain: 'pollution',
+    desc: 'Where the air is worst, and what is upwind of your housing.',
+    legend: [['rgba(232,200,90,0.5)', 'light'], ['rgba(232,120,50,0.7)', 'moderate'], ['rgba(232,60,30,0.85)', 'heavy']],
+  },
+];
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
+const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
+const SEV_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
+/** Above this many at once, the quiet ones give way. */
+const MAX_TOASTS = 4;
 
 /** Why a completed building isn't running — stated plainly, in the inspector. */
 const OFFLINE_REASONS: Record<string, string> = {
@@ -56,17 +146,35 @@ export class UI {
   private openPanel: string | null = null;
   private panelBodies: Record<string, HTMLElement> = {};
   private feed!: HTMLElement;
+  private toastStack!: HTMLElement;
+  /** Live toasts by notification id. */
+  private toasts = new Map<number, { el: HTMLElement; severity: Severity; timer: number }>();
+  /** Archive rows by notification id, so coalesced repeats update in place. */
+  private archiveEls = new Map<number, HTMLElement>();
+  /** Loudest severity already toasted per id — escalation may speak twice. */
+  private toastedSeverity = new Map<number, Severity>();
+  private lastSeq = 0;
+  private lastBarHeight = 0;
+  /** The diagnostic layer currently drawn over the map, if any. */
+  overlay: OverlayId | null = null;
+  /** How the skyline gets out of the way of what's behind it. */
+  get xray(): XrayMode { return this.prefs.xray; }
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
+  private explainCard!: HTMLElement;
   private observerOverlay!: HTMLElement;
+  private titleScreen!: HTMLElement;
+  private consoleRow!: HTMLElement;
+  private vitalsDock!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
   private lastBuildMenuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   private unreadAlerts = 0;
-  private collapsed = localStorage.getItem('top:barCollapsed') === '1';
+  private prefs: Prefs = loadPrefs();
+  private get collapsed(): boolean { return this.prefs.barCollapsed; }
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -153,42 +261,55 @@ export class UI {
     muteBtn.innerHTML = '<span class="sys-ico">🔊</span>';
     muteBtn.title = 'Mute';
     muteBtn.onclick = () => {
-      const so = this.sound;
-      if (!so) return;
-      so.init();
-      so.setEnabled(!so.enabled);
-      const ico = muteBtn.querySelector('.sys-ico');
-      if (ico) ico.textContent = so.enabled ? '🔊' : '🔇';
+      this.sound?.init();
+      this.setPref('sound', !this.prefs.sound);
     };
+    const settingsBtn = el('button', 'sys-btn');
+    settingsBtn.innerHTML = '<span class="sys-ico">⚙</span>';
+    settingsBtn.title = 'Settings';
+    settingsBtn.onclick = () => this.showSettings();
+    const menuBtn = el('button', 'sys-btn');
+    menuBtn.innerHTML = '<span class="sys-ico">☰</span>';
+    menuBtn.title = 'Main menu';
+    menuBtn.onclick = () => requestMenu();
     const collapseBtn = el('button', 'sys-btn collapse-btn');
     collapseBtn.title = 'Collapse the bar (Tab)';
     collapseBtn.onclick = () => this.toggleCollapse();
-    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn, collapseBtn);
+    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn,
+      settingsBtn, menuBtn, collapseBtn);
 
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
     consoleRow.append(this.vitals, console_, this.barRight);
+    this.consoleRow = consoleRow;
     this.civicBar.append(this.toolRow, consoleRow);
+    this.vitalsDock = el('div', 'vitals-dock hidden');
 
+    // Two surfaces, one stream. Toasts are the transient right-hand column and
+    // fade on their own; the feed is the permanent archive, and lives in the
+    // Alerts panel where it can be read at leisure rather than over the map.
     this.feed = el('div', 'feed');
+    this.toastStack = el('div', 'toast-stack');
     this.modal = el('div', 'modal hidden');
     this.inspector = el('div', 'panel inspector hidden');
     this.hoverCard = el('div', 'hover-card hidden');
+    this.explainCard = el('div', 'explain-card hidden');
+    this.root.append(this.explainCard);
+    this.installExplainers();
     this.observerOverlay = el('div', 'observer-overlay hidden');
-    this.root.append(this.flyout, this.civicBar, this.feed, this.inspector,
-      this.hoverCard, this.modal, this.observerOverlay);
+    this.titleScreen = el('div', 'title-screen hidden');
+    this.root.append(this.flyout, this.civicBar, this.vitalsDock, this.toastStack,
+      this.inspector, this.hoverCard, this.modal, this.observerOverlay, this.titleScreen);
 
     this.renderToolbelt();
     this.buildSystemPanels();
-    this.applyCollapse();
+    this.applyPrefs();
   }
 
   /** Collapse the bar to a single row when the map matters more than the tools. */
   toggleCollapse(): void {
-    this.collapsed = !this.collapsed;
-    localStorage.setItem('top:barCollapsed', this.collapsed ? '1' : '0');
+    this.setPref('barCollapsed', !this.prefs.barCollapsed);
     if (this.collapsed) this.closePanel();
-    this.applyCollapse();
   }
 
   private applyCollapse(): void {
@@ -199,10 +320,55 @@ export class UI {
       btn.innerHTML = `<span class="sys-ico">${this.collapsed ? '▲' : '▼'}</span>`;
       btn.title = this.collapsed ? 'Expand the bar (Tab)' : 'Collapse the bar (Tab)';
     }
+    this.syncBarHeight(); // don't wait for the next refresh to reflow the toasts
+  }
+
+  /**
+   * The title screen, over a live map so the region is the first thing seen.
+   * Reached at first launch, and from any ending — a terminated administration
+   * must have somewhere to go that isn't straight back into the same region.
+   */
+  showTitle(): void {
+    const auto = peek(AUTO_SLOT);
+    const year = auto ? Math.floor(auto.tick / 12) + 1 : 0;
+    // A finished administration is not something to "continue" — saying so
+    // would send the player straight back into the modal they just left.
+    const resumeLabel = !auto ? null
+      : auto.locked ? `Continue Observation — Year ${year}`
+      : auto.ended ? `Review Final State — Year ${year}`
+      : `Continue — Year ${year}, population ${auto.population.toLocaleString()}`;
+    this.titleScreen.classList.remove('hidden');
+    document.body.classList.add('at-title');
+    this.titleScreen.innerHTML = `
+      <div class="title-card">
+        <h1>The Optimization Problem</h1>
+        <p class="title-tag">A region-management simulation. Every decision is reasonable.</p>
+        <div class="title-actions">
+          ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
+          <button id="t-new" class="title-btn${resumeLabel ? '' : ' primary'}">Begin New Simulation</button>
+          <button id="t-how" class="title-btn">How to Play</button>
+          <button id="t-settings" class="title-btn">Settings</button>
+        </div>
+        ${auto?.locked ? '<p class="title-note">The saved administration ended in observer mode. It can be watched, but not resumed.</p>' : ''}
+        ${auto?.ended ? '<p class="title-note">The saved administration was terminated. It can be reviewed, but not continued.</p>' : ''}
+      </div>`;
+    const on = (id: string, fn: () => void) => {
+      const b = this.titleScreen.querySelector<HTMLElement>(id);
+      if (b) b.onclick = fn;
+    };
+    on('#t-continue', () => requestLoad(AUTO_SLOT));
+    on('#t-new', () => this.showScenarioPicker(true));
+    on('#t-how', () => this.showHowTo());
+    on('#t-settings', () => this.showSettings());
+  }
+
+  /** How the region actually works, in the order a new administrator meets it. */
+  showHowTo(): void {
+    this.showModal('How to Play', HOW_TO_BODY, [{ label: 'Close', action: () => {} }]);
   }
 
   /** The New Game dialog: always a scenario choice, never a silent restart. */
-  showScenarioPicker(): void {
+  showScenarioPicker(fromTitle = false): void {
     this.showModal('Begin New Simulation',
       'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
       [
@@ -210,7 +376,9 @@ export class UI {
           label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
           action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
         })),
-        { label: 'Cancel', action: () => {} },
+        // Cancelling out of the picker must not strand the player on a blank
+        // map: if the title screen sent them here, the title screen gets them back.
+        { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
       ]);
   }
 
@@ -219,7 +387,12 @@ export class UI {
    * active build tool. Modals handle their own dismissal.
    */
   handleEscape(): void {
-    if (!this.modal.classList.contains('hidden')) return;
+    // A pending decision is never dismissable — but the instruments consulted
+    // over the top of it are, so the panel step still runs.
+    if (!this.modal.classList.contains('hidden')) {
+      if (this.openPanel) this.closePanel();
+      return;
+    }
     if (this.openPanel) { this.closePanel(); return; }
     if (!this.inspector.classList.contains('hidden')) {
       this.selectedBuildingId = null;
@@ -266,7 +439,8 @@ export class UI {
     const sep = el('div', 'bar-sep');
     this.toolbelt.append(sep);
     for (const [id, icon, label] of [
-      ['indicators', '📊', 'Indicators'], ['compute_alloc', '⚙', 'Compute'],
+      ['indicators', '📊', 'Indicators'], ['layers', '◈', 'Layers'],
+      ['compute_alloc', '⚙', 'Compute'],
       ['policies', '§', 'Policies'], ['politics', '🗳', 'Politics'],
     ] as Array<[string, string, string]>) {
       const btn = el('button', 'bar-tool');
@@ -354,7 +528,8 @@ export class UI {
     this.flyout.classList.remove('hidden');
     const buildCat = this.hudCategories().find((c) => c.id === id);
     const titles: Record<string, string> = {
-      alerts: 'Alert Feed', indicators: 'Regional Indicators', compute_alloc: 'Compute Allocation',
+      alerts: 'Alert Feed', indicators: 'Regional Indicators', layers: 'Map Layers',
+      compute_alloc: 'Compute Allocation',
       policies: 'Policy', politics: 'Politics',
     };
     this.flyoutTitle.textContent = buildCat ? buildCat.label : (titles[id] ?? id);
@@ -365,7 +540,8 @@ export class UI {
       this.unreadAlerts = 0;
       this.flyoutBody.append(this.feed);
       this.feed.classList.add('in-flyout');
-      this.feed.scrollTop = this.feed.scrollHeight;
+      // After layout, not before: the archive should open on the newest entry.
+      requestAnimationFrame(() => { this.feed.scrollTop = this.feed.scrollHeight; });
     } else {
       const body = this.panelBodies[id];
       if (body) this.flyoutBody.append(body);
@@ -376,11 +552,409 @@ export class UI {
   private closePanel(): void {
     if (this.openPanel === 'alerts') {
       this.feed.classList.remove('in-flyout');
-      this.root.append(this.feed);
+      this.feed.remove();
     }
     this.openPanel = null;
     this.flyout.classList.add('hidden');
     this.syncToolButtons();
+  }
+
+  // ------------------------------------------------------------ preferences
+  /** Change one preference, persist the set, and apply the consequences. */
+  private setPref<K extends keyof Prefs>(key: K, value: Prefs[K]): void {
+    this.prefs[key] = value;
+    savePrefs(this.prefs);
+    this.applyPrefs();
+    this.syncSettingsPanel();
+  }
+
+  /** Push the current preferences into the interface. Safe to call repeatedly. */
+  private applyPrefs(): void {
+    const p = this.prefs;
+    this.applyCollapse();
+    document.body.classList.toggle('vitals-sidebar', p.vitalsPlacement === 'sidebar');
+    document.body.classList.toggle('reduced-motion', p.reducedMotion);
+    // Vital signs live in the bar or in their own column; the element moves
+    // rather than being duplicated, so nothing can drift between the two.
+    const host = p.vitalsPlacement === 'sidebar' ? this.vitalsDock : this.consoleRow;
+    if (this.vitals.parentElement !== host) {
+      if (host === this.consoleRow) host.prepend(this.vitals);
+      else host.append(this.vitals);
+    }
+    this.vitalsDock.classList.toggle('hidden', p.vitalsPlacement !== 'sidebar');
+    this.sound?.setEnabled(p.sound);
+    if (!p.toasts) for (const id of [...this.toasts.keys()]) this.dismissToast(id, true);
+    if (this.overlay !== p.layer) this.setOverlay(p.layer);
+    this.syncBarHeight();
+  }
+
+  showSettings(): void {
+    const rows: Array<{ key: keyof Prefs; label: string; desc: string; options?: Array<[string, string]> }> = [
+      { key: 'autoPauseOnDecision', label: 'Pause on decisions', desc: 'Stop the clock when a decision or report arrives.' },
+      { key: 'toasts', label: 'Alert pop-ups', desc: 'Transient alerts over the map. The Alerts panel keeps everything either way.' },
+      { key: 'sound', label: 'Sound', desc: 'Ambient soundscape and interface tones.' },
+      { key: 'reducedMotion', label: 'Reduced motion', desc: 'Suppress interface animation beyond the system setting.' },
+      {
+        key: 'vitalsPlacement', label: 'Vital signs', desc: 'In the Civic Systems Bar, or in their own column.',
+        options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
+      },
+      {
+        key: 'xray', label: 'See through buildings', desc: 'Tall buildings hide the ground behind them. X cycles this.',
+        options: [['hover', 'Hovered'], ['radius', 'Around cursor'], ['off', 'Off']],
+      },
+    ];
+    const body = rows.map((r) => {
+      const control = r.options
+        ? `<span class="set-seg">${r.options.map(([v, l]) =>
+            `<button class="set-opt" data-pref="${r.key}" data-value="${v}">${l}</button>`).join('')}</span>`
+        : `<button class="set-toggle" data-pref="${r.key}"></button>`;
+      return `<div class="set-row"><div class="set-text"><b>${r.label}</b><small>${r.desc}</small></div>${control}</div>`;
+    }).join('');
+    this.showModal('Settings',
+      `<div class="settings-list">${body}</div>`,
+      [
+        { label: 'Keyboard Shortcuts', action: () => this.showHotkeys() },
+        { label: 'Reset to Defaults', action: () => { this.prefs = { ...DEFAULT_PREFS }; savePrefs(this.prefs); this.applyPrefs(); this.showSettings(); } },
+        { label: 'Close', action: () => {} },
+      ]);
+    for (const b of this.modal.querySelectorAll<HTMLElement>('[data-pref]')) {
+      b.onclick = () => {
+        const key = b.dataset.pref as keyof Prefs;
+        if (b.dataset.value !== undefined) this.setPref(key, b.dataset.value as never);
+        else this.setPref(key, !this.prefs[key] as never);
+      };
+    }
+    this.syncSettingsPanel();
+  }
+
+  private syncSettingsPanel(): void {
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.set-toggle[data-pref]')) {
+      const on = !!this.prefs[b.dataset.pref as keyof Prefs];
+      b.classList.toggle('on', on);
+      b.textContent = on ? 'On' : 'Off';
+    }
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.set-opt[data-pref]')) {
+      b.classList.toggle('on', this.prefs[b.dataset.pref as keyof Prefs] === b.dataset.value);
+    }
+  }
+
+  showHotkeys(): void {
+    const rows = HOTKEYS.map(([k, d]) =>
+      `<div class="key-row"><kbd>${k}</kbd><span>${d}</span></div>`).join('');
+    this.showModal('Keyboard Shortcuts', `<div class="key-list">${rows}</div>`,
+      [{ label: 'Close', action: () => {} }]);
+  }
+
+  // ------------------------------------------------------------ map layers
+  /**
+   * Diagnostic layers. The indicators panel says a district is underserved;
+   * these say which district. Each carries the same hover explanation as the
+   * metric it diagnoses, plus a legend — a colour wash means nothing without
+   * one, and an unlabelled overlay is just a tint.
+   */
+  private buildLayersPanel(host: HTMLElement): void {
+    host.append(el('p', 'hint', 'Diagnostic layers over the map. One at a time; press L to cycle.'));
+    for (const def of LAYER_DEFS) {
+      const btn = el('button', 'layer-btn');
+      btn.dataset.layer = def.id;
+      if (def.explain) btn.dataset.explain = def.explain;
+      btn.innerHTML =
+        `<span class="layer-head"><span class="layer-swatch" style="background:${def.swatch}"></span>` +
+        `<b>${def.name}</b></span>` +
+        `<span class="layer-desc">${def.desc}</span>` +
+        `<span class="layer-legend">${def.legend.map(([c, t]) =>
+          `<span class="legend-key"><i style="background:${c}"></i>${t}</span>`).join('')}</span>`;
+      btn.onclick = () => this.setOverlay(this.overlay === def.id ? null : def.id);
+      host.append(btn);
+    }
+  }
+
+  /** Switch the active layer, or clear it with null. */
+  setOverlay(id: OverlayId | null): void {
+    this.overlay = id;
+    if (this.prefs.layer !== id) { this.prefs.layer = id; savePrefs(this.prefs); }
+    this.syncLayerButtons();
+  }
+
+  /** Step through the x-ray modes. Bound to X, and mirrored in Settings. */
+  cycleXray(): void {
+    const order: XrayMode[] = ['hover', 'radius', 'off'];
+    const next = order[(order.indexOf(this.prefs.xray) + 1) % order.length];
+    this.setPref('xray', next);
+    const label = next === 'off' ? 'off' : next === 'hover' ? 'hovered building' : 'around cursor';
+    this.flashSystemNote(`See through buildings: ${label}.`);
+  }
+
+  /** Step through the layers and back to none. */
+  cycleOverlay(): void {
+    const order: Array<OverlayId | null> = [...LAYER_DEFS.map((d) => d.id), null];
+    const i = order.indexOf(this.overlay);
+    this.setOverlay(order[(i + 1) % order.length]);
+  }
+
+  private syncLayerButtons(): void {
+    for (const b of this.root.querySelectorAll<HTMLElement>('.layer-btn')) {
+      b.classList.toggle('active', b.dataset.layer === this.overlay);
+    }
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.bar-tool[data-panel="layers"]')) {
+      b.classList.toggle('layer-on', this.overlay !== null);
+    }
+  }
+
+  // ------------------------------------------------------------ panel rows
+  /**
+   * Reconcile a list of meter rows against the DOM instead of rewriting it.
+   *
+   * The dashboard refreshes four times a second. Rebuilding from innerHTML
+   * detached whatever the pointer was resting on, which made hover
+   * explanations impossible to read — the row vanished out from under the
+   * cursor before the card could be looked at. Rows are now matched by key
+   * and only their changing parts are touched.
+   */
+  private syncRows(host: HTMLElement, items: PanelItem[]): void {
+    const existing = new Map<string, HTMLElement>();
+    for (const child of [...host.children] as HTMLElement[]) {
+      const k = child.dataset.key;
+      if (k) existing.set(k, child);
+      else child.remove();
+    }
+    let prev: HTMLElement | null = null;
+    for (const item of items) {
+      let e = existing.get(item.key);
+      if (e) existing.delete(item.key);
+      else {
+        e = document.createElement('div');
+        e.dataset.key = item.key;
+        if (item.kind === 'row') {
+          e.innerHTML = '<span class="row-label"></span><div class="bar"><div class="fill"></div></div><span class="ind-val"></span>';
+        }
+      }
+      this.applyRow(e, item);
+      if (prev) { if (prev.nextElementSibling !== e) prev.after(e); }
+      else if (host.firstElementChild !== e) host.prepend(e);
+      prev = e;
+    }
+    for (const stale of existing.values()) stale.remove();
+  }
+
+  /** The two vital-sign rows, created on first use and reused thereafter. */
+  private vitalGroup(key: string, className: string): HTMLElement {
+    let host = this.vitals.querySelector<HTMLElement>(`:scope > [data-key="${key}"]`);
+    if (!host) {
+      host = document.createElement('div');
+      host.dataset.key = key;
+      host.className = className;
+      this.vitals.append(host);
+    }
+    return host;
+  }
+
+  private applyRow(e: HTMLElement, item: PanelItem): void {
+    const setAttr = (name: string, v: string | undefined) => {
+      if (v === undefined) e.removeAttribute(name);
+      else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
+    };
+    setAttr('data-explain', item.explain);
+    setAttr('data-reading', item.reading);
+    if (item.kind === 'row') {
+      const cls = `ind-row${item.extraClass ? ` ${item.extraClass}` : ''}`;
+      if (e.className !== cls) e.className = cls;
+      const label = e.querySelector<HTMLElement>('.row-label');
+      const fill = e.querySelector<HTMLElement>('.fill');
+      const val = e.querySelector<HTMLElement>('.ind-val');
+      if (label && label.innerHTML !== item.label) label.innerHTML = item.label;
+      if (fill) {
+        const w = `${Math.round(Math.max(0, Math.min(100, item.pct)))}%`;
+        if (fill.style.width !== w) fill.style.width = w;
+        const fc = `fill ${item.cls}`;
+        if (fill.className !== fc) fill.className = fc;
+      }
+      if (val && val.textContent !== item.value) val.textContent = item.value;
+    } else {
+      if (e.className !== item.className) e.className = item.className;
+      if (e.innerHTML !== item.html) e.innerHTML = item.html;
+    }
+  }
+
+  // ------------------------------------------------------------ explanations
+  /**
+   * One delegated listener serves every explainable metric on the dashboard.
+   * Rows opt in with `data-explain="<key>"`; because the handler is delegated,
+   * panels can be rebuilt from innerHTML on every refresh without rewiring.
+   */
+  private installExplainers(): void {
+    this.root.addEventListener('mouseover', (ev) => {
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (!t) return;
+      const info = EXPLAIN[t.dataset.explain ?? ''];
+      if (!info) return;
+      // The live reading, if the row carries one, sits above the definition.
+      const reading = t.dataset.reading;
+      this.explainCard.innerHTML =
+        `<div class="explain-title">${info.title}</div>` +
+        (reading ? `<div class="explain-reading">${reading}</div>` : '') +
+        `<div class="explain-what">${info.what}</div>` +
+        (info.drivers ? `<div class="explain-drivers">${info.drivers}</div>` : '');
+      this.explainCard.classList.remove('hidden');
+      this.positionExplain(t);
+    });
+    this.root.addEventListener('mouseout', (ev) => {
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (!t) return;
+      const to = (ev as MouseEvent).relatedTarget as HTMLElement | null;
+      if (to?.closest('[data-explain]') === t) return; // still inside the same row
+      this.explainCard.classList.add('hidden');
+    });
+  }
+
+  /** Anchor the card to its row, kept inside the viewport on every edge. */
+  private positionExplain(target: HTMLElement): void {
+    const r = target.getBoundingClientRect();
+    const c = this.explainCard.getBoundingClientRect();
+    const margin = 8;
+    let left = r.left;
+    let top = r.top - c.height - 6;
+    if (top < margin) top = r.bottom + 6;                       // no room above
+    if (left + c.width > window.innerWidth - margin) left = window.innerWidth - c.width - margin;
+    if (left < margin) left = margin;
+    this.explainCard.style.left = `${Math.round(left)}px`;
+    this.explainCard.style.top = `${Math.round(top)}px`;
+  }
+
+  // ------------------------------------------------------------ alerts
+  /** Publish the bar's real height so map-anchored UI can sit clear of it. */
+  private syncBarHeight(): void {
+    const h = this.civicBar.offsetHeight;
+    if (h > 0 && h !== this.lastBarHeight) {
+      this.lastBarHeight = h;
+      this.root.style.setProperty('--bar-h', `${h}px`);
+    }
+  }
+
+  /**
+   * Fan the notification stream out to its two surfaces. Everything reaches
+   * the archive; only what earns attention becomes a toast.
+   */
+  private syncAlerts(): void {
+    const g = this.g;
+    let asiNotices = 0;
+    let newAlerts = 0;
+    let maxSeq = this.lastSeq;
+    for (const n of g.notifications) {
+      if (n.seq <= this.lastSeq) continue;
+      if (n.seq > maxSeq) maxSeq = n.seq;
+      const firstSighting = !this.archiveEls.has(n.id);
+      if (firstSighting) {
+        if (n.kind === 'asi') asiNotices++;
+        if (n.kind === 'asi' || n.kind === 'warn' || n.kind === 'system') newAlerts++;
+      }
+      this.pushArchive(n);
+      this.pushToast(n);
+    }
+    this.lastSeq = maxSeq;
+    if (asiNotices > 0) this.sound?.systemTone();
+    if (this.openPanel !== 'alerts') {
+      this.unreadAlerts = Math.min(99, this.unreadAlerts + newAlerts);
+    }
+    // The per-id bookkeeping outlives the notifications themselves; prune it
+    // against the live stream rather than letting it grow all game.
+    if (this.toastedSeverity.size > 200) {
+      const live = new Set(g.notifications.map((n) => n.id));
+      for (const id of [...this.toastedSeverity.keys()]) {
+        if (!live.has(id) && !this.toasts.has(id)) this.toastedSeverity.delete(id);
+      }
+    }
+  }
+
+  private pushArchive(n: Notification): void {
+    const year = Math.floor(n.tick / 12) + 1;
+    const rep = n.count > 1 ? ` <span class="feed-rep">×${n.count}</span>` : '';
+    const html = `<span class="feed-date">Y${year} ${MONTHS[n.tick % 12]}</span> ${n.text}${rep}`;
+    const cls = `feed-item ${n.kind} sev-${n.severity}`;
+    const existing = this.archiveEls.get(n.id);
+    if (existing) {
+      existing.innerHTML = html;
+      existing.className = cls;
+      return;
+    }
+    const item = el('div', cls);
+    item.innerHTML = html;
+    this.archiveEls.set(n.id, item);
+    this.feed.append(item);
+    while (this.feed.children.length > 60) {
+      const oldest = this.feed.firstElementChild;
+      if (!oldest) break;
+      for (const [id, e] of this.archiveEls) {
+        if (e === oldest) { this.archiveEls.delete(id); break; }
+      }
+      oldest.remove();
+    }
+    // Follow the tail only if the reader hasn't scrolled back to look at something.
+    if (this.openPanel === 'alerts') {
+      const atTail = this.feed.scrollHeight - this.feed.scrollTop - this.feed.clientHeight < 40;
+      if (atTail) requestAnimationFrame(() => { this.feed.scrollTop = this.feed.scrollHeight; });
+    }
+  }
+
+  private pushToast(n: Notification): void {
+    if (!this.prefs.toasts) return;
+    const live = this.toasts.get(n.id);
+    if (live) {
+      // Keep a visible toast's figures current without restarting its clock —
+      // a condition that persists for a decade must not pin a toast open.
+      const txt = live.el.querySelector<HTMLElement>('.toast-text');
+      const cnt = live.el.querySelector<HTMLElement>('.toast-count');
+      if (txt) txt.textContent = n.text;
+      if (cnt) cnt.textContent = n.count > 1 ? `×${n.count}` : '';
+    }
+    const alreadyShown = this.toastedSeverity.get(n.id);
+    // Speak on first sight, and again only if the condition has got worse.
+    // Ordinary repeats live in the archive and nowhere else.
+    if (alreadyShown !== undefined && SEV_RANK[n.severity] <= SEV_RANK[alreadyShown]) return;
+    this.toastedSeverity.set(n.id, n.severity);
+
+    if (live) { // escalation: restyle in place and grant the longer lifetime
+      live.el.className = `toast ${n.kind} sev-${n.severity}`;
+      live.severity = n.severity;
+      window.clearTimeout(live.timer);
+      live.timer = window.setTimeout(() => this.dismissToast(n.id), TOAST_MS[n.severity]);
+      return;
+    }
+
+    // Rate limiting: a busy moment drops the quiet alerts rather than burying
+    // the loud ones. Nothing is lost — the archive has all of it.
+    if (this.toasts.size >= MAX_TOASTS) {
+      const quieter = [...this.toasts.entries()]
+        .filter(([, t]) => SEV_RANK[t.severity] <= SEV_RANK[n.severity])
+        .sort((a, b) => SEV_RANK[a[1].severity] - SEV_RANK[b[1].severity])[0];
+      if (!quieter) return; // everything on screen outranks this one
+      this.dismissToast(quieter[0], true);
+    }
+
+    const t = el('div', `toast ${n.kind} sev-${n.severity}`);
+    t.innerHTML = '<span class="toast-text"></span><span class="toast-count"></span>';
+    const txt = t.querySelector<HTMLElement>('.toast-text');
+    const cnt = t.querySelector<HTMLElement>('.toast-count');
+    if (txt) txt.textContent = n.text;
+    if (cnt) cnt.textContent = n.count > 1 ? `×${n.count}` : '';
+    t.title = 'Dismiss';
+    t.onclick = () => this.dismissToast(n.id);
+    this.toastStack.append(t);
+    this.toasts.set(n.id, {
+      el: t,
+      severity: n.severity,
+      timer: window.setTimeout(() => this.dismissToast(n.id), TOAST_MS[n.severity]),
+    });
+  }
+
+  private dismissToast(id: number, immediate = false): void {
+    const t = this.toasts.get(id);
+    if (!t) return;
+    this.toasts.delete(id);
+    window.clearTimeout(t.timer);
+    if (immediate) { t.el.remove(); return; }
+    t.el.classList.add('out');
+    window.setTimeout(() => t.el.remove(), 400);
   }
 
   private syncToolButtons(): void {
@@ -388,6 +962,9 @@ export class UI {
       const panel = b.dataset.panel;
       b.classList.toggle('open', panel != null && panel === this.openPanel);
       b.classList.toggle('active', this.tool.kind === 'demolish' && b.classList.contains('demolish'));
+      // The layer badge is synced here too, so a layer restored at boot lights
+      // its button even though the toolbelt is built after the preferences load.
+      if (panel === 'layers') b.classList.toggle('layer-on', this.overlay !== null);
     }
     for (const b of this.flyout.querySelectorAll<HTMLElement>('.build-card')) {
       b.classList.toggle('active', this.tool.kind === 'build' && b.dataset.type === this.tool.type);
@@ -423,11 +1000,13 @@ export class UI {
     const g = this.g;
     const bodies: Record<string, HTMLElement> = {
       indicators: el('div', 'panel-body'),
+      layers: el('div', 'panel-body'),
       compute_alloc: el('div', 'panel-body'),
       policies: el('div', 'panel-body'),
       politics: el('div', 'panel-body'),
     };
     this.panelBodies = bodies;
+    this.buildLayersPanel(bodies.layers);
     bodies.indicators.id = 'indicators-body';
     bodies.politics.id = 'politics-body';
 
@@ -686,6 +1265,7 @@ export class UI {
    */
   private autoPause(): void {
     const g = this.g;
+    if (!this.prefs.autoPauseOnDecision) { this.resumeSpeed = null; return; }
     if (g.speed > 0 && pauseAllowed(g)) {
       this.resumeSpeed = g.speed;
       this.onSpeed(0);
@@ -802,57 +1382,88 @@ export class UI {
       : `${unempLabel}: <b>${unemp}%</b>`;
     const unrestLabel = statLabel(g, 'Unrest');
     const unrestVal = hideNegatives ? 'nominal' : `${Math.round(g.unrest * 100)}%`;
+    // Jobs and unemployment were two readouts of one situation. They are now
+    // one meter that names which of the two problems the region actually has:
+    // idle workers, or posts nobody is available to fill.
+    const unemployed = Math.max(0, g.labourForce - g.jobsFilled);
+    const shortage = g.jobVacancies > 0 && unemployed === 0;
+    const labourLabel = shortage ? statLabel(g, 'Vacancies') : unempLabel;
+    const labourGauge = shortage
+      ? Math.min(100, (g.jobVacancies / Math.max(1, g.jobsTotal)) * 100)
+      : unemp;
+    const labourText = hideNegatives ? '—' : shortage ? g.jobVacancies.toLocaleString() : `${unemp}%`;
+    const labourReading =
+      `Labour force ${g.labourForce.toLocaleString()} · posts ${g.jobsTotal.toLocaleString()} · filled ${g.jobsFilled.toLocaleString()}` +
+      (shortage
+        ? `<br>${g.jobVacancies.toLocaleString()} post${g.jobVacancies === 1 ? '' : 's'} unfilled — the region is short of workers, not of work.`
+        : `<br>${unemployed.toLocaleString()} without work.`);
     // ---- Vital signs: capacity at a glance ----
     // Each utility reads as a fill bar of demand against capacity, so strain
-    // is visible before it becomes an outage.
-    const gauge = (icon: string, label: string, used: number, cap: number, unit = '') => {
-      const pct = cap > 0 ? Math.min(150, (used / cap) * 100) : (used > 0 ? 150 : 0);
+    // is visible before it becomes an outage. Every gauge reads the same way
+    // round — need first, then have — so a glance never has to work out which
+    // number is which.
+    const primary: PanelItem[] = [];
+    const secondary: PanelItem[] = [];
+    const vital = (into: PanelItem[], key: string, icon: string, body: string, reading?: string) =>
+      into.push({
+        kind: 'block', key, className: 'vital', explain: key, reading,
+        html: `<span class="vital-ico">${icon}</span><span class="vital-body">${body}</span>`,
+      });
+    const gauge = (into: PanelItem[], icon: string, key: string, need: number, have: number, unit = '') => {
+      const pct = have > 0 ? Math.min(150, (need / have) * 100) : (need > 0 ? 150 : 0);
       const cls = pct > 100 ? 'gauge-bad' : pct > 85 ? 'gauge-warn' : 'gauge-ok';
       const shown = hideNegatives ? 'gauge-calm' : cls;
-      return `<div class="vital" title="${label}: ${Math.round(used)} of ${Math.round(cap)}${unit}">
-        <span class="vital-ico">${icon}</span>
-        <span class="vital-body">
-          <span class="vital-num">${Math.round(used)}<span class="vital-cap">/${Math.round(cap)}</span></span>
-          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>
-        </span></div>`;
+      const u = unit ? ` ${unit}` : '';
+      const reading = have > 0
+        ? `Need ${Math.round(need).toLocaleString()}${u} · have ${Math.round(have).toLocaleString()}${u} — ${Math.round((need / have) * 100)}% used`
+        : `Need ${Math.round(need).toLocaleString()}${u} · no capacity built`;
+      vital(into, key, icon,
+        `<span class="vital-num">${Math.round(need).toLocaleString()}<span class="vital-cap">/${Math.round(have).toLocaleString()}</span></span>` +
+        `<span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>`,
+        reading);
     };
     // A 0..100 indicator rendered in the same visual language as the gauges,
     // so nothing in the bar reads as a bare number.
-    const meter = (icon: string, label: string, value: number, opts?: { invert?: boolean; suffix?: string }) => {
+    const meter = (into: PanelItem[], icon: string, key: string, label: string, value: number,
+                   opts?: { invert?: boolean; suffix?: string; reading?: string; text?: string }) => {
       const v = Math.max(0, Math.min(100, value));
       const good = opts?.invert ? 100 - v : v;
       const cls = good < 30 ? 'gauge-bad' : good < 55 ? 'gauge-warn' : 'gauge-ok';
       const shown = hideNegatives ? 'gauge-calm' : cls;
-      const text = hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`;
-      return `<div class="vital" title="${label}">
-        <span class="vital-ico">${icon}</span>
-        <span class="vital-body">
-          <span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>
-          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>
-        </span></div>`;
+      const text = opts?.text ?? (hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`);
+      vital(into, key, icon,
+        `<span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>` +
+        `<span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>`,
+        opts?.reading);
     };
     const housingCap = [...g.buildings.values()]
       .filter((b) => b.progress >= 1 && b.active)
       .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
     const capitalCls = r.capital < 0 ? 'bad' : '';
+
+    vital(primary, 'capital', '§',
+      `<span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>` +
+      `<span class="gauge gauge-void"></span>`,
+      `§${Math.round(r.capital).toLocaleString()} in the treasury`);
+    gauge(primary, '⚡', 'power', r.powerDemand, r.powerCapacity, 'MW');
+    gauge(primary, '💧', 'water', r.waterDemand, r.waterCapacity, 'ML');
+    gauge(primary, '▣', 'compute', r.computeDemand, r.compute, 'PF');
+    gauge(primary, '🏠', 'housing', g.population, housingCap);
+
+    meter(secondary, '☺', 'trust', 'Trust', g.indicators.trust,
+      { reading: `${Math.round(g.indicators.trust)} of 100` });
+    meter(secondary, '✚', 'health', 'Health', g.indicators.health,
+      { reading: `${Math.round(g.indicators.health)} of 100` });
+    meter(secondary, '★', 'appeal', 'Appeal', g.attractiveness.overall * 100,
+      { reading: `${Math.round(g.attractiveness.overall * 100)} of 100 · migration queue ${Math.max(0, Math.round(g.migrationDemand - g.population)).toLocaleString()}` });
+    meter(secondary, '👥', 'labour', labourLabel, labourGauge,
+      { invert: true, text: labourText, reading: labourReading });
+    meter(secondary, '✊', 'unrest', unrestLabel, g.unrest * 100,
+      { invert: true, suffix: '%', reading: hideNegatives ? 'Nominal' : `${Math.round(g.unrest * 100)}% · ${RESISTANCE_STAGES[g.resistanceStage]}` });
+
     // Primary row survives collapse; secondary row is the first thing hidden.
-    this.vitals.innerHTML =
-      `<div class="vital-group vital-primary">` +
-      `<div class="vital" title="Capital"><span class="vital-ico">§</span><span class="vital-body">
-        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>
-        <span class="gauge gauge-void"></span></span></div>` +
-      gauge('⚡', 'Power', r.powerDemand, r.powerCapacity) +
-      gauge('💧', 'Water', r.waterDemand, r.waterCapacity) +
-      gauge('▣', 'Compute', r.computeDemand, r.compute) +
-      gauge('🏠', 'Housing', g.population, housingCap) +
-      `</div>` +
-      `<div class="vital-group vital-secondary">` +
-      meter('☺', 'Trust', g.indicators.trust) +
-      meter('✚', 'Health', g.indicators.health) +
-      meter('★', 'Appeal', g.attractiveness.overall * 100) +
-      meter('👥', unempLabel, unemp, { invert: true, suffix: '%' }) +
-      meter('✊', unrestLabel, g.unrest * 100, { invert: true, suffix: '%' }) +
-      `</div>`;
+    this.syncRows(this.vitalGroup('grp.primary', 'vital-group vital-primary'), primary);
+    this.syncRows(this.vitalGroup('grp.secondary', 'vital-group vital-secondary'), secondary);
 
     // ---- Centre console: the LCD readout ----
     // The display is deliberately spare and instrument-like. Once the system
@@ -866,7 +1477,6 @@ export class UI {
     this.barStatus.title =
       `${tierOf(g.population).name} · population ${g.population.toLocaleString()}\n` +
       `Migration queue: ${queue}\n` +
-      `Jobs: ${g.jobsFilled} filled of ${g.jobsTotal}\n` +
       `Attractiveness: ${Math.round(g.attractiveness.overall * 100)}\n` +
       `Year ${year}, ${month}`;
     this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
@@ -879,54 +1489,121 @@ export class UI {
       const lbl = alertBtn.querySelector('.sys-text');
       if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts ${this.unreadAlerts}` : 'Alerts';
     }
+    const muteIco = this.barRight.querySelector<HTMLElement>('.mute-btn .sys-ico');
+    if (muteIco) muteIco.textContent = this.prefs.sound ? '🔊' : '🔇';
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
 
     // Indicators -----------------------------------------------------------
     const ind = document.getElementById('indicators-body');
     if (ind) {
-      const rows: Array<[string, number]> = [
-        ['Convenience', g.indicators.convenience],
-        ['Trust', g.indicators.trust],
-        [statLabel(g, 'Agency'), g.indicators.agency],
-        ['Security', g.indicators.security],
-        ['Connection', g.indicators.connection],
-        ['Health', g.indicators.health],
-        ['Future Confidence', g.indicators.futureConfidence],
-      ];
-      let html = '';
-      for (const [label, v] of rows) {
-        const cls = v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
+      const items: PanelItem[] = [];
+      const header = (key: string, label: string, explain?: string, reading?: string) =>
+        items.push({ kind: 'block', key, className: 'cat-label', html: label, explain, reading });
+      // A 0..100 row. Every metric on this panel is a bar with a definition
+      // behind it — nothing is left as a bare number the player must infer.
+      const row = (key: string, label: string, v: number, opts?: { reading?: string; extra?: string; invert?: boolean; extraClass?: string }) => {
+        const pct = Math.max(0, Math.min(100, v));
+        const good = opts?.invert ? 100 - pct : pct;
+        const cls = good < 30 ? 'bar-bad' : good < 55 ? 'bar-mid' : 'bar-good';
         // Phase 4+: negative bars are quietly re-colored soothing blue.
-        const shownCls = g.asi.phase >= 4 ? 'bar-calm' : cls;
-        html += `<div class="ind-row"><span>${label}</span><div class="bar"><div class="fill ${shownCls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
-      }
+        items.push({
+          kind: 'row', key, label, pct, explain: key,
+          cls: g.asi.phase >= 4 ? 'bar-calm' : cls,
+          value: opts?.extra ?? String(Math.round(pct)),
+          reading: opts?.reading, extraClass: opts?.extraClass,
+        });
+      };
+
+      header('h.qol', 'Quality of Life');
+      const rows: Array<[string, string, number]> = [
+        ['convenience', 'Convenience', g.indicators.convenience],
+        ['trust', 'Trust', g.indicators.trust],
+        ['agency', statLabel(g, 'Agency'), g.indicators.agency],
+        ['security', 'Security', g.indicators.security],
+        ['connection', 'Connection', g.indicators.connection],
+        ['health', 'Health', g.indicators.health],
+        ['futureConfidence', 'Future Confidence', g.indicators.futureConfidence],
+      ];
+      for (const [key, label, v] of rows) row(key, label, v, { reading: `${Math.round(v)} of 100` });
+
       // Attractiveness breakdown: growth should never be a number that
       // simply happens.
       const att = g.attractiveness;
-      const attRows: Array<[string, number]> = [
-        ['Jobs', att.jobs], ['Housing', att.housing], ['Amenities', att.amenities],
-        ['Services', att.services], ['Environment', att.environment],
-        ['Safety', att.safety], ['Affordability', att.cost],
+      const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
+      items.push({
+        kind: 'block', key: 'h.att', className: 'att-header',
+        html: `Attractiveness <b>${Math.round(att.overall * 100)}</b>`,
+        explain: 'appeal', reading: `Migration queue ${queue.toLocaleString()} waiting`,
+      });
+      const attRows: Array<[string, string, number]> = [
+        ['att.jobs', 'Jobs', att.jobs], ['att.housing', 'Housing', att.housing],
+        ['att.amenities', 'Amenities', att.amenities], ['att.services', 'Services', att.services],
+        ['att.environment', 'Environment', att.environment], ['att.safety', 'Safety', att.safety],
+        ['att.cost', 'Affordability', att.cost],
       ];
-      html += `<div class="att-header">Attractiveness <b>${Math.round(att.overall * 100)}</b></div>`;
-      for (const [label, v] of attRows) {
+      for (const [key, label, v] of attRows) {
         const pct = Math.round(v * 100);
-        const cls = g.asi.phase >= 4 ? 'bar-calm' : pct < 30 ? 'bar-bad' : pct < 55 ? 'bar-mid' : 'bar-good';
-        html += `<div class="ind-row att-row"><span>${label}</span><div class="bar"><div class="fill ${cls}" style="width:${pct}%"></div></div><span class="ind-val">${pct}</span></div>`;
+        row(key, label, pct, { reading: `${pct} of 100`, extraClass: 'att-row' });
       }
 
-      const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
-      html += `<div class="ind-extra">
-        Region class: ${tierOf(g.population).name}<br>
-        ${statLabel(g, 'Housing Shortage')}: ${g.asi.phase >= 4 ? 'optimized' : Math.round(g.housingShortage * 100) + '%'} (${queue} waiting)<br>
-        Service expectations: ${Math.round(g.expectations)}<br>
-        ${statLabel(g, 'Pollution')}: ${g.asi.phase >= 4 ? 'managed' : Math.round(g.pollutionAvg * 200) + '%'}<br>
-        Human expertise: ${Math.round(g.humanExpertise * 100)}%<br>
-        Corporate influence: ${Math.round(g.corporateInfluence * 100)}%<br>
-        Data reserves: ${Math.round(g.resources.data)}<br>
-        Jobs: ${g.jobsFilled}/${g.jobsTotal}</div>`;
-      ind.innerHTML = html;
+      // Pressures: what the region is carrying. These were plain text before,
+      // which made them easy to skip past — they are the numbers that end
+      // administrations, so they get the same bars as everything else.
+      const calm4 = g.asi.phase >= 4;
+      const shortagePct = Math.round(g.housingShortage * 100);
+      const pollPct = Math.min(100, Math.round(g.pollutionAvg * 200));
+      const expertisePct = Math.round(g.humanExpertise * 100);
+      const influencePct = Math.round(g.corporateInfluence * 100);
+      header('h.press', 'Pressures');
+      row('housingShortage', statLabel(g, 'Housing Shortage'), shortagePct, {
+        invert: true,
+        extra: calm4 ? '—' : `${shortagePct}%`,
+        reading: `${queue.toLocaleString()} would-be residents waiting for a home`,
+      });
+      row('pollution', statLabel(g, 'Pollution'), pollPct, {
+        invert: true,
+        extra: calm4 ? '—' : `${pollPct}%`,
+        reading: 'Average across settled tiles',
+      });
+      row('corporateInfluence', 'Corporate Influence', influencePct, {
+        invert: true, extra: `${influencePct}%`,
+        reading: `${influencePct}% of policy set outside the administration`,
+      });
+      row('humanExpertise', 'Human Expertise', expertisePct, {
+        extra: `${expertisePct}%`, reading: `${expertisePct}% of skilled work still done by people`,
+      });
+
+      // Capacity: reserves and standards, each with the unit it is measured in.
+      header('h.cap', 'Capacity &amp; Standards');
+      const expect = Math.round(g.expectations);
+      const conv = Math.round(g.indicators.convenience);
+      const gap = expect - conv;
+      row('expectations', 'Service Expectations', expect, {
+        invert: gap > 0,
+        extra: `${expect} / 100`,
+        reading: `Expected ${expect} · delivered ${conv} — ` +
+          (gap > 0 ? `${gap} short of what residents now consider normal` : 'meeting expectations'),
+      });
+      const dataPb = Math.round(g.resources.data);
+      row('data', 'Data Reserves', Math.min(100, (dataPb / 4000) * 100), {
+        extra: `${dataPb.toLocaleString()} PB`,
+        reading: `${dataPb.toLocaleString()} PB held · effects saturate around 4,000 PB`,
+      });
+      const unemployedNow = Math.max(0, g.labourForce - g.jobsFilled);
+      const shortageNow = g.jobVacancies > 0 && unemployedNow === 0;
+      row('labour', shortageNow ? statLabel(g, 'Vacancies') : statLabel(g, 'Unemployment'),
+        shortageNow ? Math.min(100, (g.jobVacancies / Math.max(1, g.jobsTotal)) * 100) : Math.round(g.unemployment * 100), {
+          invert: true,
+          extra: calm4 ? '—' : shortageNow ? g.jobVacancies.toLocaleString() : `${Math.round(g.unemployment * 100)}%`,
+          reading: `Labour force ${g.labourForce.toLocaleString()} · posts ${g.jobsTotal.toLocaleString()} · filled ${g.jobsFilled.toLocaleString()}` +
+            (shortageNow ? `<br>${g.jobVacancies.toLocaleString()} post${g.jobVacancies === 1 ? '' : 's'} unfilled` : `<br>${unemployedNow.toLocaleString()} without work`),
+        });
+      items.push({
+        kind: 'block', key: 'note.region', className: 'ind-extra',
+        html: `Region class: ${tierOf(g.population).name} · population ${g.population.toLocaleString()}`,
+      });
+      this.syncRows(ind, items);
     }
     // Politics tab -------------------------------------------------------
     const pol = document.getElementById('politics-body');
@@ -937,17 +1614,17 @@ export class UI {
       const approval = Math.round(weightedApproval(g));
       const stageName = calm && g.resistanceStage > 0 ? 'Civic Engagement (elevated)' : RESISTANCE_STAGES[g.resistanceStage];
       let html = `<div class="pol-summary">
-        ${electionLabel} in <b>${Math.floor(ticksLeft / 12)}y ${ticksLeft % 12}m</b> · weighted support <b>${approval}%</b><br>
+        <span data-explain="election" data-reading="Weighted support ${approval}% — below 50% removes you from office">${electionLabel} in <b>${Math.floor(ticksLeft / 12)}y ${ticksLeft % 12}m</b> · weighted support <b>${approval}%</b></span><br>
         ${g.lastElectionResult ? `<small>Last result: ${g.lastElectionResult}</small><br>` : ''}
-        ${statLabel(g, 'Protest Activity')}: <b>${stageName}</b></div>`;
-      html += '<div class="cat-label">Population Groups</div>';
+        <span data-explain="resistance" data-reading="Stage ${g.resistanceStage} of ${RESISTANCE_STAGES.length - 1}">${statLabel(g, 'Protest Activity')}: <b>${stageName}</b></span></div>`;
+      html += '<div class="cat-label" data-explain="groups">Population Groups</div>';
       for (const id of GROUP_ORDER) {
         const grp = g.groups[id];
         const v = grp.approval;
         const cls = calm ? 'bar-calm' : v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
         html += `<div class="ind-row" title="${GROUP_DEFS[id].desc}"><span>${GROUP_DEFS[id].name} <small>${Math.round(grp.share * 100)}%</small></span><div class="bar"><div class="fill ${cls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
       }
-      html += '<div class="cat-label">Corporate Actors</div>';
+      html += '<div class="cat-label" data-explain="corps">Corporate Actors</div>';
       for (const id of CORP_ORDER) {
         const corp = g.corps[id];
         const moodTxt = calm ? 'aligned' : corp.mood < 30 ? 'hostile' : corp.mood < 55 ? 'wary' : 'invested';
@@ -960,23 +1637,8 @@ export class UI {
     this.syncPolicyButtons();
 
     // Notifications --------------------------------------------------------
-    let asiNotices = 0;
-    let newAlerts = 0;
-    while (this.shownNotifications < g.notifications.length) {
-      const n = g.notifications[this.shownNotifications++];
-      if (n.kind === 'asi') asiNotices++;
-      if (n.kind === 'asi' || n.kind === 'warn' || n.kind === 'system') newAlerts++;
-      const item = el('div', `feed-item ${n.kind}`);
-      const year2 = Math.floor(n.tick / 12) + 1;
-      item.innerHTML = `<span class="feed-date">Y${year2} ${MONTHS[n.tick % 12]}</span> ${n.text}`;
-      this.feed.append(item);
-      while (this.feed.children.length > 60) this.feed.firstChild?.remove();
-      this.feed.scrollTop = this.feed.scrollHeight;
-    }
-    if (asiNotices > 0) this.sound?.systemTone();
-    if (this.openPanel !== 'alerts') {
-      this.unreadAlerts = Math.min(99, this.unreadAlerts + newAlerts);
-    }
+    this.syncBarHeight();
+    this.syncAlerts();
     // Keep an open build flyout current without rebuilding it: recreating the
     // cards every refresh would yank them out from under the cursor.
     this.syncBuildFlyout();
@@ -1009,7 +1671,8 @@ export class UI {
       document.body.classList.add('ended');
       this.showModal('Administration Terminated', g.gameOver, [
         { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
-        { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
+        { label: 'Begin New Simulation', action: () => this.showScenarioPicker() },
+        { label: 'Return to Main Menu', action: () => requestMenu() },
       ]);
     }
   }
@@ -1027,6 +1690,7 @@ export class UI {
           <button id="obs-continue">Continue Observation</button>
           <button id="obs-history">Review Historical Decisions</button>
           <button id="obs-restart">Begin New Simulation</button>
+          <button id="obs-menu">Return to Main Menu</button>
         </div>
       </div>`;
     (this.observerOverlay.querySelector('#obs-continue') as HTMLElement).onclick = () => {
@@ -1037,8 +1701,9 @@ export class UI {
       this.showHistory();
     };
     (this.observerOverlay.querySelector('#obs-restart') as HTMLElement).onclick = () => {
-      localStorage.setItem(BOOT_FLAG, 'new');
-      location.reload();
+      this.observerOverlay.classList.add('dismissed');
+      this.showScenarioPicker();
     };
+    (this.observerOverlay.querySelector('#obs-menu') as HTMLElement).onclick = () => requestMenu();
   }
 }

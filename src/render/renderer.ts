@@ -10,12 +10,29 @@ import {
   makeCarSprites, makePedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
+import { computeConnectivity, computeCoverage, covered } from '../game/network';
+import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } from './height';
+
+/** Diagnostic map layers. Each answers one question a dark district raises. */
+export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
+
+/**
+ * How the skyline gets out of the player's way.
+ *  - 'off'    nothing; the mass stands whatever is behind it
+ *  - 'hover'  any building the cursor is *behind* dissolves
+ *  - 'radius' a window opens in the skyline around the cursor
+ */
+export type XrayMode = 'off' | 'hover' | 'radius';
 
 export interface UiRenderState {
   hoverTile: [number, number] | null;
+  /** Cursor in world pixels, for the x-ray. Null when off the map. */
+  cursorWorld: [number, number] | null;
+  xray: XrayMode;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
   selectedBuildingId: number | null;
+  overlay: OverlayId | null;
 }
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
@@ -79,6 +96,9 @@ export class Renderer {
   private cars: HTMLCanvasElement[];
   private peds: HTMLCanvasElement[];
   private clouds: HTMLCanvasElement;
+  /** Ground snapshot and its masked copy, for the radial x-ray. */
+  private xrayGround = document.createElement('canvas');
+  private xrayMasked = document.createElement('canvas');
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
   constructor(screen: HTMLCanvasElement) {
@@ -157,6 +177,19 @@ export class Renderer {
     this.life.update(g, dt * simSpeedMul, this.rain, this.nightFactor(), this.snowing);
   }
 
+  /** Radius of the x-ray window, in world pixels — about five tiles across. */
+  private static readonly XRAY_R = 46;
+
+  /** Lazily built front walls, keyed off each roof sprite's own palette. */
+  private facades = new Map<BuildingType, Facade | null>();
+  private facadeFor(type: BuildingType): Facade | null {
+    if (!this.facades.has(type)) {
+      const spr = this.buildings.get(type);
+      this.facades.set(type, spr ? makeFacade(type, spr.albedo) : null);
+    }
+    return this.facades.get(type) ?? null;
+  }
+
   render(g: GameState, ui: UiRenderState): void {
     const W = this.world.width, H = this.world.height;
     this.clampCamera(g);
@@ -189,10 +222,80 @@ export class Renderer {
       }
     }
 
-    // ------------------------------------------------------------ buildings
     const nightF = this.nightFactor();
+
+    // ------------------------------------------------------------ agents
+    // Drawn before the buildings, not after: with the height axis a tall
+    // building's mass now covers ground behind it, and a car on that street
+    // must be hidden by the tower rather than painted over its facade. Mass
+    // only ever extends upward from a footprint, so anything in front of a
+    // building is still drawn over it by the building pass that follows.
+    for (const a of this.life.agents) {
+      const dx = Math.round(a.x - camX), dy = Math.round(a.y - camY);
+      if (dx < -8 || dy < -8 || dx > W + 8 || dy > H + 8) continue;
+      if (a.kind === 'car') {
+        const spr = this.cars[a.variant % this.cars.length];
+        w.save();
+        w.translate(dx, dy);
+        if (a.dir === 0) w.rotate(-Math.PI / 2);
+        else if (a.dir === 2) w.rotate(Math.PI / 2);
+        else if (a.dir === 3) w.scale(-1, 1);
+        w.drawImage(spr, -2, -1);
+        w.restore();
+        if (nightF > 0.3) { // headlights
+          this.ectx.globalAlpha = nightF * 0.8;
+          this.ectx.fillStyle = '#ffe9b0';
+          this.ectx.fillRect(dx + (a.dir === 1 ? 2 : a.dir === 3 ? -3 : 0), dy + (a.dir === 2 ? 2 : a.dir === 0 ? -3 : 0), 1, 1);
+          this.ectx.globalAlpha = 1;
+        }
+      } else {
+        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1);
+      }
+    }
+
+    // ------------------------------------------------------------ trees (with wind sway)
+    // Before the buildings, for the same reason as the agents: a tree standing
+    // behind a tower must be hidden by it, not painted over its facade.
+    const wind = 0.7 + this.rain * 1.6;
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const tile = g.map[ty * g.mapW + tx];
+        if (tile.terrain !== 'forest') continue;
+        // Chronic pollution kills the canopy: past the threshold the tree
+        // stands bare, and bare trees barely sway.
+        const dead = tile.pollution > 0.22;
+        const sway = dead ? 0 : Math.round(Math.sin(this.t * 1.6 + (tx * 7 + ty * 13) * 0.37) * wind);
+        const dx = tx * TILE - camX + sway, dy = ty * TILE - camY - 4;
+        w.drawImage((dead ? this.terrain.treeDead : this.terrain.tree)[tile.variant % 3], dx, dy);
+      }
+    }
+
+    // ------------------------------------------------------------ buildings
     this.ectx.clearRect(0, 0, W, H);
-    const sorted = [...g.buildings.values()].sort((a, b) => a.y - b.y);
+
+    // The x-ray works by remembering the ground. Everything drawn so far —
+    // terrain, roads, agents — is copied out of the region around the cursor
+    // *before* any mass goes over it, then composited back through a radial
+    // mask once the buildings are down. That gives a genuine hole in the
+    // skyline rather than a fade, and costs two blits of a small square.
+    const xrayOn = ui.xray === 'radius' && ui.cursorWorld !== null;
+    const xr = Renderer.XRAY_R;
+    let xcx = 0, xcy = 0;
+    if (xrayOn && ui.cursorWorld) {
+      xcx = Math.round(ui.cursorWorld[0] - camX);
+      xcy = Math.round(ui.cursorWorld[1] - camY);
+      if (this.xrayGround.width !== xr * 2) {
+        this.xrayGround.width = this.xrayMasked.width = xr * 2;
+        this.xrayGround.height = this.xrayMasked.height = xr * 2;
+      }
+      const gx = this.xrayGround.getContext('2d')!;
+      gx.clearRect(0, 0, xr * 2, xr * 2);
+      gx.drawImage(this.world, xcx - xr, xcy - xr, xr * 2, xr * 2, 0, 0, xr * 2, xr * 2);
+    }
+    // Sorted by the base of the footprint: with roofs lifted, what matters for
+    // occlusion is where a building stands, not where its top is drawn.
+    const sorted = [...g.buildings.values()]
+      .sort((a, b) => (a.y + BUILDING_DEFS[a.type].h) - (b.y + BUILDING_DEFS[b.type].h));
 
     // Shadow & ambient-occlusion pass: contact AO hugs every footprint, and
     // the cast shadow tracks the sun — long to the west at dawn, short at
@@ -216,9 +319,12 @@ export class Renderer {
       }
       // directional sun shadow (none at night; the point lights take over)
       if (dayF > 0.1) {
-        const len = (2 + Math.abs(sunT) ** 1.5 * 10) * (0.6 + def.h * 0.25);
+        // Shadow length now comes from the building's actual height, not from
+        // its footprint depth — a tower throws a tower's shadow.
+        const bhPx = heightOf(b.type);
+        const len = (2 + Math.abs(sunT) ** 1.5 * 4) * (0.5 + bhPx * 0.14);
         const sdx = sunT * len;
-        w.fillStyle = `rgba(10,14,22,${(0.22 * dayF).toFixed(3)})`;
+        w.fillStyle = `rgba(10,14,22,${(0.24 * dayF).toFixed(3)})`;
         w.fillRect(dx + sdx, dy + 2 + bh * 0.12, bw, bh);
       }
     }
@@ -238,21 +344,67 @@ export class Renderer {
         }
         continue;
       }
-      w.drawImage(spr.albedo, dx, dy);
+      // Height pass. The roof rises by the building's height, sheared by its
+      // distance off the optical axis; the facade fills the gap down to the
+      // footprint the building actually stands on.
+      const bhPx = heightOf(b.type);
+      const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
+      const rx = dx + px, ry = dy - bhPx + py;
+      const fac = this.facadeFor(b.type);
+      // Occlusion relief. Mass that can hide ground goes translucent while a
+      // build tool is out, so a tower never costs the player the tiles behind
+      // it. Without this the height axis would make the map less usable than
+      // it was flat.
+      const occluding = bhPx >= OCCLUDING_HEIGHT;
+      let relief = occluding && ui.buildType !== null ? 0.42 : 1;
+      // Hover x-ray: if the cursor is inside this building's drawn mass, the
+      // player is looking at something it is standing in front of. Dissolve
+      // it. Its own footprint is excluded — pointing at a tower to inspect it
+      // should not make the tower vanish.
+      if (occluding && ui.xray === 'hover' && ui.cursorWorld) {
+        const cx0 = ui.cursorWorld[0] - camX, cy0 = ui.cursorWorld[1] - camY;
+        const inMass = cx0 >= rx && cx0 <= rx + def.w * TILE &&
+                       cy0 >= ry && cy0 <= dy + def.h * TILE;
+        const onFootprint = cx0 >= dx && cx0 <= dx + def.w * TILE &&
+                            cy0 >= dy && cy0 <= dy + def.h * TILE;
+        if (inMass && !onFootprint) relief = Math.min(relief, 0.3);
+      }
+      if (relief < 1) w.globalAlpha = relief;
+      if (fac) {
+        // Wall spans from the lifted roof's lower edge to the ground footprint,
+        // stretched so it stays attached under any parallax offset.
+        const wallTop = ry + def.h * TILE;
+        const wallBottom = dy + def.h * TILE;
+        if (wallBottom > wallTop) {
+          w.drawImage(fac.albedo, rx, wallTop, def.w * TILE, wallBottom - wallTop);
+        }
+      }
+      w.drawImage(spr.albedo, rx, ry);
       // sun-facing rim light + far-side shade: the poor man's normal map
       if (dayF > 0.15 && Math.abs(sunT) > 0.15) {
         const bw = def.w * TILE, bh = def.h * TILE;
-        const sunEdge = sunT < 0 ? dx + bw - 1 : dx; // sun east at dawn lights the east edge
-        const darkEdge = sunT < 0 ? dx : dx + bw - 1;
+        const sunEdge = sunT < 0 ? rx + bw - 1 : rx; // sun east at dawn lights the east edge
+        const darkEdge = sunT < 0 ? rx : rx + bw - 1;
+        // The lit edge runs the full mass, roof and wall together.
+        const lit = bh + Math.max(0, (dy + bh) - (ry + bh));
         w.fillStyle = `rgba(255,240,205,${(0.16 * dayF * Math.abs(sunT)).toFixed(3)})`;
-        w.fillRect(sunEdge, dy + 1, 1, bh - 2);
+        w.fillRect(sunEdge, ry + 1, 1, lit - 2);
         w.fillStyle = `rgba(10,16,30,${(0.18 * dayF * Math.abs(sunT)).toFixed(3)})`;
-        w.fillRect(darkEdge, dy + 1, 1, bh - 2);
+        w.fillRect(darkEdge, ry + 1, 1, lit - 2);
       }
-      this.drawEvolutionDetails(g, b, dx, dy, nightF);
+      this.drawEvolutionDetails(g, b, rx, ry, nightF);
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
-        w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
+        w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
+        if (fac) w.fillRect(rx, ry + def.h * TILE, def.w * TILE, Math.max(0, (dy + def.h * TILE) - (ry + def.h * TILE)));
+      }
+      if (relief < 1) w.globalAlpha = 1;
+      // The footprint is where the building legally stands, which is no longer
+      // where its mass is drawn. Tall buildings get a base line so placement,
+      // demolition and the service radius are never ambiguous.
+      if (occluding) {
+        w.fillStyle = `rgba(150,180,220,${ui.buildType !== null ? 0.5 : 0.16})`;
+        w.fillRect(dx, dy + def.h * TILE - 1, def.w * TILE, 1);
       }
       // emissive: windows at night; server LEDs always, blinking
       if (spr.emissive && b.active) {
@@ -262,11 +414,23 @@ export class Renderer {
         if (strength > 0.05) {
           const a = strength * blink;
           w.globalAlpha = a;
-          w.drawImage(spr.emissive, dx, dy);
+          w.drawImage(spr.emissive, rx, ry);
           w.globalAlpha = 1;
           this.ectx.globalAlpha = a;
-          this.ectx.drawImage(spr.emissive, dx, dy);
+          this.ectx.drawImage(spr.emissive, rx, ry);
           this.ectx.globalAlpha = 1;
+          // Facade windows join the same bloom pass, so towers light up at night.
+          if (fac) {
+            const wallTop = ry + def.h * TILE, wallBottom = dy + def.h * TILE;
+            if (wallBottom > wallTop) {
+              w.globalAlpha = a;
+              w.drawImage(fac.emissive, rx, wallTop, def.w * TILE, wallBottom - wallTop);
+              w.globalAlpha = 1;
+              this.ectx.globalAlpha = a;
+              this.ectx.drawImage(fac.emissive, rx, wallTop, def.w * TILE, wallBottom - wallTop);
+              this.ectx.globalAlpha = 1;
+            }
+          }
         }
       }
       if (b.asiBuilt && g.asi.phase < 6) {
@@ -276,19 +440,26 @@ export class Renderer {
       }
     }
 
-    // ------------------------------------------------------------ trees (with wind sway)
-    const wind = 0.7 + this.rain * 1.6;
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const tile = g.map[ty * g.mapW + tx];
-        if (tile.terrain !== 'forest') continue;
-        // Chronic pollution kills the canopy: past the threshold the tree
-        // stands bare, and bare trees barely sway.
-        const dead = tile.pollution > 0.22;
-        const sway = dead ? 0 : Math.round(Math.sin(this.t * 1.6 + (tx * 7 + ty * 13) * 0.37) * wind);
-        const dx = tx * TILE - camX + sway, dy = ty * TILE - camY - 4;
-        w.drawImage((dead ? this.terrain.treeDead : this.terrain.tree)[tile.variant % 3], dx, dy);
-      }
+    // Punch the x-ray window: the remembered ground, masked to a soft disc and
+    // laid back over whatever mass was drawn on top of it. A rim marks the
+    // opening so it reads as an instrument, not a rendering fault.
+    if (xrayOn) {
+      const mx = this.xrayMasked.getContext('2d')!;
+      mx.globalCompositeOperation = 'source-over';
+      mx.clearRect(0, 0, xr * 2, xr * 2);
+      mx.drawImage(this.xrayGround, 0, 0);
+      mx.globalCompositeOperation = 'destination-in';
+      const grad = mx.createRadialGradient(xr, xr, xr * 0.42, xr, xr, xr);
+      grad.addColorStop(0, 'rgba(0,0,0,1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      mx.fillStyle = grad;
+      mx.fillRect(0, 0, xr * 2, xr * 2);
+      mx.globalCompositeOperation = 'source-over';
+      w.drawImage(this.xrayMasked, xcx - xr, xcy - xr);
+      w.strokeStyle = 'rgba(150,190,235,0.22)';
+      w.beginPath();
+      w.arc(xcx, xcy, xr * 0.78, 0, Math.PI * 2);
+      w.stroke();
     }
 
     // ------------------------------------------------------------ water reflections
@@ -324,30 +495,6 @@ export class Renderer {
       }
     }
 
-    // ------------------------------------------------------------ agents
-    for (const a of this.life.agents) {
-      const dx = Math.round(a.x - camX), dy = Math.round(a.y - camY);
-      if (dx < -8 || dy < -8 || dx > W + 8 || dy > H + 8) continue;
-      if (a.kind === 'car') {
-        const spr = this.cars[a.variant % this.cars.length];
-        w.save();
-        w.translate(dx, dy);
-        if (a.dir === 0) w.rotate(-Math.PI / 2);
-        else if (a.dir === 2) w.rotate(Math.PI / 2);
-        else if (a.dir === 3) w.scale(-1, 1);
-        w.drawImage(spr, -2, -1);
-        w.restore();
-        if (nightF > 0.3) { // headlights
-          this.ectx.globalAlpha = nightF * 0.8;
-          this.ectx.fillStyle = '#ffe9b0';
-          this.ectx.fillRect(dx + (a.dir === 1 ? 2 : a.dir === 3 ? -3 : 0), dy + (a.dir === 2 ? 2 : a.dir === 0 ? -3 : 0), 1, 1);
-          this.ectx.globalAlpha = 1;
-        }
-      } else {
-        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1);
-      }
-    }
-
     // ------------------------------------------------------------ particles
     for (const pt of this.life.particles) {
       const dx = Math.round(pt.x - camX), dy = Math.round(pt.y - camY);
@@ -379,6 +526,10 @@ export class Renderer {
       w.globalAlpha = 1;
     }
 
+    // ------------------------------------------------------------ diagnostics
+    // Drawn under the build cursor so placing while a layer is up still reads.
+    if (ui.overlay) this.drawOverlay(w, g, ui.overlay, camX, camY, x0, y0, x1, y1);
+
     // ------------------------------------------------------------ build cursor
     if (ui.buildType && ui.hoverTile) {
       const def = BUILDING_DEFS[ui.buildType];
@@ -389,8 +540,20 @@ export class Renderer {
         this.drawServiceArea(w, ui.hoverTile[0], ui.hoverTile[1], def.w, def.h, def.serviceRadius,
           camX, camY, def.power > 0 ? 'power' : 'water');
       }
-      w.globalAlpha = 0.6;
-      if (spr) w.drawImage(spr.albedo, dx, dy);
+      // The ghost previews the mass it will actually occupy — lifted, with its
+      // wall — while the coloured footprint stays on the ground, because that
+      // is the tile the click lands on. Showing only one of the two would make
+      // either the placement or the skyline a surprise.
+      const ghostH = heightOf(ui.buildType);
+      const [gpx, gpy] = parallaxShift(dx, dy, ghostH, W, H);
+      const grx = dx + gpx, gry = dy - ghostH + gpy;
+      const gFac = this.facadeFor(ui.buildType);
+      w.globalAlpha = 0.55;
+      if (gFac) {
+        const top = gry + def.h * TILE, bottom = dy + def.h * TILE;
+        if (bottom > top) w.drawImage(gFac.albedo, grx, top, def.w * TILE, bottom - top);
+      }
+      if (spr) w.drawImage(spr.albedo, grx, gry);
       w.globalAlpha = 1;
       w.fillStyle = ui.canPlaceHere ? 'rgba(110,220,130,0.3)' : 'rgba(220,80,80,0.4)';
       w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
@@ -405,8 +568,16 @@ export class Renderer {
           this.drawServiceArea(w, b.x, b.y, def.w, def.h, def.serviceRadius, camX, camY,
             def.power > 0 ? 'power' : 'water');
         }
+        const sdx = b.x * TILE - camX, sdy = b.y * TILE - camY;
+        const sh = heightOf(b.type);
+        const [spx, spy] = parallaxShift(sdx, sdy, sh, W, H);
+        // Solid on the ground it occupies, faint around the mass above it.
         w.strokeStyle = '#ffffff';
-        w.strokeRect(b.x * TILE - camX + 0.5, b.y * TILE - camY + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+        w.strokeRect(sdx + 0.5, sdy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+        if (sh > 0) {
+          w.strokeStyle = 'rgba(255,255,255,0.4)';
+          w.strokeRect(sdx + spx + 0.5, sdy - sh + spy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+        }
       }
     }
 
@@ -417,7 +588,10 @@ export class Renderer {
       const def = BUILDING_DEFS[b.type];
       const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
       if (dx + def.w * TILE < 0 || dy + def.h * TILE < 0 || dx > W || dy > H) continue;
-      const cx = dx + def.w * TILE / 2 - 3, cy = dy + def.h * TILE / 2 - 4;
+      const bh2 = heightOf(b.type);
+      const [bpx, bpy] = parallaxShift(dx, dy, bh2, W, H);
+      const cx = dx + bpx + def.w * TILE / 2 - 3;
+      const cy = dy - bh2 + bpy + def.h * TILE / 2 - 4;
       const color = b.offlineReason === 'road' || b.offlineReason === 'labor' ? '#e8c85a' : '#e86a5a';
       w.fillStyle = 'rgba(12,14,20,0.72)';
       w.fillRect(cx - 2, cy - 2, 10, 12);
@@ -684,6 +858,87 @@ export class Renderer {
       }
     }
     return out;
+  }
+
+  /**
+   * Diagnostic layers. Each one answers a question the map raises but cannot
+   * otherwise answer: why is that district dark, why is nothing being built
+   * there, why are the doctors going on record. Coverage grids and road
+   * components are recomputed only while a layer is actually up.
+   */
+  private drawOverlay(
+    w: CanvasRenderingContext2D, g: GameState, id: OverlayId,
+    camX: number, camY: number, x0: number, y0: number, x1: number, y1: number,
+  ): void {
+    w.save();
+    if (id === 'pollution') {
+      // Continuous field: yellow through red, transparent where the air is clean.
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const p = Math.min(1, g.map[ty * g.mapW + tx].pollution * 2);
+          if (p <= 0.02) continue;
+          const r = 232, gg = Math.round(200 - 140 * p), b = Math.round(90 - 60 * p);
+          w.fillStyle = `rgba(${r},${gg},${b},${(0.14 + p * 0.5).toFixed(3)})`;
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+    } else if (id === 'power' || id === 'water') {
+      const cov = computeCoverage(g);
+      const grid = id === 'power' ? cov.power : cov.water;
+      const tint = id === 'power' ? '255,214,110' : '110,200,255';
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const inside = grid[ty * g.mapW + tx];
+          w.fillStyle = inside ? `rgba(${tint},0.20)` : 'rgba(10,14,22,0.45)';
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+      // A building that needs this utility and sits outside every service area
+      // is the actual fault — mark it rather than making the player infer it.
+      for (const b of g.buildings.values()) {
+        if (b.progress < 1) continue;
+        const def = BUILDING_DEFS[b.type];
+        const needs = id === 'power' ? def.power < 0 : def.water < 0;
+        if (!needs || covered(g, b, grid)) continue;
+        this.markFault(w, b.x, b.y, def.w, def.h, camX, camY);
+      }
+    } else {
+      // roads: everything the labour network reaches, and everything it doesn't.
+      const conn = computeConnectivity(g);
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          if (g.map[ty * g.mapW + tx].road) continue;
+          w.fillStyle = 'rgba(10,14,22,0.42)';
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+      for (const b of g.buildings.values()) {
+        if (b.progress < 1) continue;
+        const def = BUILDING_DEFS[b.type];
+        const wants = def.jobs > 0 || def.housing > 0;
+        if (!wants) continue;
+        const ok = conn.onRoad.has(b.id) && (def.jobs === 0 || conn.labourReachable.has(b.id));
+        const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+        w.fillStyle = ok ? 'rgba(110,220,130,0.26)' : 'rgba(232,106,90,0.34)';
+        w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
+        if (!ok) this.markFault(w, b.x, b.y, def.w, def.h, camX, camY);
+      }
+    }
+    w.restore();
+  }
+
+  /** Hatched red box: this building is the thing that is wrong. */
+  private markFault(
+    w: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number,
+    camX: number, camY: number,
+  ): void {
+    const dx = bx * TILE - camX, dy = by * TILE - camY;
+    const pw = bw * TILE, ph = bh * TILE;
+    w.fillStyle = 'rgba(232,106,90,0.34)';
+    w.fillRect(dx, dy, pw, ph);
+    w.strokeStyle = 'rgba(255,150,130,0.9)';
+    w.lineWidth = 1;
+    w.strokeRect(dx + 0.5, dy + 0.5, pw - 1, ph - 1);
   }
 
   /** Soft footprint of a utility's service radius, drawn under the cursor. */

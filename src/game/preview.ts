@@ -53,6 +53,51 @@ function cloneState(g: GameState): GameState {
  *  - phase ≥ 4: no numbers at all — handled by the caller, which shows a
  *    single reassurance on the recommended option instead.
  */
+/**
+ * Raw, unthresholded deltas for every tracked dimension — the balance-audit
+ * counterpart to previewChoice. Used to find choices that cost nothing.
+ */
+export function rawDeltas(g: GameState, event: GameEvent, choiceIndex: number): Record<string, number> {
+  const clone = cloneState(g);
+  const choice = event.choices[choiceIndex];
+  if (!choice) return {};
+  try { choice.effect(clone); } catch { return {}; }
+  const out: Record<string, number> = {};
+  const track: Array<[string, (s: GameState) => number, boolean]> = [
+    ['capital', (s) => s.resources.capital, true],
+    ['data', (s) => s.resources.data, false],
+    ['convenience', (s) => s.indicators.convenience, true],
+    ['trust', (s) => s.indicators.trust, true],
+    ['agency', (s) => s.indicators.agency, true],
+    ['security', (s) => s.indicators.security, true],
+    ['connection', (s) => s.indicators.connection, true],
+    ['health', (s) => s.indicators.health, true],
+    ['futureConfidence', (s) => s.indicators.futureConfidence, true],
+    ['unrest', (s) => -s.unrest * 100, true],
+    ['corporateInfluence', (s) => -s.corporateInfluence * 100, true],
+    ['humanExpertise', (s) => s.humanExpertise * 100, true],
+    ['emergence', (s) => -s.asi.emergence, true],
+    ['migrationDemand', (s) => s.migrationDemand, false],
+  ];
+  for (const [k, get] of track) {
+    const d = get(clone) - get(g);
+    if (Math.abs(d) > 0.001) out[k] = +d.toFixed(2);
+  }
+  for (const id of Object.keys(g.groups) as Array<keyof GameState['groups']>) {
+    const d = clone.groups[id].approval - g.groups[id].approval;
+    if (Math.abs(d) > 0.001) out[`grp:${id}`] = +d.toFixed(2);
+  }
+  for (const id of Object.keys(g.corps) as Array<keyof GameState['corps']>) {
+    const dm = clone.corps[id].mood - g.corps[id].mood;
+    const dp = clone.corps[id].presence - g.corps[id].presence;
+    if (Math.abs(dm) > 0.001) out[`corp:${id}:mood`] = +dm.toFixed(2);
+    if (Math.abs(dp) > 0.001) out[`corp:${id}:presence`] = +(dp * 100).toFixed(2);
+  }
+  const pAdded = [...clone.policies].filter((x) => !g.policies.has(x));
+  if (pAdded.length) out[`policy:${pAdded.join(',')}`] = 1;
+  return out;
+}
+
 export function previewChoice(g: GameState, event: GameEvent, choiceIndex: number): ImpactChip[] {
   const clone = cloneState(g);
   const choice = event.choices[choiceIndex];

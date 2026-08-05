@@ -19,6 +19,8 @@ export interface SaveEnvelope {
   tick: number;
   population: number;
   locked: boolean;        // observer-mode save: watchable, never resumable
+  /** The administration ended conventionally — the save reopens on its epitaph. */
+  ended: boolean;
   state: Record<string, unknown>;
 }
 
@@ -36,6 +38,7 @@ export function serialize(g: GameState): SaveEnvelope {
     tick: g.tick,
     population: g.population,
     locked: g.asi.observer,
+    ended: g.gameOver != null && !g.asi.observer,
     state,
   };
 }
@@ -56,6 +59,19 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
+  g.lastEventTick ??= 0;
+  g.labourForce ??= Math.floor(g.population * 0.55);
+  g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
+  // Alerts predating severity get it inferred from their kind, and identities
+  // assigned in order so the feed can still diff them.
+  g.notifications ??= [];
+  g.notificationSeq ??= 0;
+  for (const n of g.notifications) {
+    n.severity ??= n.kind === 'asi' ? 'high' : n.kind === 'info' ? 'low' : 'medium';
+    n.count ??= 1;
+    if (n.id === undefined) { n.id = ++g.notificationSeq; n.seq = n.id; }
+  }
+  g.notificationSeq = Math.max(g.notificationSeq, ...g.notifications.map((n) => n.seq), 0);
   g.tierName ??= 'Township';
   g.attractiveness ??= { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 };
   g.asi.shadowPolicies ??= [];
@@ -115,11 +131,17 @@ export function requestLoad(slot: string): void {
   location.reload();
 }
 
-/** Consume the boot flag: 'new' / 'new:<scenario>', a slot name to load from, or null. */
+/** Ask the next page load to open the title screen, then reload. */
+export function requestMenu(): void {
+  localStorage.setItem(BOOT_FLAG, 'menu');
+  location.reload();
+}
+
+/** Consume the boot flag: 'menu', 'new' / 'new:<scenario>', a slot name, or null. */
 export function consumeBootFlag(): string | null {
   const flag = localStorage.getItem(BOOT_FLAG);
   localStorage.removeItem(BOOT_FLAG);
-  if (flag === 'new' || flag?.startsWith('new:')) return flag;
+  if (flag === 'menu' || flag === 'new' || flag?.startsWith('new:')) return flag;
   if (flag?.startsWith('load:')) return flag.slice(5);
   return null;
 }
