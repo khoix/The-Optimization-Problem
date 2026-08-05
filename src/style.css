@@ -96,18 +96,27 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
   flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column; gap: 4px;
 }
-.vital-group { display: flex; gap: 12px; flex-wrap: wrap; }
-.vital { display: flex; align-items: center; gap: 5px; min-width: 92px; }
+/* Both rows share one column track, so a vital always sits under the vital
+   above it. Flex-wrap sized each cell to its own content, which left the two
+   rows drifting apart as the numbers changed width. */
+.vital-group { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px 12px; }
+.vital { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .vital-ico { font-size: 12px; width: 14px; text-align: center; opacity: 0.85; }
-.vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .vital-num {
   font-family: var(--mono); font-size: 12px; color: #fff; line-height: 1;
   display: flex; align-items: baseline; gap: 4px; white-space: nowrap;
+  min-width: 0; overflow: hidden;
 }
+/* Now that the columns are a fixed track, a long label ("UNEMPLOYMENT") no
+   longer gets to push into its neighbour: the figure always survives, the
+   name truncates, and hovering gives the full reading either way. */
 .vital-label-inline {
   font-family: var(--font); font-size: 8.5px; color: var(--text-dim);
   text-transform: uppercase; letter-spacing: 0.5px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
+.vitals-dock .vital-label-inline { overflow: visible; }
 .gauge-void { background: transparent; }
 .vital-num.bad { color: var(--bad); }
 .vital-cap { color: var(--text-dim); font-size: 10px; }
@@ -153,6 +162,18 @@ body.bar-collapsed .inspector { bottom: 62px; }
   border: 1px solid #08101f;
   box-shadow: inset 0 2px 5px rgba(0,0,0,0.78), 0 0 11px rgba(90,150,255,0.12);
 }
+/* Region-class progress, hairline across the foot of the display. */
+.lcd-tier {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: rgba(8, 16, 32, 0.75);
+}
+.lcd-tier-fill {
+  display: block; height: 100%; width: 0;
+  background: #6fb6ff; box-shadow: 0 0 5px rgba(120, 180, 255, 0.75);
+  transition: width 0.5s;
+}
+.lcd-tier.at-top .lcd-tier-fill { background: #8fe0c0; box-shadow: 0 0 5px rgba(140, 230, 190, 0.7); }
+
 .lcd-glass {
   position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(148deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 26%, transparent 52%);
@@ -189,6 +210,7 @@ body.bar-collapsed .inspector { bottom: 62px; }
 /* invisible twin of the Demolish button: reserves the mirrored width */
 .tool-spacer { visibility: hidden; pointer-events: none; flex-shrink: 0; }
 .bar-tool {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   min-width: 56px; height: 46px; padding: 3px 6px; cursor: pointer;
   background: #161d2b; color: var(--text-dim); border: 1px solid var(--panel-border);
@@ -201,6 +223,14 @@ body.bar-collapsed .inspector { bottom: 62px; }
 }
 .bar-tool.active { background: #4a2020; color: #fff; border-color: var(--bad); }
 .tool-ico { font-size: 15px; line-height: 1; }
+/* The key, in the corner of its own button — the belt teaches its shortcuts
+   rather than hiding them behind the help overlay. */
+.tool-key {
+  position: absolute; top: 2px; right: 4px;
+  font-family: var(--mono); font-size: 8px; line-height: 1;
+  color: var(--text-dim); opacity: 0.75; pointer-events: none;
+}
+.bar-tool:hover .tool-key, .bar-tool.open .tool-key { color: #fff; opacity: 1; }
 .tool-label { letter-spacing: 0.3px; white-space: nowrap; }
 .bar-tool.demolish { color: var(--bad); flex-shrink: 0; }
 .bar-sep { width: 1px; height: 40px; background: var(--panel-border); margin: 0 6px; flex-shrink: 0; }
@@ -400,7 +430,7 @@ body.at-title .modal { padding-bottom: 0; }
   max-height: calc(100% - var(--bar-h, 130px) - 24px); overflow-y: auto;
 }
 /* Stacked rather than strung out, now that width is the scarce axis. */
-.vitals-dock .vital-group { flex-direction: column; gap: 9px; }
+.vitals-dock .vital-group { grid-template-columns: 1fr; gap: 9px; }
 .vitals-dock .vital { min-width: 0; }
 /* The console is centred by the equal flex of the vitals and the system
    buttons either side of it. With the vitals docked elsewhere that balance is

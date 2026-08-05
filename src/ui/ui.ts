@@ -10,7 +10,7 @@ import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterP
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, requestMenu, saveTo } from '../game/save';
-import { tierOf, buildingCondition } from '../game/sim';
+import { tierOf, tierProgress, buildingCondition } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
@@ -23,6 +23,9 @@ import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
+/** Corner badge naming a button's key, so the belt teaches its own shortcuts. */
+const keyBadge = (k: string | undefined) => (k ? `<span class="tool-key">${k}</span>` : '');
+
 /** One reconciled entry in a metrics panel: a meter row, or a block of markup. */
 type PanelItem =
   | {
@@ -31,12 +34,29 @@ type PanelItem =
     }
   | { kind: 'block'; key: string; className: string; html: string; explain?: string; reading?: string };
 
+/**
+ * Panel keys. Digits belong to the build categories, in tool-belt order; the
+ * letters go to the panels that aren't about building. Nothing here may collide
+ * with WASD (panning), L (layer cycle) or the modifier held for the x-ray.
+ */
+const PANEL_KEYS: Record<string, string> = {
+  transit: '1', zoning: '2', power: '3', water: '4',
+  compute: '5', services: '6', environment: '7', economy: '8',
+  indicators: 'I', layers: 'V', compute_alloc: 'C', policies: 'P', politics: 'O',
+};
+/** Buttons that aren't panels but still answer to a key. */
+const ACTION_KEYS: Record<string, string> = { demolish: 'B', alerts: 'N', menu: 'M', override: 'R' };
+
 /** Every binding the game listens for. The `?` overlay renders this verbatim. */
 const HOTKEYS: Array<[string, string]> = [
   ['W A S D', 'Pan the camera'],
   ['↑ ← ↓ →', 'Pan the camera'],
   ['Scroll', 'Zoom in and out'],
   ['Middle / right drag', 'Drag the map'],
+  ['1 – 8', 'Open a build category; then 1 – 9 picks from it'],
+  ['I V C P O', 'Indicators · Layers · Compute · Policies · Politics'],
+  ['B', 'Demolish'],
+  ['N / M', 'Alerts · Menu'],
   ['Space', 'Pause and resume'],
   ['Tab', 'Collapse or expand the Civic Systems Bar'],
   ['L', 'Cycle the diagnostic map layers'],
@@ -150,6 +170,7 @@ export class UI {
   private toolRow!: HTMLElement;
   private barRight!: HTMLElement;
   private barStatus!: HTMLElement;
+  private tierBar!: HTMLElement;
   private flyout!: HTMLElement;
   private flyoutBody!: HTMLElement;
   private flyoutTitle!: HTMLElement;
@@ -223,7 +244,12 @@ export class UI {
     const console_ = el('div', 'console');
     const lcd = el('div', 'lcd');
     this.barStatus = el('div', 'lcd-readout');
-    lcd.append(this.barStatus, el('div', 'lcd-glass'));
+    // Progress toward the next region class, along the bottom of the display.
+    // Reclassification changes migration, compute demand and expectations all
+    // at once, so knowing it is coming is worth a few pixels.
+    this.tierBar = el('div', 'lcd-tier');
+    this.tierBar.innerHTML = '<span class="lcd-tier-fill"></span>';
+    lcd.append(this.barStatus, this.tierBar, el('div', 'lcd-glass'));
     const spd = el('div', 'transport');
     ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
@@ -244,17 +270,18 @@ export class UI {
     const alertsBtn = el('button', 'sys-btn alert-btn');
     alertsBtn.innerHTML = '<span class="sys-ico">🔔</span><span class="sys-text">Alerts</span>';
     alertsBtn.dataset.panel = 'alerts';
+    alertsBtn.title = `Alerts (${ACTION_KEYS.alerts})`;
     alertsBtn.onclick = () => this.togglePanel('alerts');
     const overrideBtn = el('button', 'sys-btn override-btn');
     overrideBtn.innerHTML = '<span class="sys-ico">⚠</span><span class="sys-text">Override</span>';
-    overrideBtn.title = 'Manual Override — emergency administrative authority.';
+    overrideBtn.title = `Manual Override (${ACTION_KEYS.override}) — emergency administrative authority.`;
     overrideBtn.onclick = () => this.manualOverride();
     // Save, load, new, main menu and settings all live in the hamburger now.
     // Sound moved into Settings with the rest of the preferences; a dedicated
     // mute button on the bar was the last of the one-off controls.
     const menuBtn = el('button', 'sys-btn');
     menuBtn.innerHTML = '<span class="sys-ico">☰</span>';
-    menuBtn.title = 'Menu';
+    menuBtn.title = `Menu (${ACTION_KEYS.menu})`;
     menuBtn.dataset.panel = 'menu';
     menuBtn.onclick = () => this.togglePanel('menu');
     const collapseBtn = el('button', 'sys-btn collapse-btn');
@@ -465,7 +492,8 @@ export class UI {
     for (const c of this.hudCategories()) {
       if (c.types.length === 0) continue;
       const btn = el('button', 'bar-tool');
-      btn.innerHTML = `<span class="tool-ico">${c.icon}</span><span class="tool-label">${c.label}</span>`;
+      btn.innerHTML = `<span class="tool-ico">${c.icon}</span><span class="tool-label">${c.label}</span>` +
+        keyBadge(PANEL_KEYS[c.id]);
       btn.dataset.panel = c.id;
       btn.onclick = () => this.togglePanel(c.id);
       this.toolbelt.append(btn);
@@ -478,7 +506,8 @@ export class UI {
       ['policies', '§', 'Policies'], ['politics', '🗳', 'Politics'],
     ] as Array<[string, string, string]>) {
       const btn = el('button', 'bar-tool');
-      btn.innerHTML = `<span class="tool-ico">${icon}</span><span class="tool-label">${label}</span>`;
+      btn.innerHTML = `<span class="tool-ico">${icon}</span><span class="tool-label">${label}</span>` +
+        keyBadge(PANEL_KEYS[id]);
       btn.dataset.panel = id;
       btn.onclick = () => this.togglePanel(id);
       this.toolbelt.append(btn);
@@ -487,14 +516,16 @@ export class UI {
     // twin on the left keeping the centred group honestly centred.
     this.toolRow.querySelectorAll('.tool-spacer, .demolish').forEach((n) => n.remove());
     const demo = el('button', 'bar-tool demolish');
-    demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
+    demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>' +
+      keyBadge(ACTION_KEYS.demolish);
     demo.onclick = () => {
       this.closePanel();
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
     };
     const spacer = el('div', 'bar-tool tool-spacer');
-    spacer.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
+    spacer.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>' +
+      keyBadge(ACTION_KEYS.demolish);
     spacer.setAttribute('aria-hidden', 'true');
     this.toolRow.prepend(spacer);
     this.toolRow.append(demo);
@@ -534,7 +565,11 @@ export class UI {
         }
         this.selectedBuildingId = null;
         this.inspector.classList.add('hidden');
-        this.tool = this.tool.kind === 'build' && this.tool.type === t ? { kind: 'none' } : { kind: 'build', type: t };
+        const rearmed = this.tool.kind === 'build' && this.tool.type === t;
+        this.tool = rearmed ? { kind: 'none' } : { kind: 'build', type: t };
+        // Same outcome whether the card was clicked or picked by number: the
+        // drawer has done its job and the map is what you need to see next.
+        if (!rearmed) this.closePanel();
         this.syncToolButtons();
       };
       grid.append(btn);
@@ -619,6 +654,68 @@ export class UI {
     this.openPanel = null;
     this.flyout.classList.add('hidden');
     this.syncToolButtons();
+  }
+
+  // ------------------------------------------------------------ keyboard
+  /**
+   * Bar shortcuts. Returns true when the key was consumed.
+   *
+   * The digits are contextual: a build drawer owns them while it is open, so
+   * `1` then `2` opens Roads and picks Street. Selecting closes the drawer and
+   * hands the digits back to the categories, which makes `1 2 3` read as
+   * Street-then-Power rather than needing an Escape in the middle. Panels with
+   * nothing numbered in them don't hold the digits hostage — pressing a digit
+   * over the Policies panel just goes to that category.
+   */
+  handleKey(key: string): boolean {
+    // A pending decision owns the keyboard; so does a text field, if one ever
+    // appears. Neither should be typing shortcuts underneath.
+    if (!this.modal.classList.contains('hidden')) return false;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return false;
+    if (this.g.asi.observer) return false;
+
+    if (/^[1-9]$/.test(key)) {
+      const n = Number(key);
+      const cats = this.hudCategories();
+      if (this.openPanel && cats.some((c) => c.id === this.openPanel)) {
+        return this.pickFromDrawer(n);
+      }
+      const target = cats[n - 1];
+      if (!target) return false;
+      if (this.openPanel !== target.id) this.togglePanel(target.id);
+      return true;
+    }
+
+    const upper = key.toUpperCase();
+    for (const [id, k] of Object.entries(PANEL_KEYS)) {
+      if (k !== upper || /[0-9]/.test(k)) continue;
+      this.togglePanel(id);
+      return true;
+    }
+    switch (upper) {
+      case ACTION_KEYS.demolish:
+        this.closePanel();
+        this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
+        this.syncToolButtons();
+        return true;
+      case ACTION_KEYS.alerts: this.togglePanel('alerts'); return true;
+      case ACTION_KEYS.menu: this.togglePanel('menu'); return true;
+      case ACTION_KEYS.override: this.manualOverride(); return true;
+      default: return false;
+    }
+  }
+
+  /** Arm the nth building in the open drawer, then shut it. */
+  private pickFromDrawer(n: number): boolean {
+    const cards = [...this.flyout.querySelectorAll<HTMLElement>('.build-card')];
+    const card = cards[n - 1];
+    if (!card) return false;
+    card.click();
+    // A locked card refuses and says why; leave its drawer open so the player
+    // can pick something they can actually afford to build.
+    if (!card.classList.contains('locked')) this.closePanel();
+    return true;
   }
 
   // ------------------------------------------------------------ preferences
@@ -746,7 +843,12 @@ export class UI {
   cycleOverlay(): void {
     const order: Array<OverlayId | null> = [...LAYER_DEFS.map((d) => d.id), null];
     const i = order.indexOf(this.overlay);
-    this.setOverlay(order[(i + 1) % order.length]);
+    const next = order[(i + 1) % order.length];
+    this.setOverlay(next);
+    // Cycling blind is no use: say which layer just came up. The panel is
+    // usually shut by the time anyone is using the key.
+    const def = LAYER_DEFS.find((d) => d.id === next);
+    this.flashSystemNote(def ? `Layer: ${def.name}` : 'Layers off');
   }
 
   private syncLayerButtons(): void {
@@ -1545,6 +1647,12 @@ export class UI {
       `Migration queue: ${queue}\n` +
       `Attractiveness: ${Math.round(g.attractiveness.overall * 100)}\n` +
       `Year ${year}, ${month}`;
+    const tierFill = this.tierBar.firstElementChild as HTMLElement | null;
+    if (tierFill) {
+      const p = g.asi.observer ? 1 : tierProgress(g.population);
+      tierFill.style.width = `${Math.round(p * 100)}%`;
+      this.tierBar.classList.toggle('at-top', p >= 1);
+    }
     this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
