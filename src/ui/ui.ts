@@ -131,7 +131,17 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: 
 export class UI {
   tool: Tool = { kind: 'none' };
   selectedBuildingId: number | null = null;
-  sound: Soundscape | null = null;
+  /**
+   * The soundscape is attached after construction, which is after applyPrefs()
+   * has already run — so a saved "sound off" was being applied to nothing and
+   * the game came back with audio on. Assigning it re-applies the preference.
+   */
+  private soundscape: Soundscape | null = null;
+  get sound(): Soundscape | null { return this.soundscape; }
+  set sound(s: Soundscape | null) {
+    this.soundscape = s;
+    s?.setEnabled(this.prefs.sound);
+  }
 
   private root: HTMLElement;
   private civicBar!: HTMLElement;
@@ -239,44 +249,18 @@ export class UI {
     overrideBtn.innerHTML = '<span class="sys-ico">⚠</span><span class="sys-text">Override</span>';
     overrideBtn.title = 'Manual Override — emergency administrative authority.';
     overrideBtn.onclick = () => this.manualOverride();
-    const saveBtn = el('button', 'sys-btn');
-    saveBtn.innerHTML = '<span class="sys-ico">💾</span><span class="sys-text">Save</span>';
-    saveBtn.title = 'Save game';
-    saveBtn.onclick = () => {
-      if (this.g.asi.phase >= 5) {
-        this.flashSystemNote('State persistence is managed automatically.');
-        return;
-      }
-      this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
-    };
-    const loadBtn = el('button', 'sys-btn');
-    loadBtn.innerHTML = '<span class="sys-ico">📂</span><span class="sys-text">Load</span>';
-    loadBtn.title = 'Load game';
-    loadBtn.onclick = () => this.showLoadMenu();
-    const newBtn = el('button', 'sys-btn');
-    newBtn.innerHTML = '<span class="sys-ico">✦</span><span class="sys-text">New</span>';
-    newBtn.title = 'Begin a new simulation';
-    newBtn.onclick = () => this.showScenarioPicker();
-    const muteBtn = el('button', 'sys-btn mute-btn');
-    muteBtn.innerHTML = '<span class="sys-ico">🔊</span>';
-    muteBtn.title = 'Mute';
-    muteBtn.onclick = () => {
-      this.sound?.init();
-      this.setPref('sound', !this.prefs.sound);
-    };
-    const settingsBtn = el('button', 'sys-btn');
-    settingsBtn.innerHTML = '<span class="sys-ico">⚙</span>';
-    settingsBtn.title = 'Settings';
-    settingsBtn.onclick = () => this.showSettings();
+    // Save, load, new, main menu and settings all live in the hamburger now.
+    // Sound moved into Settings with the rest of the preferences; a dedicated
+    // mute button on the bar was the last of the one-off controls.
     const menuBtn = el('button', 'sys-btn');
     menuBtn.innerHTML = '<span class="sys-ico">☰</span>';
-    menuBtn.title = 'Main menu';
-    menuBtn.onclick = () => requestMenu();
+    menuBtn.title = 'Menu';
+    menuBtn.dataset.panel = 'menu';
+    menuBtn.onclick = () => this.togglePanel('menu');
     const collapseBtn = el('button', 'sys-btn collapse-btn');
     collapseBtn.title = 'Collapse the bar (Tab)';
     collapseBtn.onclick = () => this.toggleCollapse();
-    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn,
-      settingsBtn, menuBtn, collapseBtn);
+    this.barRight.append(alertsBtn, overrideBtn, menuBtn, collapseBtn);
 
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
@@ -370,6 +354,51 @@ export class UI {
   /** How the region actually works, in the order a new administrator meets it. */
   showHowTo(): void {
     this.showModal('How to Play', HOW_TO_BODY, [{ label: 'Close', action: () => {} }]);
+  }
+
+  /** The hamburger: everything that isn't playing the game. */
+  private buildMenuPanel(host: HTMLElement): void {
+    const items: Array<[string, string, () => void]> = [
+      ['💾', 'Save Game', () => {
+        if (this.g.asi.phase >= 5) {
+          this.flashSystemNote('State persistence is managed automatically.');
+          return;
+        }
+        this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
+      }],
+      ['📂', 'Load Game', () => this.showLoadMenu()],
+      ['✦', 'New Simulation', () => this.showScenarioPicker()],
+      ['⚙', 'Settings', () => this.showSettings()],
+      ['☰', 'Main Menu', () => this.confirmMainMenu()],
+    ];
+    for (const [icon, label, action] of items) {
+      const b = el('button', 'menu-item');
+      b.innerHTML = `<span class="menu-ico">${icon}</span><span>${label}</span>`;
+      b.onclick = () => { this.closePanel(); action(); };
+      host.append(b);
+    }
+  }
+
+  /**
+   * Leaving for the menu discards anything since the last save, so ask first.
+   * The autosave only writes once a year, which is a long way to fall.
+   */
+  private confirmMainMenu(): void {
+    const saved = peek(MANUAL_SLOT);
+    const when = saved ? `Last manual save: Year ${Math.floor(saved.tick / 12) + 1}.` : 'There is no manual save.';
+    this.showModal('Return to Main Menu',
+      `Progress since the last save will be lost. ${when}`, [
+        {
+          label: 'Save and Exit',
+          action: () => {
+            saveTo(MANUAL_SLOT, this.g);
+            saveTo(AUTO_SLOT, this.g);
+            requestMenu();
+          },
+        },
+        { label: 'Exit Without Saving', action: () => requestMenu() },
+        { label: 'Cancel', action: () => {} },
+      ]);
   }
 
   /** The New Game dialog: always a scenario choice, never a silent restart. */
@@ -533,7 +562,7 @@ export class UI {
     this.flyout.classList.remove('hidden');
     const buildCat = this.hudCategories().find((c) => c.id === id);
     const titles: Record<string, string> = {
-      alerts: 'Alert Feed', indicators: 'Regional Indicators', layers: 'Map Layers',
+      alerts: 'Alert Feed', indicators: 'Regional Indicators', layers: 'Map Layers', menu: 'Menu',
       compute_alloc: 'Compute Allocation',
       policies: 'Policy', politics: 'Politics',
     };
@@ -551,7 +580,35 @@ export class UI {
       const body = this.panelBodies[id];
       if (body) this.flyoutBody.append(body);
     }
+    this.anchorDrawer(id);
     this.syncToolButtons();
+  }
+
+  /**
+   * Put the drawer where its button is. It sits on top of the bar, centred on
+   * the button that opened it and pulled back inside the viewport if that would
+   * overhang, with the connector left wherever the button actually is — so a
+   * drawer clamped to the screen edge still points at its own button.
+   */
+  private anchorDrawer(id: string): void {
+    const btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
+    if (!btn) return;
+    // Narrow menus read as menus; the data panels keep their working width.
+    this.flyout.style.setProperty('--drawer-w', id === 'menu' ? '232px' : '560px');
+    const b = btn.getBoundingClientRect();
+    const host = this.root.getBoundingClientRect();
+    const margin = 8;
+    const w = Math.min(this.flyout.offsetWidth || 560, host.width - margin * 2);
+    const centre = b.left + b.width / 2 - host.left;
+    const left = Math.max(margin, Math.min(centre - w / 2, host.width - w - margin));
+    this.flyout.style.left = `${Math.round(left)}px`;
+    // Keep the connector under the button even when the panel has been clamped.
+    const connector = Math.max(18, Math.min(centre - left, w - 18));
+    this.flyout.style.setProperty('--connector-x', `${Math.round(connector)}px`);
+    // Restart the grow-upward animation; the element itself persists.
+    this.flyout.classList.remove('opening');
+    void this.flyout.offsetWidth;
+    this.flyout.classList.add('opening');
   }
 
   private closePanel(): void {
@@ -958,6 +1015,9 @@ export class UI {
   }
 
   private syncToolButtons(): void {
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.sys-btn[data-panel]')) {
+      b.classList.toggle('open', b.dataset.panel === this.openPanel);
+    }
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.bar-tool')) {
       const panel = b.dataset.panel;
       b.classList.toggle('open', panel != null && panel === this.openPanel);
@@ -1001,12 +1061,14 @@ export class UI {
     const bodies: Record<string, HTMLElement> = {
       indicators: el('div', 'panel-body'),
       layers: el('div', 'panel-body'),
+      menu: el('div', 'panel-body'),
       compute_alloc: el('div', 'panel-body'),
       policies: el('div', 'panel-body'),
       politics: el('div', 'panel-body'),
     };
     this.panelBodies = bodies;
     this.buildLayersPanel(bodies.layers);
+    this.buildMenuPanel(bodies.menu);
     bodies.indicators.id = 'indicators-body';
     bodies.politics.id = 'politics-body';
 
@@ -1493,8 +1555,6 @@ export class UI {
       const lbl = alertBtn.querySelector('.sys-text');
       if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts ${this.unreadAlerts}` : 'Alerts';
     }
-    const muteIco = this.barRight.querySelector<HTMLElement>('.mute-btn .sys-ico');
-    if (muteIco) muteIco.textContent = this.prefs.sound ? '🔊' : '🔇';
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
 
