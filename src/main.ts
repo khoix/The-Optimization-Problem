@@ -5,7 +5,7 @@ import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
@@ -22,9 +22,11 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 // Boot: an explicit request wins; otherwise continue the autosave; otherwise
 // found a new region.
 const bootFlag = consumeBootFlag();
-// The title screen is the entry point: on an explicit request, and on a first
-// launch with nothing to continue. Everything else goes straight to the region.
-const wantsMenu = bootFlag === 'menu' || (bootFlag === null && peek(AUTO_SLOT) === null);
+// The title screen is the entry point, full stop: every plain page load lands
+// there. Only an explicit request — continue this slot, begin this scenario,
+// return to the menu — routes anywhere else, and each of those is something the
+// player just asked for by name.
+const wantsMenu = bootFlag === 'menu' || bootFlag === null;
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
 const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);

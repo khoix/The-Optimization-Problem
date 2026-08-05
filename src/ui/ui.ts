@@ -337,6 +337,9 @@ export class UI {
       : auto.locked ? `Continue Observation — Year ${year}`
       : auto.ended ? `Review Final State — Year ${year}`
       : `Continue — Year ${year}, population ${auto.population.toLocaleString()}`;
+    // Continue is the autosave; Load reaches every slot, including a manual
+    // save made before an autosave overwrote the run the player wanted back.
+    const hasSaves = [MANUAL_SLOT, AUTO_SLOT].some((sl) => peek(sl) !== null);
     this.titleScreen.classList.remove('hidden');
     document.body.classList.add('at-title');
     this.titleScreen.innerHTML = `
@@ -345,6 +348,7 @@ export class UI {
         <p class="title-tag">A region-management simulation. Every decision is reasonable.</p>
         <div class="title-actions">
           ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
+          ${hasSaves ? '<button id="t-load" class="title-btn">Load Save</button>' : ''}
           <button id="t-new" class="title-btn${resumeLabel ? '' : ' primary'}">Begin New Simulation</button>
           <button id="t-how" class="title-btn">How to Play</button>
           <button id="t-settings" class="title-btn">Settings</button>
@@ -357,6 +361,7 @@ export class UI {
       if (b) b.onclick = fn;
     };
     on('#t-continue', () => requestLoad(AUTO_SLOT));
+    on('#t-load', () => this.showLoadMenu(true));
     on('#t-new', () => this.showScenarioPicker(true));
     on('#t-how', () => this.showHowTo());
     on('#t-settings', () => this.showSettings());
@@ -1196,24 +1201,28 @@ export class UI {
     this.modal.append(box);
   }
 
-  private showLoadMenu(): void {
+  showLoadMenu(fromTitle = false): void {
     const slots: Array<{ slot: string; label: string }> = [];
     for (const [slot, name] of [[MANUAL_SLOT, 'Manual save'], [AUTO_SLOT, 'Autosave']] as const) {
       const env = peek(slot);
       if (!env) continue;
       const when = new Date(env.savedAt).toLocaleString();
       const year = Math.floor(env.tick / 12) + 1;
-      const lock = env.locked ? ' — OBSERVER (permanently locked)' : '';
+      const lock = env.locked ? ' — OBSERVER (permanently locked)'
+        : env.ended ? ' — administration terminated' : '';
       slots.push({ slot, label: `${name} · Year ${year} · pop ${env.population} · ${when}${lock}` });
     }
     if (slots.length === 0) {
-      this.showModal('Load Game', 'No saved games found.', [{ label: 'Close', action: () => {} }]);
+      this.showModal('Load Game', 'No saved games found.', [
+        { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } },
+      ]);
       return;
     }
-    this.showModal('Load Game', 'Loading replaces the current session.', [
-      ...slots.map((s) => ({ label: s.label, action: () => requestLoad(s.slot) })),
-      { label: 'Cancel', action: () => {} },
-    ]);
+    this.showModal('Load Game',
+      fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.', [
+        ...slots.map((s) => ({ label: s.label, action: () => requestLoad(s.slot) })),
+        { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
+      ]);
   }
 
   /** Shown once at the start of a fresh game. */
