@@ -91,12 +91,18 @@ export class UI {
     this.civicBar = el('div', 'civic-bar');
     this.vitals = el('div', 'bar-vitals');
     this.toolbelt = el('div', 'bar-toolbelt');
-    this.barRight = el('div', 'bar-right');
-    this.civicBar.append(this.vitals, this.toolbelt, this.barRight);
+    this.barRight = el('div', 'bar-system');
 
-    // ---- right section: clock, speed, alerts, system ----
-    this.barStatus = el('div', 'bar-status');
-    const spd = el('div', 'speed-controls');
+    // Row 1: the tool belt gets its own full-width row so it can breathe.
+    const toolRow = el('div', 'bar-row bar-row-tools');
+    toolRow.append(this.toolbelt);
+
+    // ---- centre console: an LCD status display over the transport row ----
+    const console_ = el('div', 'console');
+    const lcd = el('div', 'lcd');
+    this.barStatus = el('div', 'lcd-readout');
+    lcd.append(this.barStatus, el('div', 'lcd-glass'));
+    const spd = el('div', 'transport');
     ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
       b.dataset.speed = String(sp);
@@ -110,15 +116,20 @@ export class UI {
       };
       spd.append(b);
     });
-    const sysRow = el('div', 'sys-controls');
-    const alertsBtn = el('button', 'bar-tool alert-btn');
-    alertsBtn.innerHTML = '<span class="tool-ico">🔔</span><span class="tool-label">Alerts</span>';
+    console_.append(lcd, spd);
+
+    // ---- right: alerts and system authority, one row, never stacked ----
+    const alertsBtn = el('button', 'sys-btn alert-btn');
+    alertsBtn.innerHTML = '<span class="sys-ico">🔔</span><span class="sys-text">Alerts</span>';
     alertsBtn.dataset.panel = 'alerts';
     alertsBtn.onclick = () => this.togglePanel('alerts');
-    const overrideBtn = el('button', 'sys-btn override-btn', 'Manual Override');
-    overrideBtn.title = 'Emergency administrative authority.';
+    const overrideBtn = el('button', 'sys-btn override-btn');
+    overrideBtn.innerHTML = '<span class="sys-ico">⚠</span><span class="sys-text">Override</span>';
+    overrideBtn.title = 'Manual Override — emergency administrative authority.';
     overrideBtn.onclick = () => this.manualOverride();
-    const saveBtn = el('button', 'sys-btn', 'Save');
+    const saveBtn = el('button', 'sys-btn');
+    saveBtn.innerHTML = '<span class="sys-ico">💾</span><span class="sys-text">Save</span>';
+    saveBtn.title = 'Save game';
     saveBtn.onclick = () => {
       if (this.g.asi.phase >= 5) {
         this.flashSystemNote('State persistence is managed automatically.');
@@ -126,29 +137,31 @@ export class UI {
       }
       this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
     };
-    const loadBtn = el('button', 'sys-btn', 'Load');
+    const loadBtn = el('button', 'sys-btn');
+    loadBtn.innerHTML = '<span class="sys-ico">📂</span><span class="sys-text">Load</span>';
+    loadBtn.title = 'Load game';
     loadBtn.onclick = () => this.showLoadMenu();
-    const newBtn = el('button', 'sys-btn', 'New');
-    newBtn.onclick = () => this.showModal('Begin New Simulation',
-      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
-      [
-        ...SCENARIO_ORDER.map((id) => ({
-          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
-          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
-        })),
-        { label: 'Cancel', action: () => {} },
-      ]);
-    const muteBtn = el('button', 'sys-btn', '🔊');
+    const newBtn = el('button', 'sys-btn');
+    newBtn.innerHTML = '<span class="sys-ico">✦</span><span class="sys-text">New</span>';
+    newBtn.title = 'Begin a new simulation';
+    newBtn.onclick = () => this.showScenarioPicker();
+    const muteBtn = el('button', 'sys-btn mute-btn');
+    muteBtn.innerHTML = '<span class="sys-ico">🔊</span>';
     muteBtn.title = 'Mute';
     muteBtn.onclick = () => {
       const so = this.sound;
       if (!so) return;
       so.init();
       so.setEnabled(!so.enabled);
-      muteBtn.textContent = so.enabled ? '🔊' : '🔇';
+      const ico = muteBtn.querySelector('.sys-ico');
+      if (ico) ico.textContent = so.enabled ? '🔊' : '🔇';
     };
-    sysRow.append(overrideBtn, saveBtn, loadBtn, newBtn, muteBtn);
-    this.barRight.append(this.barStatus, spd, alertsBtn, sysRow);
+    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn);
+
+    // Row 2: vitals | console | system, with the console genuinely centred.
+    const consoleRow = el('div', 'bar-row bar-row-console');
+    consoleRow.append(this.vitals, console_, this.barRight);
+    this.civicBar.append(toolRow, consoleRow);
 
     this.feed = el('div', 'feed');
     this.modal = el('div', 'modal hidden');
@@ -160,6 +173,37 @@ export class UI {
 
     this.renderToolbelt();
     this.buildSystemPanels();
+  }
+
+  /** The New Game dialog: always a scenario choice, never a silent restart. */
+  showScenarioPicker(): void {
+    this.showModal('Begin New Simulation',
+      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
+      [
+        ...SCENARIO_ORDER.map((id) => ({
+          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
+          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
+        })),
+        { label: 'Cancel', action: () => {} },
+      ]);
+  }
+
+  /**
+   * Escape backs out one layer at a time: flyout, then inspector, then the
+   * active build tool. Modals handle their own dismissal.
+   */
+  handleEscape(): void {
+    if (!this.modal.classList.contains('hidden')) return;
+    if (this.openPanel) { this.closePanel(); return; }
+    if (!this.inspector.classList.contains('hidden')) {
+      this.selectedBuildingId = null;
+      this.inspector.classList.add('hidden');
+      return;
+    }
+    if (this.tool.kind !== 'none') {
+      this.tool = { kind: 'none' };
+      this.syncToolButtons();
+    }
   }
 
   /** Build categories as the player thinks of them, not as the data model does. */
@@ -762,17 +806,22 @@ export class UI {
         <span title="Regional attractiveness">Appeal <b>${Math.round(g.attractiveness.overall * 100)}</b></span>
       </div>`;
 
-    // ---- Right section: clock and speed state ----
+    // ---- Centre console: the LCD readout ----
+    // The display is deliberately spare and instrument-like. Once the system
+    // takes over it stops reporting a class and starts reporting a mode.
+    const lcdClass = g.asi.observer ? 'OBSERVATION' : tierOf(g.population).name.toUpperCase();
     this.barStatus.innerHTML =
-      `<span class="bar-date">Year ${year}</span><span class="bar-month">${month}</span>`;
-    for (const b of this.barRight.querySelectorAll<HTMLElement>('.speed-btn')) {
+      `<span class="lcd-line lcd-main">YEAR ${year}<span class="lcd-dot">·</span>${month.toUpperCase()}</span>` +
+      `<span class="lcd-line lcd-sub">${lcdClass}</span>`;
+    this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
     }
     const alertBtn = this.barRight.querySelector<HTMLElement>('.alert-btn');
     if (alertBtn) {
       alertBtn.classList.toggle('has-unread', this.unreadAlerts > 0);
-      const lbl = alertBtn.querySelector('.tool-label');
-      if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts (${this.unreadAlerts})` : 'Alerts';
+      const lbl = alertBtn.querySelector('.sys-text');
+      if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts ${this.unreadAlerts}` : 'Alerts';
     }
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
