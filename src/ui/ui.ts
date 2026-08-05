@@ -15,7 +15,7 @@ import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
-import type { OverlayId, XrayMode } from '../render/renderer';
+import type { OverlayId, XrayKey } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
@@ -40,7 +40,7 @@ const HOTKEYS: Array<[string, string]> = [
   ['Space', 'Pause and resume'],
   ['Tab', 'Collapse or expand the Civic Systems Bar'],
   ['L', 'Cycle the diagnostic map layers'],
-  ['X', 'Cycle see-through buildings'],
+  ['Hold {xray}', 'See through everything in front of the cursor'],
   ['Esc', 'Close a panel, then the inspector, then the active tool'],
   ['?', 'This list'],
 ];
@@ -157,8 +157,8 @@ export class UI {
   private lastBarHeight = 0;
   /** The diagnostic layer currently drawn over the map, if any. */
   overlay: OverlayId | null = null;
-  /** How the skyline gets out of the way of what's behind it. */
-  get xray(): XrayMode { return this.prefs.xray; }
+  /** Which modifier opens the x-ray window while held. */
+  get xrayKey(): XrayKey { return this.prefs.xrayKey; }
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
@@ -604,8 +604,9 @@ export class UI {
         options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
       },
       {
-        key: 'xray', label: 'See through buildings', desc: 'Tall buildings hide the ground behind them. X cycles this.',
-        options: [['hover', 'Hovered'], ['radius', 'Around cursor'], ['off', 'Off']],
+        key: 'xrayKey', label: 'X-ray key',
+        desc: 'Hold to see through everything standing in front of the cursor. Whatever the cursor is directly behind always fades on its own.',
+        options: [['ctrl', 'Ctrl'], ['alt', 'Alt'], ['shift', 'Shift']],
       },
     ];
     const body = rows.map((r) => {
@@ -644,8 +645,11 @@ export class UI {
   }
 
   showHotkeys(): void {
+    // The x-ray key is configurable, so the list reports what is actually bound
+    // rather than what the default happens to be.
+    const keyName = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }[this.prefs.xrayKey];
     const rows = HOTKEYS.map(([k, d]) =>
-      `<div class="key-row"><kbd>${k}</kbd><span>${d}</span></div>`).join('');
+      `<div class="key-row"><kbd>${k.replace('{xray}', keyName)}</kbd><span>${d}</span></div>`).join('');
     this.showModal('Keyboard Shortcuts', `<div class="key-list">${rows}</div>`,
       [{ label: 'Close', action: () => {} }]);
   }
@@ -679,15 +683,6 @@ export class UI {
     this.overlay = id;
     if (this.prefs.layer !== id) { this.prefs.layer = id; savePrefs(this.prefs); }
     this.syncLayerButtons();
-  }
-
-  /** Step through the x-ray modes. Bound to X, and mirrored in Settings. */
-  cycleXray(): void {
-    const order: XrayMode[] = ['hover', 'radius', 'off'];
-    const next = order[(order.indexOf(this.prefs.xray) + 1) % order.length];
-    this.setPref('xray', next);
-    const label = next === 'off' ? 'off' : next === 'hover' ? 'hovered building' : 'around cursor';
-    this.flashSystemNote(`See through buildings: ${label}.`);
   }
 
   /** Step through the layers and back to none. */

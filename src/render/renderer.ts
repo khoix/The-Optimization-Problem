@@ -16,19 +16,15 @@ import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } fr
 /** Diagnostic map layers. Each answers one question a dark district raises. */
 export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
 
-/**
- * How the skyline gets out of the player's way.
- *  - 'off'    nothing; the mass stands whatever is behind it
- *  - 'hover'  any building the cursor is *behind* dissolves
- *  - 'radius' a window opens in the skyline around the cursor
- */
-export type XrayMode = 'off' | 'hover' | 'radius';
+/** Which modifier opens the x-ray window while it is held. */
+export type XrayKey = 'ctrl' | 'alt' | 'shift';
 
 export interface UiRenderState {
   hoverTile: [number, number] | null;
   /** Cursor in world pixels, for the x-ray. Null when off the map. */
   cursorWorld: [number, number] | null;
-  xray: XrayMode;
+  /** The x-ray key is held: open a window around the cursor. */
+  xrayRadial: boolean;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
   selectedBuildingId: number | null;
@@ -96,9 +92,6 @@ export class Renderer {
   private cars: HTMLCanvasElement[];
   private peds: HTMLCanvasElement[];
   private clouds: HTMLCanvasElement;
-  /** Ground snapshot and its masked copy, for the radial x-ray. */
-  private xrayGround = document.createElement('canvas');
-  private xrayMasked = document.createElement('canvas');
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
   constructor(screen: HTMLCanvasElement) {
@@ -179,6 +172,19 @@ export class Renderer {
 
   /** Radius of the x-ray window, in world pixels — about five tiles across. */
   private static readonly XRAY_R = 46;
+
+  /**
+   * Clip a context to everything *except* a disc. The rect and the circle are
+   * wound in opposite directions, so the non-zero fill rule leaves a hole.
+   * Callers must restore().
+   */
+  private clipHole(c: CanvasRenderingContext2D, W: number, H: number, cx: number, cy: number, r: number): void {
+    c.save();
+    c.beginPath();
+    c.rect(0, 0, W, H);
+    c.arc(cx, cy, r, 0, Math.PI * 2, true);
+    c.clip();
+  }
 
   /** Lazily built front walls, keyed off each roof sprite's own palette. */
   private facades = new Map<BuildingType, Facade | null>();
@@ -273,25 +279,15 @@ export class Renderer {
     // ------------------------------------------------------------ buildings
     this.ectx.clearRect(0, 0, W, H);
 
-    // The x-ray works by remembering the ground. Everything drawn so far —
-    // terrain, roads, agents — is copied out of the region around the cursor
-    // *before* any mass goes over it, then composited back through a radial
-    // mask once the buildings are down. That gives a genuine hole in the
-    // skyline rather than a fade, and costs two blits of a small square.
-    const xrayOn = ui.xray === 'radius' && ui.cursorWorld !== null;
+    // The x-ray window is cut out of the buildings themselves rather than
+    // pasted back over them. Anything standing nearer than the point under the
+    // cursor is drawn through a clip with a hole in it, so whatever is behind
+    // — ground, roads, traffic, and other buildings, which were already drawn
+    // by the back-to-front sort — shows through unaltered.
+    const xrayOn = ui.xrayRadial && ui.cursorWorld !== null;
     const xr = Renderer.XRAY_R;
-    let xcx = 0, xcy = 0;
-    if (xrayOn && ui.cursorWorld) {
-      xcx = Math.round(ui.cursorWorld[0] - camX);
-      xcy = Math.round(ui.cursorWorld[1] - camY);
-      if (this.xrayGround.width !== xr * 2) {
-        this.xrayGround.width = this.xrayMasked.width = xr * 2;
-        this.xrayGround.height = this.xrayMasked.height = xr * 2;
-      }
-      const gx = this.xrayGround.getContext('2d')!;
-      gx.clearRect(0, 0, xr * 2, xr * 2);
-      gx.drawImage(this.world, xcx - xr, xcy - xr, xr * 2, xr * 2, 0, 0, xr * 2, xr * 2);
-    }
+    const xcx = ui.cursorWorld ? Math.round(ui.cursorWorld[0] - camX) : 0;
+    const xcy = ui.cursorWorld ? Math.round(ui.cursorWorld[1] - camY) : 0;
     // Sorted by the base of the footprint: with roofs lifted, what matters for
     // occlusion is where a building stands, not where its top is drawn.
     const sorted = [...g.buildings.values()]
@@ -361,13 +357,26 @@ export class Renderer {
       // player is looking at something it is standing in front of. Dissolve
       // it. Its own footprint is excluded — pointing at a tower to inspect it
       // should not make the tower vanish.
-      if (occluding && ui.xray === 'hover' && ui.cursorWorld) {
+      // While the window is open it is the only thing dissolving mass: a
+      // whole building fading at the same time would defeat the point of a
+      // window, which is to keep the rest of the skyline intact.
+      if (occluding && !xrayOn && ui.cursorWorld) {
         const cx0 = ui.cursorWorld[0] - camX, cy0 = ui.cursorWorld[1] - camY;
         const inMass = cx0 >= rx && cx0 <= rx + def.w * TILE &&
                        cy0 >= ry && cy0 <= dy + def.h * TILE;
         const onFootprint = cx0 >= dx && cx0 <= dx + def.w * TILE &&
                             cy0 >= dy && cy0 <= dy + def.h * TILE;
         if (inMass && !onFootprint) relief = Math.min(relief, 0.3);
+      }
+      // Cut the window out of this building if it stands between the camera
+      // and the point being inspected. Buildings further back were drawn
+      // earlier by the back-to-front sort, so they simply show through.
+      const holed = xrayOn && dy + def.h * TILE > xcy &&
+        rx < xcx + xr && rx + def.w * TILE > xcx - xr &&
+        ry < xcy + xr && dy + def.h * TILE > xcy - xr;
+      if (holed) {
+        this.clipHole(w, W, H, xcx, xcy, xr);
+        this.clipHole(this.ectx, W, H, xcx, xcy, xr);
       }
       if (relief < 1) w.globalAlpha = relief;
       if (fac) {
@@ -438,27 +447,15 @@ export class Renderer {
         w.fillStyle = 'rgba(122,233,255,0.5)';
         w.fillRect(dx, dy, 2, 1);
       }
+      if (holed) { w.restore(); this.ectx.restore(); }
     }
-
-    // Punch the x-ray window: the remembered ground, masked to a soft disc and
-    // laid back over whatever mass was drawn on top of it. A rim marks the
-    // opening so it reads as an instrument, not a rendering fault.
+    // A rim so the opening reads as an instrument rather than a hole in the
+    // rendering. Drawn after the masses, on top of whatever showed through.
     if (xrayOn) {
-      const mx = this.xrayMasked.getContext('2d')!;
-      mx.globalCompositeOperation = 'source-over';
-      mx.clearRect(0, 0, xr * 2, xr * 2);
-      mx.drawImage(this.xrayGround, 0, 0);
-      mx.globalCompositeOperation = 'destination-in';
-      const grad = mx.createRadialGradient(xr, xr, xr * 0.42, xr, xr, xr);
-      grad.addColorStop(0, 'rgba(0,0,0,1)');
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
-      mx.fillStyle = grad;
-      mx.fillRect(0, 0, xr * 2, xr * 2);
-      mx.globalCompositeOperation = 'source-over';
-      w.drawImage(this.xrayMasked, xcx - xr, xcy - xr);
-      w.strokeStyle = 'rgba(150,190,235,0.22)';
+      w.strokeStyle = 'rgba(150,190,235,0.28)';
+      w.lineWidth = 1;
       w.beginPath();
-      w.arc(xcx, xcy, xr * 0.78, 0, Math.PI * 2);
+      w.arc(xcx, xcy, xr, 0, Math.PI * 2);
       w.stroke();
     }
 
