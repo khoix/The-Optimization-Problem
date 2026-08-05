@@ -38,9 +38,25 @@ const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
 
 const sound = new Soundscape();
-// Browsers require a user gesture before audio starts.
-window.addEventListener('pointerdown', () => sound.init(), { once: true });
-window.addEventListener('keydown', () => sound.init(), { once: true });
+/**
+ * Audio needs a user gesture, and the gesture does not survive a reload — so
+ * arriving here from Continue or Load lands on a page that has never been
+ * touched, however deliberately the player clicked to get here.
+ *
+ * These listeners are deliberately permanent rather than `once`. A gesture the
+ * browser declines to count must not spend the only attempt, and a context can
+ * be suspended long after it started — a backgrounded tab, an audio device
+ * change — with no way back if we have already unhooked. init() is a no-op
+ * once running, so the standing cost is a function call per click.
+ */
+const armAudio = (): void => sound.init();
+for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
+  window.addEventListener(ev, armAudio);
+}
+// Coming back to the tab can leave the context suspended behind us.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) sound.init();
+});
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
 ui.sound = sound;
