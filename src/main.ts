@@ -5,7 +5,7 @@ import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
@@ -22,9 +22,11 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 // Boot: an explicit request wins; otherwise continue the autosave; otherwise
 // found a new region.
 const bootFlag = consumeBootFlag();
-// The title screen is the entry point: on an explicit request, and on a first
-// launch with nothing to continue. Everything else goes straight to the region.
-const wantsMenu = bootFlag === 'menu' || (bootFlag === null && peek(AUTO_SLOT) === null);
+// The title screen is the entry point, full stop: every plain page load lands
+// there. Only an explicit request — continue this slot, begin this scenario,
+// return to the menu — routes anywhere else, and each of those is something the
+// player just asked for by name.
+const wantsMenu = bootFlag === 'menu' || bootFlag === null;
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
 const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
@@ -59,6 +61,12 @@ let dragButton = 0;
 let lastMx = 0, lastMy = 0;
 let hoverTile: [number, number] | null = null;
 let hoverWorld: [number, number] | null = null;
+// The x-ray key, tracked from whatever event last reported it. Mouse events
+// carry the modifier state directly, which keeps it correct even if the key
+// went down while the window was unfocused.
+let xrayHeld = false;
+const modifierHeld = (ev: MouseEvent | KeyboardEvent): boolean =>
+  ui.xrayKey === 'alt' ? ev.altKey : ui.xrayKey === 'shift' ? ev.shiftKey : ev.ctrlKey || ev.metaKey;
 let roadPainting = false;
 
 canvas.addEventListener('mousedown', (ev) => {
@@ -82,6 +90,7 @@ window.addEventListener('mousemove', (ev) => {
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
   hoverWorld = hoverTile ? [wx, wy] : null;
+  xrayHeld = modifierHeld(ev);
   ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
     renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
@@ -99,7 +108,10 @@ canvas.addEventListener('wheel', (ev) => {
   renderer.setZoom(renderer.zoom + (ev.deltaY < 0 ? 1 : -1), ev.clientX - rect.left, ev.clientY - rect.top);
 }, { passive: false });
 
+window.addEventListener('keyup', (ev) => { xrayHeld = modifierHeld(ev); });
+window.addEventListener('blur', () => { xrayHeld = false; });
 window.addEventListener('keydown', (ev) => {
+  xrayHeld = modifierHeld(ev);
   const pan = 24 / renderer.zoom * 8;
   switch (ev.key) {
     case 'ArrowUp': case 'w': renderer.camY -= pan; break;
@@ -108,7 +120,6 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
     case 'l': case 'L': ui.cycleOverlay(); break;
-    case 'x': case 'X': ui.cycleXray(); break;
     case '?': ui.showHotkeys(); break;
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
@@ -202,7 +213,7 @@ function frame(now: number): void {
     selectedBuildingId: ui.selectedBuildingId,
     overlay: ui.overlay,
     cursorWorld: hoverWorld,
-    xray: ui.xray,
+    xrayRadial: xrayHeld,
   };
   renderer.render(g, uiState);
 
