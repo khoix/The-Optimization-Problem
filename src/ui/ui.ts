@@ -15,7 +15,7 @@ import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
-import type { OverlayId } from '../render/renderer';
+import type { OverlayId, XrayMode } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
@@ -40,6 +40,7 @@ const HOTKEYS: Array<[string, string]> = [
   ['Space', 'Pause and resume'],
   ['Tab', 'Collapse or expand the Civic Systems Bar'],
   ['L', 'Cycle the diagnostic map layers'],
+  ['X', 'Cycle see-through buildings'],
   ['Esc', 'Close a panel, then the inspector, then the active tool'],
   ['?', 'This list'],
 ];
@@ -156,6 +157,8 @@ export class UI {
   private lastBarHeight = 0;
   /** The diagnostic layer currently drawn over the map, if any. */
   overlay: OverlayId | null = null;
+  /** How the skyline gets out of the way of what's behind it. */
+  get xray(): XrayMode { return this.prefs.xray; }
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
@@ -595,6 +598,10 @@ export class UI {
         key: 'vitalsPlacement', label: 'Vital signs', desc: 'In the Civic Systems Bar, or in their own column.',
         options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
       },
+      {
+        key: 'xray', label: 'See through buildings', desc: 'Tall buildings hide the ground behind them. X cycles this.',
+        options: [['hover', 'Hovered'], ['radius', 'Around cursor'], ['off', 'Off']],
+      },
     ];
     const body = rows.map((r) => {
       const control = r.options
@@ -667,6 +674,15 @@ export class UI {
     this.overlay = id;
     if (this.prefs.layer !== id) { this.prefs.layer = id; savePrefs(this.prefs); }
     this.syncLayerButtons();
+  }
+
+  /** Step through the x-ray modes. Bound to X, and mirrored in Settings. */
+  cycleXray(): void {
+    const order: XrayMode[] = ['hover', 'radius', 'off'];
+    const next = order[(order.indexOf(this.prefs.xray) + 1) % order.length];
+    this.setPref('xray', next);
+    const label = next === 'off' ? 'off' : next === 'hover' ? 'hovered building' : 'around cursor';
+    this.flashSystemNote(`See through buildings: ${label}.`);
   }
 
   /** Step through the layers and back to none. */

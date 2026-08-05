@@ -58,6 +58,7 @@ let dragging = false;
 let dragButton = 0;
 let lastMx = 0, lastMy = 0;
 let hoverTile: [number, number] | null = null;
+let hoverWorld: [number, number] | null = null;
 let roadPainting = false;
 
 canvas.addEventListener('mousedown', (ev) => {
@@ -80,6 +81,7 @@ window.addEventListener('mousemove', (ev) => {
   const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  hoverWorld = hoverTile ? [wx, wy] : null;
   ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
     renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
@@ -106,6 +108,7 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
     case 'l': case 'L': ui.cycleOverlay(); break;
+    case 'x': case 'X': ui.cycleXray(); break;
     case '?': ui.showHotkeys(); break;
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
@@ -198,6 +201,8 @@ function frame(now: number): void {
     canPlaceHere: hoverTile && ui.tool.kind === 'build' ? canPlace(g, ui.tool.type, hoverTile[0], hoverTile[1]) : false,
     selectedBuildingId: ui.selectedBuildingId,
     overlay: ui.overlay,
+    cursorWorld: hoverWorld,
+    xray: ui.xray,
   };
   renderer.render(g, uiState);
 

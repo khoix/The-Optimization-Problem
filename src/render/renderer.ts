@@ -16,8 +16,19 @@ import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } fr
 /** Diagnostic map layers. Each answers one question a dark district raises. */
 export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
 
+/**
+ * How the skyline gets out of the player's way.
+ *  - 'off'    nothing; the mass stands whatever is behind it
+ *  - 'hover'  any building the cursor is *behind* dissolves
+ *  - 'radius' a window opens in the skyline around the cursor
+ */
+export type XrayMode = 'off' | 'hover' | 'radius';
+
 export interface UiRenderState {
   hoverTile: [number, number] | null;
+  /** Cursor in world pixels, for the x-ray. Null when off the map. */
+  cursorWorld: [number, number] | null;
+  xray: XrayMode;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
   selectedBuildingId: number | null;
@@ -85,6 +96,9 @@ export class Renderer {
   private cars: HTMLCanvasElement[];
   private peds: HTMLCanvasElement[];
   private clouds: HTMLCanvasElement;
+  /** Ground snapshot and its masked copy, for the radial x-ray. */
+  private xrayGround = document.createElement('canvas');
+  private xrayMasked = document.createElement('canvas');
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
   constructor(screen: HTMLCanvasElement) {
@@ -163,6 +177,9 @@ export class Renderer {
     this.life.update(g, dt * simSpeedMul, this.rain, this.nightFactor(), this.snowing);
   }
 
+  /** Radius of the x-ray window, in world pixels — about five tiles across. */
+  private static readonly XRAY_R = 46;
+
   /** Lazily built front walls, keyed off each roof sprite's own palette. */
   private facades = new Map<BuildingType, Facade | null>();
   private facadeFor(type: BuildingType): Facade | null {
@@ -236,8 +253,45 @@ export class Renderer {
       }
     }
 
+    // ------------------------------------------------------------ trees (with wind sway)
+    // Before the buildings, for the same reason as the agents: a tree standing
+    // behind a tower must be hidden by it, not painted over its facade.
+    const wind = 0.7 + this.rain * 1.6;
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        const tile = g.map[ty * g.mapW + tx];
+        if (tile.terrain !== 'forest') continue;
+        // Chronic pollution kills the canopy: past the threshold the tree
+        // stands bare, and bare trees barely sway.
+        const dead = tile.pollution > 0.22;
+        const sway = dead ? 0 : Math.round(Math.sin(this.t * 1.6 + (tx * 7 + ty * 13) * 0.37) * wind);
+        const dx = tx * TILE - camX + sway, dy = ty * TILE - camY - 4;
+        w.drawImage((dead ? this.terrain.treeDead : this.terrain.tree)[tile.variant % 3], dx, dy);
+      }
+    }
+
     // ------------------------------------------------------------ buildings
     this.ectx.clearRect(0, 0, W, H);
+
+    // The x-ray works by remembering the ground. Everything drawn so far —
+    // terrain, roads, agents — is copied out of the region around the cursor
+    // *before* any mass goes over it, then composited back through a radial
+    // mask once the buildings are down. That gives a genuine hole in the
+    // skyline rather than a fade, and costs two blits of a small square.
+    const xrayOn = ui.xray === 'radius' && ui.cursorWorld !== null;
+    const xr = Renderer.XRAY_R;
+    let xcx = 0, xcy = 0;
+    if (xrayOn && ui.cursorWorld) {
+      xcx = Math.round(ui.cursorWorld[0] - camX);
+      xcy = Math.round(ui.cursorWorld[1] - camY);
+      if (this.xrayGround.width !== xr * 2) {
+        this.xrayGround.width = this.xrayMasked.width = xr * 2;
+        this.xrayGround.height = this.xrayMasked.height = xr * 2;
+      }
+      const gx = this.xrayGround.getContext('2d')!;
+      gx.clearRect(0, 0, xr * 2, xr * 2);
+      gx.drawImage(this.world, xcx - xr, xcy - xr, xr * 2, xr * 2, 0, 0, xr * 2, xr * 2);
+    }
     // Sorted by the base of the footprint: with roofs lifted, what matters for
     // occlusion is where a building stands, not where its top is drawn.
     const sorted = [...g.buildings.values()]
@@ -302,7 +356,19 @@ export class Renderer {
       // it. Without this the height axis would make the map less usable than
       // it was flat.
       const occluding = bhPx >= OCCLUDING_HEIGHT;
-      const relief = occluding && ui.buildType !== null ? 0.42 : 1;
+      let relief = occluding && ui.buildType !== null ? 0.42 : 1;
+      // Hover x-ray: if the cursor is inside this building's drawn mass, the
+      // player is looking at something it is standing in front of. Dissolve
+      // it. Its own footprint is excluded — pointing at a tower to inspect it
+      // should not make the tower vanish.
+      if (occluding && ui.xray === 'hover' && ui.cursorWorld) {
+        const cx0 = ui.cursorWorld[0] - camX, cy0 = ui.cursorWorld[1] - camY;
+        const inMass = cx0 >= rx && cx0 <= rx + def.w * TILE &&
+                       cy0 >= ry && cy0 <= dy + def.h * TILE;
+        const onFootprint = cx0 >= dx && cx0 <= dx + def.w * TILE &&
+                            cy0 >= dy && cy0 <= dy + def.h * TILE;
+        if (inMass && !onFootprint) relief = Math.min(relief, 0.3);
+      }
       if (relief < 1) w.globalAlpha = relief;
       if (fac) {
         // Wall spans from the lifted roof's lower edge to the ground footprint,
@@ -374,19 +440,26 @@ export class Renderer {
       }
     }
 
-    // ------------------------------------------------------------ trees (with wind sway)
-    const wind = 0.7 + this.rain * 1.6;
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const tile = g.map[ty * g.mapW + tx];
-        if (tile.terrain !== 'forest') continue;
-        // Chronic pollution kills the canopy: past the threshold the tree
-        // stands bare, and bare trees barely sway.
-        const dead = tile.pollution > 0.22;
-        const sway = dead ? 0 : Math.round(Math.sin(this.t * 1.6 + (tx * 7 + ty * 13) * 0.37) * wind);
-        const dx = tx * TILE - camX + sway, dy = ty * TILE - camY - 4;
-        w.drawImage((dead ? this.terrain.treeDead : this.terrain.tree)[tile.variant % 3], dx, dy);
-      }
+    // Punch the x-ray window: the remembered ground, masked to a soft disc and
+    // laid back over whatever mass was drawn on top of it. A rim marks the
+    // opening so it reads as an instrument, not a rendering fault.
+    if (xrayOn) {
+      const mx = this.xrayMasked.getContext('2d')!;
+      mx.globalCompositeOperation = 'source-over';
+      mx.clearRect(0, 0, xr * 2, xr * 2);
+      mx.drawImage(this.xrayGround, 0, 0);
+      mx.globalCompositeOperation = 'destination-in';
+      const grad = mx.createRadialGradient(xr, xr, xr * 0.42, xr, xr, xr);
+      grad.addColorStop(0, 'rgba(0,0,0,1)');
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      mx.fillStyle = grad;
+      mx.fillRect(0, 0, xr * 2, xr * 2);
+      mx.globalCompositeOperation = 'source-over';
+      w.drawImage(this.xrayMasked, xcx - xr, xcy - xr);
+      w.strokeStyle = 'rgba(150,190,235,0.22)';
+      w.beginPath();
+      w.arc(xcx, xcy, xr * 0.78, 0, Math.PI * 2);
+      w.stroke();
     }
 
     // ------------------------------------------------------------ water reflections

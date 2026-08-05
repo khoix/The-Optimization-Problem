@@ -2,7 +2,7 @@
 // to the player rather than to any one administration — a setting chosen in
 // Verdant Valley should still hold after that administration is terminated.
 
-import type { OverlayId } from '../render/renderer';
+import type { OverlayId, XrayMode } from '../render/renderer';
 
 export interface Prefs {
   /** Civic Systems Bar folded to a single row. */
@@ -18,6 +18,11 @@ export interface Prefs {
   reducedMotion: boolean;
   /** The diagnostic layer to restore on load. */
   layer: OverlayId | null;
+  /**
+   * How the map gets out of its own way. 'hover' dissolves whatever mass the
+   * cursor is behind; 'radius' opens a window in the skyline around it.
+   */
+  xray: XrayMode;
 }
 
 const KEY = 'top:prefs';
@@ -31,6 +36,7 @@ export const DEFAULT_PREFS: Prefs = {
   toasts: true,
   reducedMotion: false,
   layer: null,
+  xray: 'hover',
 };
 
 export function loadPrefs(): Prefs {
