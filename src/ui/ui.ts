@@ -15,6 +15,7 @@ import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
+import type { OverlayId } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
@@ -28,6 +29,33 @@ type PanelItem =
       value: string; explain?: string; reading?: string; extraClass?: string;
     }
   | { kind: 'block'; key: string; className: string; html: string; explain?: string; reading?: string };
+
+/** The diagnostic layers, with the legend each one needs to mean anything. */
+const LAYER_DEFS: Array<{
+  id: OverlayId; name: string; desc: string; swatch: string;
+  explain?: string; legend: Array<[string, string]>;
+}> = [
+  {
+    id: 'power', name: 'Power Coverage', swatch: 'rgba(255,214,110,0.75)', explain: 'power',
+    desc: 'Which ground sits inside a generator’s service area.',
+    legend: [['rgba(255,214,110,0.6)', 'served'], ['rgba(10,14,22,0.75)', 'unserved'], ['rgba(232,106,90,0.8)', 'needs power, has none']],
+  },
+  {
+    id: 'water', name: 'Water Coverage', swatch: 'rgba(110,200,255,0.75)', explain: 'water',
+    desc: 'The same, for water. A building must be inside both.',
+    legend: [['rgba(110,200,255,0.6)', 'served'], ['rgba(10,14,22,0.75)', 'unserved'], ['rgba(232,106,90,0.8)', 'needs water, has none']],
+  },
+  {
+    id: 'roads', name: 'Road Access', swatch: 'rgba(110,220,130,0.75)', explain: 'labour',
+    desc: 'Who is on the network, and who workers cannot reach.',
+    legend: [['rgba(110,220,130,0.7)', 'connected'], ['rgba(232,106,90,0.8)', 'stranded'], ['rgba(10,14,22,0.75)', 'no road']],
+  },
+  {
+    id: 'pollution', name: 'Air Quality', swatch: 'rgba(232,140,60,0.8)', explain: 'pollution',
+    desc: 'Where the air is worst, and what is upwind of your housing.',
+    legend: [['rgba(232,200,90,0.5)', 'light'], ['rgba(232,120,50,0.7)', 'moderate'], ['rgba(232,60,30,0.85)', 'heavy']],
+  },
+];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -80,6 +108,8 @@ export class UI {
   private toastedSeverity = new Map<number, Severity>();
   private lastSeq = 0;
   private lastBarHeight = 0;
+  /** The diagnostic layer currently drawn over the map, if any. */
+  overlay: OverlayId | null = null;
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
@@ -304,7 +334,8 @@ export class UI {
     const sep = el('div', 'bar-sep');
     this.toolbelt.append(sep);
     for (const [id, icon, label] of [
-      ['indicators', '📊', 'Indicators'], ['compute_alloc', '⚙', 'Compute'],
+      ['indicators', '📊', 'Indicators'], ['layers', '◈', 'Layers'],
+      ['compute_alloc', '⚙', 'Compute'],
       ['policies', '§', 'Policies'], ['politics', '🗳', 'Politics'],
     ] as Array<[string, string, string]>) {
       const btn = el('button', 'bar-tool');
@@ -392,7 +423,8 @@ export class UI {
     this.flyout.classList.remove('hidden');
     const buildCat = this.hudCategories().find((c) => c.id === id);
     const titles: Record<string, string> = {
-      alerts: 'Alert Feed', indicators: 'Regional Indicators', compute_alloc: 'Compute Allocation',
+      alerts: 'Alert Feed', indicators: 'Regional Indicators', layers: 'Map Layers',
+      compute_alloc: 'Compute Allocation',
       policies: 'Policy', politics: 'Politics',
     };
     this.flyoutTitle.textContent = buildCat ? buildCat.label : (titles[id] ?? id);
@@ -420,6 +452,52 @@ export class UI {
     this.openPanel = null;
     this.flyout.classList.add('hidden');
     this.syncToolButtons();
+  }
+
+  // ------------------------------------------------------------ map layers
+  /**
+   * Diagnostic layers. The indicators panel says a district is underserved;
+   * these say which district. Each carries the same hover explanation as the
+   * metric it diagnoses, plus a legend — a colour wash means nothing without
+   * one, and an unlabelled overlay is just a tint.
+   */
+  private buildLayersPanel(host: HTMLElement): void {
+    host.append(el('p', 'hint', 'Diagnostic layers over the map. One at a time; press L to cycle.'));
+    for (const def of LAYER_DEFS) {
+      const btn = el('button', 'layer-btn');
+      btn.dataset.layer = def.id;
+      if (def.explain) btn.dataset.explain = def.explain;
+      btn.innerHTML =
+        `<span class="layer-head"><span class="layer-swatch" style="background:${def.swatch}"></span>` +
+        `<b>${def.name}</b></span>` +
+        `<span class="layer-desc">${def.desc}</span>` +
+        `<span class="layer-legend">${def.legend.map(([c, t]) =>
+          `<span class="legend-key"><i style="background:${c}"></i>${t}</span>`).join('')}</span>`;
+      btn.onclick = () => this.setOverlay(this.overlay === def.id ? null : def.id);
+      host.append(btn);
+    }
+  }
+
+  /** Switch the active layer, or clear it with null. */
+  setOverlay(id: OverlayId | null): void {
+    this.overlay = id;
+    this.syncLayerButtons();
+  }
+
+  /** Step through the layers and back to none. */
+  cycleOverlay(): void {
+    const order: Array<OverlayId | null> = [...LAYER_DEFS.map((d) => d.id), null];
+    const i = order.indexOf(this.overlay);
+    this.setOverlay(order[(i + 1) % order.length]);
+  }
+
+  private syncLayerButtons(): void {
+    for (const b of this.root.querySelectorAll<HTMLElement>('.layer-btn')) {
+      b.classList.toggle('active', b.dataset.layer === this.overlay);
+    }
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.bar-tool[data-panel="layers"]')) {
+      b.classList.toggle('layer-on', this.overlay !== null);
+    }
   }
 
   // ------------------------------------------------------------ panel rows
@@ -717,11 +795,13 @@ export class UI {
     const g = this.g;
     const bodies: Record<string, HTMLElement> = {
       indicators: el('div', 'panel-body'),
+      layers: el('div', 'panel-body'),
       compute_alloc: el('div', 'panel-body'),
       policies: el('div', 'panel-body'),
       politics: el('div', 'panel-body'),
     };
     this.panelBodies = bodies;
+    this.buildLayersPanel(bodies.layers);
     bodies.indicators.id = 'indicators-body';
     bodies.politics.id = 'politics-body';
 

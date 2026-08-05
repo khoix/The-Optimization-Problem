@@ -44,6 +44,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 // Debug/testing handles (also lets the curious peek behind the curtain).
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
+(window as unknown as Record<string, unknown>).__ui = ui;
 (window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify };
 
 // ---------------------------------------------------------------- input
@@ -98,6 +99,7 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowLeft': case 'a': renderer.camX -= pan; break;
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
+    case 'l': case 'L': ui.cycleOverlay(); break;
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
       ev.preventDefault();
@@ -188,6 +190,7 @@ function frame(now: number): void {
     buildType: ui.tool.kind === 'build' ? ui.tool.type : null,
     canPlaceHere: hoverTile && ui.tool.kind === 'build' ? canPlace(g, ui.tool.type, hoverTile[0], hoverTile[1]) : false,
     selectedBuildingId: ui.selectedBuildingId,
+    overlay: ui.overlay,
   };
   renderer.render(g, uiState);
 

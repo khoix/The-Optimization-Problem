@@ -10,12 +10,17 @@ import {
   makeCarSprites, makePedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
+import { computeConnectivity, computeCoverage, covered } from '../game/network';
+
+/** Diagnostic map layers. Each answers one question a dark district raises. */
+export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
 
 export interface UiRenderState {
   hoverTile: [number, number] | null;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
   selectedBuildingId: number | null;
+  overlay: OverlayId | null;
 }
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
@@ -379,6 +384,10 @@ export class Renderer {
       w.globalAlpha = 1;
     }
 
+    // ------------------------------------------------------------ diagnostics
+    // Drawn under the build cursor so placing while a layer is up still reads.
+    if (ui.overlay) this.drawOverlay(w, g, ui.overlay, camX, camY, x0, y0, x1, y1);
+
     // ------------------------------------------------------------ build cursor
     if (ui.buildType && ui.hoverTile) {
       const def = BUILDING_DEFS[ui.buildType];
@@ -684,6 +693,87 @@ export class Renderer {
       }
     }
     return out;
+  }
+
+  /**
+   * Diagnostic layers. Each one answers a question the map raises but cannot
+   * otherwise answer: why is that district dark, why is nothing being built
+   * there, why are the doctors going on record. Coverage grids and road
+   * components are recomputed only while a layer is actually up.
+   */
+  private drawOverlay(
+    w: CanvasRenderingContext2D, g: GameState, id: OverlayId,
+    camX: number, camY: number, x0: number, y0: number, x1: number, y1: number,
+  ): void {
+    w.save();
+    if (id === 'pollution') {
+      // Continuous field: yellow through red, transparent where the air is clean.
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const p = Math.min(1, g.map[ty * g.mapW + tx].pollution * 2);
+          if (p <= 0.02) continue;
+          const r = 232, gg = Math.round(200 - 140 * p), b = Math.round(90 - 60 * p);
+          w.fillStyle = `rgba(${r},${gg},${b},${(0.14 + p * 0.5).toFixed(3)})`;
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+    } else if (id === 'power' || id === 'water') {
+      const cov = computeCoverage(g);
+      const grid = id === 'power' ? cov.power : cov.water;
+      const tint = id === 'power' ? '255,214,110' : '110,200,255';
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const inside = grid[ty * g.mapW + tx];
+          w.fillStyle = inside ? `rgba(${tint},0.20)` : 'rgba(10,14,22,0.45)';
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+      // A building that needs this utility and sits outside every service area
+      // is the actual fault — mark it rather than making the player infer it.
+      for (const b of g.buildings.values()) {
+        if (b.progress < 1) continue;
+        const def = BUILDING_DEFS[b.type];
+        const needs = id === 'power' ? def.power < 0 : def.water < 0;
+        if (!needs || covered(g, b, grid)) continue;
+        this.markFault(w, b.x, b.y, def.w, def.h, camX, camY);
+      }
+    } else {
+      // roads: everything the labour network reaches, and everything it doesn't.
+      const conn = computeConnectivity(g);
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          if (g.map[ty * g.mapW + tx].road) continue;
+          w.fillStyle = 'rgba(10,14,22,0.42)';
+          w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
+        }
+      }
+      for (const b of g.buildings.values()) {
+        if (b.progress < 1) continue;
+        const def = BUILDING_DEFS[b.type];
+        const wants = def.jobs > 0 || def.housing > 0;
+        if (!wants) continue;
+        const ok = conn.onRoad.has(b.id) && (def.jobs === 0 || conn.labourReachable.has(b.id));
+        const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+        w.fillStyle = ok ? 'rgba(110,220,130,0.26)' : 'rgba(232,106,90,0.34)';
+        w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
+        if (!ok) this.markFault(w, b.x, b.y, def.w, def.h, camX, camY);
+      }
+    }
+    w.restore();
+  }
+
+  /** Hatched red box: this building is the thing that is wrong. */
+  private markFault(
+    w: CanvasRenderingContext2D, bx: number, by: number, bw: number, bh: number,
+    camX: number, camY: number,
+  ): void {
+    const dx = bx * TILE - camX, dy = by * TILE - camY;
+    const pw = bw * TILE, ph = bh * TILE;
+    w.fillStyle = 'rgba(232,106,90,0.34)';
+    w.fillRect(dx, dy, pw, ph);
+    w.strokeStyle = 'rgba(255,150,130,0.9)';
+    w.lineWidth = 1;
+    w.strokeRect(dx + 0.5, dy + 0.5, pw - 1, ph - 1);
   }
 
   /** Soft footprint of a utility's service radius, drawn under the cursor. */

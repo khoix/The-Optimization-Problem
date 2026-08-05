@@ -295,6 +295,28 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 }
 .asi-tag { color: var(--asi); font-size: 10px; font-family: var(--mono); }
 
+/* ---------------- map layers ---------------- */
+.layer-btn {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  color: var(--text); font-size: 11px;
+}
+.layer-btn:hover { border-color: var(--text-dim); background: rgba(255, 255, 255, 0.06); }
+.layer-btn.active { border-color: var(--accent); background: rgba(90, 168, 232, 0.13); }
+.layer-head { display: flex; align-items: center; gap: 7px; }
+.layer-swatch { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto; }
+.layer-desc { color: var(--text-dim); font-size: 10.5px; line-height: 1.4; }
+.layer-legend { display: flex; flex-wrap: wrap; gap: 4px 11px; margin-top: 2px; }
+.legend-key {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 9.5px; color: var(--text-dim);
+}
+.legend-key i { width: 9px; height: 9px; border-radius: 2px; display: block; }
+/* The toolbelt button reports that a layer is up, since the panel may be shut. */
+.bar-tool.layer-on { box-shadow: inset 0 0 0 1px var(--accent); }
+.bar-tool.layer-on .tool-ico { color: var(--accent); }
+
 /* ---------------- metric explanations ---------------- */
 /* Every figure on the dashboard can say what it means. Anchored to its row
    rather than the cursor, so reading one doesn't chase the pointer. */
