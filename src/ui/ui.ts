@@ -47,6 +47,7 @@ export class UI {
   private civicBar!: HTMLElement;
   private vitals!: HTMLElement;
   private toolbelt!: HTMLElement;
+  private toolRow!: HTMLElement;
   private barRight!: HTMLElement;
   private barStatus!: HTMLElement;
   private flyout!: HTMLElement;
@@ -95,8 +96,10 @@ export class UI {
     this.barRight = el('div', 'bar-system');
 
     // Row 1: the tool belt gets its own full-width row so it can breathe.
-    const toolRow = el('div', 'bar-row bar-row-tools');
-    toolRow.append(this.toolbelt);
+    // A hidden spacer mirrors the Demolish button's width on the left, so the
+    // category buttons centre on the bar rather than on the space left over.
+    this.toolRow = el('div', 'bar-row bar-row-tools');
+    this.toolRow.append(this.toolbelt);
 
     // ---- centre console: an LCD status display over the transport row ----
     const console_ = el('div', 'console');
@@ -165,7 +168,7 @@ export class UI {
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
     consoleRow.append(this.vitals, console_, this.barRight);
-    this.civicBar.append(toolRow, consoleRow);
+    this.civicBar.append(this.toolRow, consoleRow);
 
     this.feed = el('div', 'feed');
     this.modal = el('div', 'modal hidden');
@@ -272,6 +275,9 @@ export class UI {
       btn.onclick = () => this.togglePanel(id);
       this.toolbelt.append(btn);
     }
+    // Demolish sits outside the scrolling belt, pinned right, with a hidden
+    // twin on the left keeping the centred group honestly centred.
+    this.toolRow.querySelectorAll('.tool-spacer, .demolish').forEach((n) => n.remove());
     const demo = el('button', 'bar-tool demolish');
     demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
     demo.onclick = () => {
@@ -279,7 +285,11 @@ export class UI {
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
     };
-    this.toolbelt.append(demo);
+    const spacer = el('div', 'bar-tool tool-spacer');
+    spacer.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
+    spacer.setAttribute('aria-hidden', 'true');
+    this.toolRow.prepend(spacer);
+    this.toolRow.append(demo);
     this.syncToolButtons();
   }
 

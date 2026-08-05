@@ -16,6 +16,7 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+button, input, select, textarea { font-family: inherit; }
 html, body { height: 100%; overflow: hidden; background: #0a0e16; }
 body { font-family: var(--font); color: var(--text); font-size: 13px; }
 
@@ -176,10 +177,14 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 }
 
 /* centre: tool belt */
+.bar-row-tools { gap: 4px; }
 .bar-toolbelt {
-  display: flex; align-items: center; gap: 4px; width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  flex: 1 1 0; min-width: 0;
   overflow-x: auto; overflow-y: hidden; padding-bottom: 2px;
 }
+/* invisible twin of the Demolish button: reserves the mirrored width */
+.tool-spacer { visibility: hidden; pointer-events: none; flex-shrink: 0; }
 .bar-tool {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   min-width: 56px; height: 46px; padding: 3px 6px; cursor: pointer;
@@ -191,7 +196,7 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 .bar-tool.active { background: #4a2020; color: #fff; border-color: var(--bad); }
 .tool-ico { font-size: 15px; line-height: 1; }
 .tool-label { letter-spacing: 0.3px; white-space: nowrap; }
-.bar-tool.demolish { color: var(--bad); margin-left: auto; }
+.bar-tool.demolish { color: var(--bad); flex-shrink: 0; }
 .bar-sep { width: 1px; height: 40px; background: var(--panel-border); margin: 0 6px; flex-shrink: 0; }
 
 /* right: alerts and system authority — one row, never stacked */
