@@ -37,7 +37,12 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .ind-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
 .ind-row > span:first-child { width: 132px; font-size: 11px; }
 .ind-row small { color: var(--text-dim); font-size: 9px; }
-.ind-val { width: 26px; text-align: right; font-family: var(--mono); font-size: 11px; }
+/* Wide enough for the values that carry units ("1,240 PB", "40 / 100") without
+   wrapping them onto three lines. */
+.ind-val {
+  width: 64px; text-align: right; font-family: var(--mono); font-size: 11px;
+  white-space: nowrap; flex: 0 0 auto;
+}
 .bar { flex: 1; height: 7px; background: #1a2230; border-radius: 3px; overflow: hidden; }
 .fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
 .bar-good { background: var(--good); }
@@ -289,6 +294,25 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
   padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 11px;
 }
 .asi-tag { color: var(--asi); font-size: 10px; font-family: var(--mono); }
+
+/* ---------------- metric explanations ---------------- */
+/* Every figure on the dashboard can say what it means. Anchored to its row
+   rather than the cursor, so reading one doesn't chase the pointer. */
+.explain-card {
+  position: fixed; z-index: 70; width: 300px; pointer-events: none;
+  background: rgba(10, 14, 22, 0.97); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 8px 10px; line-height: 1.45;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+}
+.explain-title { font-size: 11px; font-weight: 600; color: #fff; margin-bottom: 3px; }
+.explain-reading {
+  font-family: var(--mono); font-size: 10px; color: var(--accent);
+  margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid var(--panel-border);
+}
+.explain-what { font-size: 11px; color: var(--text); }
+.explain-drivers { font-size: 10.5px; color: var(--text-dim); margin-top: 5px; }
+[data-explain] { cursor: help; }
+.vital[data-explain]:hover, .ind-row[data-explain]:hover { background: rgba(255, 255, 255, 0.04); border-radius: 3px; }
 
 /* ---------------- alerts: transient toasts ---------------- */
 /* The right-hand column speaks and then stops speaking. Anything that matters

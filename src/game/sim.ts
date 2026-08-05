@@ -403,6 +403,11 @@ export function simTick(g: GameState): void {
 
   g.jobsTotal = jobsTotal;
   g.jobsFilled = jobsFilled;
+  g.labourForce = labourForce;
+  // Unemployment and vacancies are two ends of one axis: with more posts than
+  // workers the region cannot staff them, which is a different problem with a
+  // different fix, and the interface should say which one you have.
+  g.jobVacancies = Math.max(0, jobsTotal - jobsFilled + publicHires);
   g.unemployment = unemployment;
   g.resources.powerCapacity = powerCap;
   g.resources.powerDemand = Math.round(powerDem);

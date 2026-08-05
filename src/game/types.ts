@@ -307,6 +307,10 @@ export interface GameState {
   population: number;
   jobsFilled: number;
   jobsTotal: number;
+  /** Working-age residents available to fill jobs. */
+  labourForce: number;
+  /** Posts the region cannot staff — the other end of the unemployment axis. */
+  jobVacancies: number;
   unemployment: number;    // 0..1
   humanExpertise: number;  // 0..1, decays with automation
   corporateInfluence: number; // 0..1

@@ -266,7 +266,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     alloc: { consumer: 0.35, healthcare: 0.2, industry: 0.15, government: 0.15, research: 0.1, surveillance: 0.05 },
     policies: new Set(),
     population: scen.startPopulation,
-    jobsFilled: 0, jobsTotal: 0, unemployment: 0.08,
+    jobsFilled: 0, jobsTotal: 0, labourForce: 0, jobVacancies: 0, unemployment: 0.08,
     humanExpertise: 0.85,
     corporateInfluence: 0.08,
     unrest: 0.05,

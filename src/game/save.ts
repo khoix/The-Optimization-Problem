@@ -57,6 +57,8 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
   g.lastEventTick ??= 0;
+  g.labourForce ??= Math.floor(g.population * 0.55);
+  g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.
   g.notifications ??= [];

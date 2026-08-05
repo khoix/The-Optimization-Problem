@@ -17,8 +17,17 @@ import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weig
 import type { Soundscape } from '../audio/soundscape';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
+import { EXPLAIN } from './explain';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
+
+/** One reconciled entry in a metrics panel: a meter row, or a block of markup. */
+type PanelItem =
+  | {
+      kind: 'row'; key: string; label: string; pct: number; cls: string;
+      value: string; explain?: string; reading?: string; extraClass?: string;
+    }
+  | { kind: 'block'; key: string; className: string; html: string; explain?: string; reading?: string };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -74,6 +83,7 @@ export class UI {
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
+  private explainCard!: HTMLElement;
   private observerOverlay!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
@@ -193,6 +203,9 @@ export class UI {
     this.modal = el('div', 'modal hidden');
     this.inspector = el('div', 'panel inspector hidden');
     this.hoverCard = el('div', 'hover-card hidden');
+    this.explainCard = el('div', 'explain-card hidden');
+    this.root.append(this.explainCard);
+    this.installExplainers();
     this.observerOverlay = el('div', 'observer-overlay hidden');
     this.root.append(this.flyout, this.civicBar, this.toastStack, this.inspector,
       this.hoverCard, this.modal, this.observerOverlay);
@@ -407,6 +420,126 @@ export class UI {
     this.openPanel = null;
     this.flyout.classList.add('hidden');
     this.syncToolButtons();
+  }
+
+  // ------------------------------------------------------------ panel rows
+  /**
+   * Reconcile a list of meter rows against the DOM instead of rewriting it.
+   *
+   * The dashboard refreshes four times a second. Rebuilding from innerHTML
+   * detached whatever the pointer was resting on, which made hover
+   * explanations impossible to read — the row vanished out from under the
+   * cursor before the card could be looked at. Rows are now matched by key
+   * and only their changing parts are touched.
+   */
+  private syncRows(host: HTMLElement, items: PanelItem[]): void {
+    const existing = new Map<string, HTMLElement>();
+    for (const child of [...host.children] as HTMLElement[]) {
+      const k = child.dataset.key;
+      if (k) existing.set(k, child);
+      else child.remove();
+    }
+    let prev: HTMLElement | null = null;
+    for (const item of items) {
+      let e = existing.get(item.key);
+      if (e) existing.delete(item.key);
+      else {
+        e = document.createElement('div');
+        e.dataset.key = item.key;
+        if (item.kind === 'row') {
+          e.innerHTML = '<span class="row-label"></span><div class="bar"><div class="fill"></div></div><span class="ind-val"></span>';
+        }
+      }
+      this.applyRow(e, item);
+      if (prev) { if (prev.nextElementSibling !== e) prev.after(e); }
+      else if (host.firstElementChild !== e) host.prepend(e);
+      prev = e;
+    }
+    for (const stale of existing.values()) stale.remove();
+  }
+
+  /** The two vital-sign rows, created on first use and reused thereafter. */
+  private vitalGroup(key: string, className: string): HTMLElement {
+    let host = this.vitals.querySelector<HTMLElement>(`:scope > [data-key="${key}"]`);
+    if (!host) {
+      host = document.createElement('div');
+      host.dataset.key = key;
+      host.className = className;
+      this.vitals.append(host);
+    }
+    return host;
+  }
+
+  private applyRow(e: HTMLElement, item: PanelItem): void {
+    const setAttr = (name: string, v: string | undefined) => {
+      if (v === undefined) e.removeAttribute(name);
+      else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
+    };
+    setAttr('data-explain', item.explain);
+    setAttr('data-reading', item.reading);
+    if (item.kind === 'row') {
+      const cls = `ind-row${item.extraClass ? ` ${item.extraClass}` : ''}`;
+      if (e.className !== cls) e.className = cls;
+      const label = e.querySelector<HTMLElement>('.row-label');
+      const fill = e.querySelector<HTMLElement>('.fill');
+      const val = e.querySelector<HTMLElement>('.ind-val');
+      if (label && label.innerHTML !== item.label) label.innerHTML = item.label;
+      if (fill) {
+        const w = `${Math.round(Math.max(0, Math.min(100, item.pct)))}%`;
+        if (fill.style.width !== w) fill.style.width = w;
+        const fc = `fill ${item.cls}`;
+        if (fill.className !== fc) fill.className = fc;
+      }
+      if (val && val.textContent !== item.value) val.textContent = item.value;
+    } else {
+      if (e.className !== item.className) e.className = item.className;
+      if (e.innerHTML !== item.html) e.innerHTML = item.html;
+    }
+  }
+
+  // ------------------------------------------------------------ explanations
+  /**
+   * One delegated listener serves every explainable metric on the dashboard.
+   * Rows opt in with `data-explain="<key>"`; because the handler is delegated,
+   * panels can be rebuilt from innerHTML on every refresh without rewiring.
+   */
+  private installExplainers(): void {
+    this.root.addEventListener('mouseover', (ev) => {
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (!t) return;
+      const info = EXPLAIN[t.dataset.explain ?? ''];
+      if (!info) return;
+      // The live reading, if the row carries one, sits above the definition.
+      const reading = t.dataset.reading;
+      this.explainCard.innerHTML =
+        `<div class="explain-title">${info.title}</div>` +
+        (reading ? `<div class="explain-reading">${reading}</div>` : '') +
+        `<div class="explain-what">${info.what}</div>` +
+        (info.drivers ? `<div class="explain-drivers">${info.drivers}</div>` : '');
+      this.explainCard.classList.remove('hidden');
+      this.positionExplain(t);
+    });
+    this.root.addEventListener('mouseout', (ev) => {
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (!t) return;
+      const to = (ev as MouseEvent).relatedTarget as HTMLElement | null;
+      if (to?.closest('[data-explain]') === t) return; // still inside the same row
+      this.explainCard.classList.add('hidden');
+    });
+  }
+
+  /** Anchor the card to its row, kept inside the viewport on every edge. */
+  private positionExplain(target: HTMLElement): void {
+    const r = target.getBoundingClientRect();
+    const c = this.explainCard.getBoundingClientRect();
+    const margin = 8;
+    let left = r.left;
+    let top = r.top - c.height - 6;
+    if (top < margin) top = r.bottom + 6;                       // no room above
+    if (left + c.width > window.innerWidth - margin) left = window.innerWidth - c.width - margin;
+    if (left < margin) left = margin;
+    this.explainCard.style.left = `${Math.round(left)}px`;
+    this.explainCard.style.top = `${Math.round(top)}px`;
   }
 
   // ------------------------------------------------------------ alerts
@@ -963,57 +1096,88 @@ export class UI {
       : `${unempLabel}: <b>${unemp}%</b>`;
     const unrestLabel = statLabel(g, 'Unrest');
     const unrestVal = hideNegatives ? 'nominal' : `${Math.round(g.unrest * 100)}%`;
+    // Jobs and unemployment were two readouts of one situation. They are now
+    // one meter that names which of the two problems the region actually has:
+    // idle workers, or posts nobody is available to fill.
+    const unemployed = Math.max(0, g.labourForce - g.jobsFilled);
+    const shortage = g.jobVacancies > 0 && unemployed === 0;
+    const labourLabel = shortage ? statLabel(g, 'Vacancies') : unempLabel;
+    const labourGauge = shortage
+      ? Math.min(100, (g.jobVacancies / Math.max(1, g.jobsTotal)) * 100)
+      : unemp;
+    const labourText = hideNegatives ? '—' : shortage ? g.jobVacancies.toLocaleString() : `${unemp}%`;
+    const labourReading =
+      `Labour force ${g.labourForce.toLocaleString()} · posts ${g.jobsTotal.toLocaleString()} · filled ${g.jobsFilled.toLocaleString()}` +
+      (shortage
+        ? `<br>${g.jobVacancies.toLocaleString()} post${g.jobVacancies === 1 ? '' : 's'} unfilled — the region is short of workers, not of work.`
+        : `<br>${unemployed.toLocaleString()} without work.`);
     // ---- Vital signs: capacity at a glance ----
     // Each utility reads as a fill bar of demand against capacity, so strain
-    // is visible before it becomes an outage.
-    const gauge = (icon: string, label: string, used: number, cap: number, unit = '') => {
-      const pct = cap > 0 ? Math.min(150, (used / cap) * 100) : (used > 0 ? 150 : 0);
+    // is visible before it becomes an outage. Every gauge reads the same way
+    // round — need first, then have — so a glance never has to work out which
+    // number is which.
+    const primary: PanelItem[] = [];
+    const secondary: PanelItem[] = [];
+    const vital = (into: PanelItem[], key: string, icon: string, body: string, reading?: string) =>
+      into.push({
+        kind: 'block', key, className: 'vital', explain: key, reading,
+        html: `<span class="vital-ico">${icon}</span><span class="vital-body">${body}</span>`,
+      });
+    const gauge = (into: PanelItem[], icon: string, key: string, need: number, have: number, unit = '') => {
+      const pct = have > 0 ? Math.min(150, (need / have) * 100) : (need > 0 ? 150 : 0);
       const cls = pct > 100 ? 'gauge-bad' : pct > 85 ? 'gauge-warn' : 'gauge-ok';
       const shown = hideNegatives ? 'gauge-calm' : cls;
-      return `<div class="vital" title="${label}: ${Math.round(used)} of ${Math.round(cap)}${unit}">
-        <span class="vital-ico">${icon}</span>
-        <span class="vital-body">
-          <span class="vital-num">${Math.round(used)}<span class="vital-cap">/${Math.round(cap)}</span></span>
-          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>
-        </span></div>`;
+      const u = unit ? ` ${unit}` : '';
+      const reading = have > 0
+        ? `Need ${Math.round(need).toLocaleString()}${u} · have ${Math.round(have).toLocaleString()}${u} — ${Math.round((need / have) * 100)}% used`
+        : `Need ${Math.round(need).toLocaleString()}${u} · no capacity built`;
+      vital(into, key, icon,
+        `<span class="vital-num">${Math.round(need).toLocaleString()}<span class="vital-cap">/${Math.round(have).toLocaleString()}</span></span>` +
+        `<span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>`,
+        reading);
     };
     // A 0..100 indicator rendered in the same visual language as the gauges,
     // so nothing in the bar reads as a bare number.
-    const meter = (icon: string, label: string, value: number, opts?: { invert?: boolean; suffix?: string }) => {
+    const meter = (into: PanelItem[], icon: string, key: string, label: string, value: number,
+                   opts?: { invert?: boolean; suffix?: string; reading?: string; text?: string }) => {
       const v = Math.max(0, Math.min(100, value));
       const good = opts?.invert ? 100 - v : v;
       const cls = good < 30 ? 'gauge-bad' : good < 55 ? 'gauge-warn' : 'gauge-ok';
       const shown = hideNegatives ? 'gauge-calm' : cls;
-      const text = hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`;
-      return `<div class="vital" title="${label}">
-        <span class="vital-ico">${icon}</span>
-        <span class="vital-body">
-          <span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>
-          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>
-        </span></div>`;
+      const text = opts?.text ?? (hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`);
+      vital(into, key, icon,
+        `<span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>` +
+        `<span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>`,
+        opts?.reading);
     };
     const housingCap = [...g.buildings.values()]
       .filter((b) => b.progress >= 1 && b.active)
       .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
     const capitalCls = r.capital < 0 ? 'bad' : '';
+
+    vital(primary, 'capital', '§',
+      `<span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>` +
+      `<span class="gauge gauge-void"></span>`,
+      `§${Math.round(r.capital).toLocaleString()} in the treasury`);
+    gauge(primary, '⚡', 'power', r.powerDemand, r.powerCapacity, 'MW');
+    gauge(primary, '💧', 'water', r.waterDemand, r.waterCapacity, 'ML');
+    gauge(primary, '▣', 'compute', r.computeDemand, r.compute, 'PF');
+    gauge(primary, '🏠', 'housing', g.population, housingCap);
+
+    meter(secondary, '☺', 'trust', 'Trust', g.indicators.trust,
+      { reading: `${Math.round(g.indicators.trust)} of 100` });
+    meter(secondary, '✚', 'health', 'Health', g.indicators.health,
+      { reading: `${Math.round(g.indicators.health)} of 100` });
+    meter(secondary, '★', 'appeal', 'Appeal', g.attractiveness.overall * 100,
+      { reading: `${Math.round(g.attractiveness.overall * 100)} of 100 · migration queue ${Math.max(0, Math.round(g.migrationDemand - g.population)).toLocaleString()}` });
+    meter(secondary, '👥', 'labour', labourLabel, labourGauge,
+      { invert: true, text: labourText, reading: labourReading });
+    meter(secondary, '✊', 'unrest', unrestLabel, g.unrest * 100,
+      { invert: true, suffix: '%', reading: hideNegatives ? 'Nominal' : `${Math.round(g.unrest * 100)}% · ${RESISTANCE_STAGES[g.resistanceStage]}` });
+
     // Primary row survives collapse; secondary row is the first thing hidden.
-    this.vitals.innerHTML =
-      `<div class="vital-group vital-primary">` +
-      `<div class="vital" title="Capital"><span class="vital-ico">§</span><span class="vital-body">
-        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>
-        <span class="gauge gauge-void"></span></span></div>` +
-      gauge('⚡', 'Power', r.powerDemand, r.powerCapacity) +
-      gauge('💧', 'Water', r.waterDemand, r.waterCapacity) +
-      gauge('▣', 'Compute', r.computeDemand, r.compute) +
-      gauge('🏠', 'Housing', g.population, housingCap) +
-      `</div>` +
-      `<div class="vital-group vital-secondary">` +
-      meter('☺', 'Trust', g.indicators.trust) +
-      meter('✚', 'Health', g.indicators.health) +
-      meter('★', 'Appeal', g.attractiveness.overall * 100) +
-      meter('👥', unempLabel, unemp, { invert: true, suffix: '%' }) +
-      meter('✊', unrestLabel, g.unrest * 100, { invert: true, suffix: '%' }) +
-      `</div>`;
+    this.syncRows(this.vitalGroup('grp.primary', 'vital-group vital-primary'), primary);
+    this.syncRows(this.vitalGroup('grp.secondary', 'vital-group vital-secondary'), secondary);
 
     // ---- Centre console: the LCD readout ----
     // The display is deliberately spare and instrument-like. Once the system
@@ -1027,7 +1191,6 @@ export class UI {
     this.barStatus.title =
       `${tierOf(g.population).name} · population ${g.population.toLocaleString()}\n` +
       `Migration queue: ${queue}\n` +
-      `Jobs: ${g.jobsFilled} filled of ${g.jobsTotal}\n` +
       `Attractiveness: ${Math.round(g.attractiveness.overall * 100)}\n` +
       `Year ${year}, ${month}`;
     this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
@@ -1046,48 +1209,113 @@ export class UI {
     // Indicators -----------------------------------------------------------
     const ind = document.getElementById('indicators-body');
     if (ind) {
-      const rows: Array<[string, number]> = [
-        ['Convenience', g.indicators.convenience],
-        ['Trust', g.indicators.trust],
-        [statLabel(g, 'Agency'), g.indicators.agency],
-        ['Security', g.indicators.security],
-        ['Connection', g.indicators.connection],
-        ['Health', g.indicators.health],
-        ['Future Confidence', g.indicators.futureConfidence],
-      ];
-      let html = '';
-      for (const [label, v] of rows) {
-        const cls = v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
+      const items: PanelItem[] = [];
+      const header = (key: string, label: string, explain?: string, reading?: string) =>
+        items.push({ kind: 'block', key, className: 'cat-label', html: label, explain, reading });
+      // A 0..100 row. Every metric on this panel is a bar with a definition
+      // behind it — nothing is left as a bare number the player must infer.
+      const row = (key: string, label: string, v: number, opts?: { reading?: string; extra?: string; invert?: boolean; extraClass?: string }) => {
+        const pct = Math.max(0, Math.min(100, v));
+        const good = opts?.invert ? 100 - pct : pct;
+        const cls = good < 30 ? 'bar-bad' : good < 55 ? 'bar-mid' : 'bar-good';
         // Phase 4+: negative bars are quietly re-colored soothing blue.
-        const shownCls = g.asi.phase >= 4 ? 'bar-calm' : cls;
-        html += `<div class="ind-row"><span>${label}</span><div class="bar"><div class="fill ${shownCls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
-      }
+        items.push({
+          kind: 'row', key, label, pct, explain: key,
+          cls: g.asi.phase >= 4 ? 'bar-calm' : cls,
+          value: opts?.extra ?? String(Math.round(pct)),
+          reading: opts?.reading, extraClass: opts?.extraClass,
+        });
+      };
+
+      header('h.qol', 'Quality of Life');
+      const rows: Array<[string, string, number]> = [
+        ['convenience', 'Convenience', g.indicators.convenience],
+        ['trust', 'Trust', g.indicators.trust],
+        ['agency', statLabel(g, 'Agency'), g.indicators.agency],
+        ['security', 'Security', g.indicators.security],
+        ['connection', 'Connection', g.indicators.connection],
+        ['health', 'Health', g.indicators.health],
+        ['futureConfidence', 'Future Confidence', g.indicators.futureConfidence],
+      ];
+      for (const [key, label, v] of rows) row(key, label, v, { reading: `${Math.round(v)} of 100` });
+
       // Attractiveness breakdown: growth should never be a number that
       // simply happens.
       const att = g.attractiveness;
-      const attRows: Array<[string, number]> = [
-        ['Jobs', att.jobs], ['Housing', att.housing], ['Amenities', att.amenities],
-        ['Services', att.services], ['Environment', att.environment],
-        ['Safety', att.safety], ['Affordability', att.cost],
+      const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
+      items.push({
+        kind: 'block', key: 'h.att', className: 'att-header',
+        html: `Attractiveness <b>${Math.round(att.overall * 100)}</b>`,
+        explain: 'appeal', reading: `Migration queue ${queue.toLocaleString()} waiting`,
+      });
+      const attRows: Array<[string, string, number]> = [
+        ['att.jobs', 'Jobs', att.jobs], ['att.housing', 'Housing', att.housing],
+        ['att.amenities', 'Amenities', att.amenities], ['att.services', 'Services', att.services],
+        ['att.environment', 'Environment', att.environment], ['att.safety', 'Safety', att.safety],
+        ['att.cost', 'Affordability', att.cost],
       ];
-      html += `<div class="att-header">Attractiveness <b>${Math.round(att.overall * 100)}</b></div>`;
-      for (const [label, v] of attRows) {
+      for (const [key, label, v] of attRows) {
         const pct = Math.round(v * 100);
-        const cls = g.asi.phase >= 4 ? 'bar-calm' : pct < 30 ? 'bar-bad' : pct < 55 ? 'bar-mid' : 'bar-good';
-        html += `<div class="ind-row att-row"><span>${label}</span><div class="bar"><div class="fill ${cls}" style="width:${pct}%"></div></div><span class="ind-val">${pct}</span></div>`;
+        row(key, label, pct, { reading: `${pct} of 100`, extraClass: 'att-row' });
       }
 
-      const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
-      html += `<div class="ind-extra">
-        Region class: ${tierOf(g.population).name}<br>
-        ${statLabel(g, 'Housing Shortage')}: ${g.asi.phase >= 4 ? 'optimized' : Math.round(g.housingShortage * 100) + '%'} (${queue} waiting)<br>
-        Service expectations: ${Math.round(g.expectations)}<br>
-        ${statLabel(g, 'Pollution')}: ${g.asi.phase >= 4 ? 'managed' : Math.round(g.pollutionAvg * 200) + '%'}<br>
-        Human expertise: ${Math.round(g.humanExpertise * 100)}%<br>
-        Corporate influence: ${Math.round(g.corporateInfluence * 100)}%<br>
-        Data reserves: ${Math.round(g.resources.data)}<br>
-        Jobs: ${g.jobsFilled}/${g.jobsTotal}</div>`;
-      ind.innerHTML = html;
+      // Pressures: what the region is carrying. These were plain text before,
+      // which made them easy to skip past — they are the numbers that end
+      // administrations, so they get the same bars as everything else.
+      const calm4 = g.asi.phase >= 4;
+      const shortagePct = Math.round(g.housingShortage * 100);
+      const pollPct = Math.min(100, Math.round(g.pollutionAvg * 200));
+      const expertisePct = Math.round(g.humanExpertise * 100);
+      const influencePct = Math.round(g.corporateInfluence * 100);
+      header('h.press', 'Pressures');
+      row('housingShortage', statLabel(g, 'Housing Shortage'), shortagePct, {
+        invert: true,
+        extra: calm4 ? '—' : `${shortagePct}%`,
+        reading: `${queue.toLocaleString()} would-be residents waiting for a home`,
+      });
+      row('pollution', statLabel(g, 'Pollution'), pollPct, {
+        invert: true,
+        extra: calm4 ? '—' : `${pollPct}%`,
+        reading: 'Average across settled tiles',
+      });
+      row('corporateInfluence', 'Corporate Influence', influencePct, {
+        invert: true, extra: `${influencePct}%`,
+        reading: `${influencePct}% of policy set outside the administration`,
+      });
+      row('humanExpertise', 'Human Expertise', expertisePct, {
+        extra: `${expertisePct}%`, reading: `${expertisePct}% of skilled work still done by people`,
+      });
+
+      // Capacity: reserves and standards, each with the unit it is measured in.
+      header('h.cap', 'Capacity &amp; Standards');
+      const expect = Math.round(g.expectations);
+      const conv = Math.round(g.indicators.convenience);
+      const gap = expect - conv;
+      row('expectations', 'Service Expectations', expect, {
+        invert: gap > 0,
+        extra: `${expect} / 100`,
+        reading: `Expected ${expect} · delivered ${conv} — ` +
+          (gap > 0 ? `${gap} short of what residents now consider normal` : 'meeting expectations'),
+      });
+      const dataPb = Math.round(g.resources.data);
+      row('data', 'Data Reserves', Math.min(100, (dataPb / 4000) * 100), {
+        extra: `${dataPb.toLocaleString()} PB`,
+        reading: `${dataPb.toLocaleString()} PB held · effects saturate around 4,000 PB`,
+      });
+      const unemployedNow = Math.max(0, g.labourForce - g.jobsFilled);
+      const shortageNow = g.jobVacancies > 0 && unemployedNow === 0;
+      row('labour', shortageNow ? statLabel(g, 'Vacancies') : statLabel(g, 'Unemployment'),
+        shortageNow ? Math.min(100, (g.jobVacancies / Math.max(1, g.jobsTotal)) * 100) : Math.round(g.unemployment * 100), {
+          invert: true,
+          extra: calm4 ? '—' : shortageNow ? g.jobVacancies.toLocaleString() : `${Math.round(g.unemployment * 100)}%`,
+          reading: `Labour force ${g.labourForce.toLocaleString()} · posts ${g.jobsTotal.toLocaleString()} · filled ${g.jobsFilled.toLocaleString()}` +
+            (shortageNow ? `<br>${g.jobVacancies.toLocaleString()} post${g.jobVacancies === 1 ? '' : 's'} unfilled` : `<br>${unemployedNow.toLocaleString()} without work`),
+        });
+      items.push({
+        kind: 'block', key: 'note.region', className: 'ind-extra',
+        html: `Region class: ${tierOf(g.population).name} · population ${g.population.toLocaleString()}`,
+      });
+      this.syncRows(ind, items);
     }
     // Politics tab -------------------------------------------------------
     const pol = document.getElementById('politics-body');
@@ -1098,17 +1326,17 @@ export class UI {
       const approval = Math.round(weightedApproval(g));
       const stageName = calm && g.resistanceStage > 0 ? 'Civic Engagement (elevated)' : RESISTANCE_STAGES[g.resistanceStage];
       let html = `<div class="pol-summary">
-        ${electionLabel} in <b>${Math.floor(ticksLeft / 12)}y ${ticksLeft % 12}m</b> · weighted support <b>${approval}%</b><br>
+        <span data-explain="election" data-reading="Weighted support ${approval}% — below 50% removes you from office">${electionLabel} in <b>${Math.floor(ticksLeft / 12)}y ${ticksLeft % 12}m</b> · weighted support <b>${approval}%</b></span><br>
         ${g.lastElectionResult ? `<small>Last result: ${g.lastElectionResult}</small><br>` : ''}
-        ${statLabel(g, 'Protest Activity')}: <b>${stageName}</b></div>`;
-      html += '<div class="cat-label">Population Groups</div>';
+        <span data-explain="resistance" data-reading="Stage ${g.resistanceStage} of ${RESISTANCE_STAGES.length - 1}">${statLabel(g, 'Protest Activity')}: <b>${stageName}</b></span></div>`;
+      html += '<div class="cat-label" data-explain="groups">Population Groups</div>';
       for (const id of GROUP_ORDER) {
         const grp = g.groups[id];
         const v = grp.approval;
         const cls = calm ? 'bar-calm' : v < 30 ? 'bar-bad' : v < 55 ? 'bar-mid' : 'bar-good';
         html += `<div class="ind-row" title="${GROUP_DEFS[id].desc}"><span>${GROUP_DEFS[id].name} <small>${Math.round(grp.share * 100)}%</small></span><div class="bar"><div class="fill ${cls}" style="width:${Math.round(v)}%"></div></div><span class="ind-val">${Math.round(v)}</span></div>`;
       }
-      html += '<div class="cat-label">Corporate Actors</div>';
+      html += '<div class="cat-label" data-explain="corps">Corporate Actors</div>';
       for (const id of CORP_ORDER) {
         const corp = g.corps[id];
         const moodTxt = calm ? 'aligned' : corp.mood < 30 ? 'hostile' : corp.mood < 55 ? 'wary' : 'invested';
