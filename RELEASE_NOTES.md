@@ -654,6 +654,53 @@ screen against a forced rebuild), and the game still playable afterwards.
 
 ---
 
+## Milestone 25 — the way in — `b038d30`
+
+**The tagline.** *"A region-management simulation. Every decision is reasonable."*
+The second sentence was the good half, doing the joke before the reader had anything
+to attach it to; the first told a newcomer almost nothing. It now leads with the hook
+in two beats — **every decision is reasonable / that is the problem** — then says
+plainly what the game is and that there is nothing to win. A scrim behind the card
+keeps it readable over whatever terrain happens to be underneath.
+
+**How to Play** was six paragraphs of reference prose: useful to somebody already
+playing, no use at all to somebody deciding whether to. It is now an eight-page
+walkthrough written as the first hour of the job — roads before utilities, utilities
+before growth, growth before the politics of it. From the title screen it ends by
+handing the reader to the scenario picker; from inside a region it just closes. It is
+also reachable mid-game now, from the hamburger and from Settings; previously the
+title screen was the only door.
+
+**The illustrations are live, not captured.** Every sprite here is generated at load
+and nothing is fetched, so committed screenshots would be the first assets in the repo
+and the first thing to go stale the next time the HUD moves. Instead one small region
+is built once and drawn by the game's own renderer, camera moving to whatever the page
+is discussing, traffic running and the campus lighting up as you read. The HUD figures
+are the same idea from the other side: real markup in the real classes, so a restyled
+bar restyles the guide with it.
+
+> **Fix — the founding factory has never been placed, in any scenario, since M9.** A
+> 3×3 sited at `cx-4` puts its left column straight onto the starter grid's own
+> north-south street; `canPlace` rejects it and `placeBuilding` returns null in
+> silence. Every region but Rustbelt opened with one retail unit and **no other
+> workplace**. M9's own verification counted fourteen starter buildings and called it
+> complete — fourteen was the count *after* the loss. Moved one tile east, and a
+> founding building that fails to place now says so.
+
+> **Fix.** The road-network cache was a single module-level entry keyed on `mapVersion`
+> alone, which is correct only while exactly one `GameState` exists. The walkthrough
+> introduces a second, and two unrelated maps agreeing on a version number would hand
+> one of them the other's road components. Keyed per state now, with an explicit
+> invalidation for M24's in-place swap — which keeps the same object identity across a
+> whole new region, so identity alone would not have been enough.
+
+> **Fix.** The walkthrough's own scene silently lost four buildings to footprint
+> collisions, including the stranded mill two captions describe. Sites are tried in
+> order now and anything that finds no home is recorded, which the tests assert is
+> empty. A figure missing the building its caption promises is worse than no figure.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -663,6 +710,12 @@ could tell motion from progress. The audio recovery test reported a false failur
 because a synthetic click is not a trusted gesture — and that false failure
 exposed a real gap.
 
-The standing rule that came out of it: **make the assertion touch real state, not a
-proxy for it**, and when a test passes over a symptom the player can still see,
-the test is the thing that is wrong.
+M25 added a third failure mode to the collection: assertions that pass over an
+*absence*. "The scene rendered a region" was true while four of its buildings had
+silently failed to place, and "fourteen starter buildings are active" was true while
+the fifteenth had never existed to be counted. Both read a positive fact and inferred
+completeness from it.
+
+The standing rules that came out of all this: **make the assertion touch real state,
+not a proxy for it**; **count what should be there, not what is**; and when a test
+passes over a symptom the player can still see, the test is the thing that is wrong.
