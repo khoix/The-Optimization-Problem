@@ -9,19 +9,29 @@ import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, requestMenu, saveTo } from '../game/save';
+import { AUTO_SLOT, MANUAL_SLOT, peek, saveTo } from '../game/save';
 import { tierOf, tierProgress, buildingCondition } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
 import type { Soundscape } from '../audio/soundscape';
 import type { OverlayId, XrayKey } from '../render/renderer';
-import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
+import { SCENARIOS, SCENARIO_ORDER, type ScenarioId } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
+
+/**
+ * A request to put a different region on screen. The UI names what it wants;
+ * main.ts owns how it happens, because it holds the state everything else
+ * points at.
+ */
+export type SessionRequest =
+  | { kind: 'menu' }
+  | { kind: 'load'; slot: string }
+  | { kind: 'new'; scenario: ScenarioId };
 
 /** Corner badge naming a button's key, so the belt teaches its own shortcuts. */
 const keyBadge = (k: string | undefined) =>
@@ -163,6 +173,12 @@ export class UI {
     this.soundscape = s;
     s?.setEnabled(this.prefs.sound);
   }
+
+  /**
+   * Where "continue", "load", "new region" and "main menu" go. Assigned by
+   * main.ts immediately after construction, alongside the soundscape.
+   */
+  onSession!: (req: SessionRequest) => void;
 
   private root: HTMLElement;
   private civicBar!: HTMLElement;
@@ -374,11 +390,63 @@ export class UI {
       const b = this.titleScreen.querySelector<HTMLElement>(id);
       if (b) b.onclick = fn;
     };
-    on('#t-continue', () => requestLoad(AUTO_SLOT));
+    on('#t-continue', () => this.onSession({ kind: 'load', slot: AUTO_SLOT }));
     on('#t-load', () => this.showLoadMenu(true));
     on('#t-new', () => this.showScenarioPicker(true));
     on('#t-how', () => this.showHowTo());
     on('#t-settings', () => this.showSettings());
+  }
+
+  /**
+   * Adopt whatever `this.g` now holds as a brand new session.
+   *
+   * The chrome caches a great deal about the region it is describing — which
+   * alerts it has already spoken, which buildings the belt can offer, which
+   * ASI phase restructured it — and every one of those would otherwise be read
+   * as continuity with a city that no longer exists. Cheaper and far safer to
+   * assume nothing survives.
+   */
+  resetSession(): void {
+    this.closePanel();
+    this.tool = { kind: 'none' };
+    this.selectedBuildingId = null;
+    this.overlay = null;
+    this.resumeSpeed = null;
+    this.allocDragging = false;
+
+    this.titleScreen.classList.add('hidden');
+    this.modal.classList.add('hidden');
+    this.inspector.classList.add('hidden');
+    this.hoverCard.classList.add('hidden');
+    this.hoverHtml = '';
+    this.observerOverlay.classList.add('hidden');
+    this.observerOverlay.classList.remove('dismissed');
+    for (const c of ['at-title', 'ended', 'observer', 'phase4', 'phase5']) {
+      document.body.classList.remove(c);
+    }
+
+    for (const t of this.toasts.values()) { window.clearTimeout(t.timer); t.el.remove(); }
+    this.toasts.clear();
+    this.toastedSeverity.clear();
+    this.archiveEls.clear();
+    this.feed.innerHTML = '';
+    this.lastSeq = 0;
+    this.unreadAlerts = 0;
+    // The archive is the region's memory, so a loaded save arrives with one
+    // already written. Replay it into the feed, but mark every entry as
+    // spoken: history is not news, and a decade of saved alerts must not
+    // arrive as a wall of toasts.
+    for (const n of this.g.notifications) {
+      this.toastedSeverity.set(n.id, n.severity);
+      this.pushArchive(n);
+      if (n.seq > this.lastSeq) this.lastSeq = n.seq;
+    }
+
+    // Force the phase-driven chrome and the tool belt to be rebuilt from the
+    // new state rather than diffed against the old one.
+    this.lastPhase = -1;
+    this.lastBuildMenuKey = '';
+    this.refresh();
   }
 
   /** How the region actually works, in the order a new administrator meets it. */
@@ -423,10 +491,10 @@ export class UI {
           action: () => {
             saveTo(MANUAL_SLOT, this.g);
             saveTo(AUTO_SLOT, this.g);
-            requestMenu();
+            this.onSession({ kind: 'menu' });
           },
         },
-        { label: 'Exit Without Saving', action: () => requestMenu() },
+        { label: 'Exit Without Saving', action: () => this.onSession({ kind: 'menu' }) },
         { label: 'Cancel', action: () => {} },
       ]);
   }
@@ -438,7 +506,7 @@ export class UI {
       [
         ...SCENARIO_ORDER.map((id) => ({
           label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
-          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
+          action: () => this.onSession({ kind: 'new', scenario: id }),
         })),
         // Cancelling out of the picker must not strand the player on a blank
         // map: if the title screen sent them here, the title screen gets them back.
@@ -1394,7 +1462,7 @@ export class UI {
     }
     this.showModal('Load Game',
       fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.', [
-        ...slots.map((s) => ({ label: s.label, action: () => requestLoad(s.slot) })),
+        ...slots.map((s) => ({ label: s.label, action: () => this.onSession({ kind: 'load', slot: s.slot }) })),
         { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
       ]);
   }
@@ -1525,7 +1593,8 @@ export class UI {
     this.hoverCard.style.transform = `translate3d(${Math.round(px)}px,${Math.round(py)}px,0)`;
   }
 
-  private flashSystemNote(text: string): void {
+  /** A transient line of system chrome. Also how main.ts reports a bad save. */
+  flashSystemNote(text: string): void {
     const n = el('div', 'sys-flash', text);
     this.root.append(n);
     setTimeout(() => n.classList.add('show'), 10);
@@ -1869,7 +1938,7 @@ export class UI {
       this.showModal('Administration Terminated', g.gameOver, [
         { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
         { label: 'Begin New Simulation', action: () => this.showScenarioPicker() },
-        { label: 'Return to Main Menu', action: () => requestMenu() },
+        { label: 'Return to Main Menu', action: () => this.onSession({ kind: 'menu' }) },
       ]);
     }
   }
@@ -1901,6 +1970,7 @@ export class UI {
       this.observerOverlay.classList.add('dismissed');
       this.showScenarioPicker();
     };
-    (this.observerOverlay.querySelector('#obs-menu') as HTMLElement).onclick = () => requestMenu();
+    (this.observerOverlay.querySelector('#obs-menu') as HTMLElement).onclick = () =>
+      this.onSession({ kind: 'menu' });
   }
 }
