@@ -57,6 +57,16 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
   g.lastEventTick ??= 0;
+  // Alerts predating severity get it inferred from their kind, and identities
+  // assigned in order so the feed can still diff them.
+  g.notifications ??= [];
+  g.notificationSeq ??= 0;
+  for (const n of g.notifications) {
+    n.severity ??= n.kind === 'asi' ? 'high' : n.kind === 'info' ? 'low' : 'medium';
+    n.count ??= 1;
+    if (n.id === undefined) { n.id = ++g.notificationSeq; n.seq = n.id; }
+  }
+  g.notificationSeq = Math.max(g.notificationSeq, ...g.notifications.map((n) => n.seq), 0);
   g.tierName ??= 'Township';
   g.attractiveness ??= { jobs: 0.5, housing: 1, amenities: 0, services: 0, environment: 1, safety: 0.6, cost: 0.8, overall: 0.5 };
   g.asi.shadowPolicies ??= [];

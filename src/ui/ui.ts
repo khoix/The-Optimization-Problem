@@ -3,7 +3,7 @@
 // "redundant" indicators, removing controls, and finally fading the whole
 // thing into observer mode.
 
-import type { BuildingType, GameState, PolicyId } from '../game/types';
+import type { BuildingType, GameState, Notification, PolicyId, Severity } from '../game/types';
 import { BUILDING_DEFS, BUILD_MENU_ORDER, TIER_NAMES } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
@@ -21,6 +21,12 @@ import { previewChoice } from '../game/preview';
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
+const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
+const SEV_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
+/** Above this many at once, the quiet ones give way. */
+const MAX_TOASTS = 4;
 
 /** Why a completed building isn't running — stated plainly, in the inspector. */
 const OFFLINE_REASONS: Record<string, string> = {
@@ -56,6 +62,15 @@ export class UI {
   private openPanel: string | null = null;
   private panelBodies: Record<string, HTMLElement> = {};
   private feed!: HTMLElement;
+  private toastStack!: HTMLElement;
+  /** Live toasts by notification id. */
+  private toasts = new Map<number, { el: HTMLElement; severity: Severity; timer: number }>();
+  /** Archive rows by notification id, so coalesced repeats update in place. */
+  private archiveEls = new Map<number, HTMLElement>();
+  /** Loudest severity already toasted per id — escalation may speak twice. */
+  private toastedSeverity = new Map<number, Severity>();
+  private lastSeq = 0;
+  private lastBarHeight = 0;
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
@@ -170,12 +185,16 @@ export class UI {
     consoleRow.append(this.vitals, console_, this.barRight);
     this.civicBar.append(this.toolRow, consoleRow);
 
+    // Two surfaces, one stream. Toasts are the transient right-hand column and
+    // fade on their own; the feed is the permanent archive, and lives in the
+    // Alerts panel where it can be read at leisure rather than over the map.
     this.feed = el('div', 'feed');
+    this.toastStack = el('div', 'toast-stack');
     this.modal = el('div', 'modal hidden');
     this.inspector = el('div', 'panel inspector hidden');
     this.hoverCard = el('div', 'hover-card hidden');
     this.observerOverlay = el('div', 'observer-overlay hidden');
-    this.root.append(this.flyout, this.civicBar, this.feed, this.inspector,
+    this.root.append(this.flyout, this.civicBar, this.toastStack, this.inspector,
       this.hoverCard, this.modal, this.observerOverlay);
 
     this.renderToolbelt();
@@ -199,6 +218,7 @@ export class UI {
       btn.innerHTML = `<span class="sys-ico">${this.collapsed ? '▲' : '▼'}</span>`;
       btn.title = this.collapsed ? 'Expand the bar (Tab)' : 'Collapse the bar (Tab)';
     }
+    this.syncBarHeight(); // don't wait for the next refresh to reflow the toasts
   }
 
   /** The New Game dialog: always a scenario choice, never a silent restart. */
@@ -370,7 +390,8 @@ export class UI {
       this.unreadAlerts = 0;
       this.flyoutBody.append(this.feed);
       this.feed.classList.add('in-flyout');
-      this.feed.scrollTop = this.feed.scrollHeight;
+      // After layout, not before: the archive should open on the newest entry.
+      requestAnimationFrame(() => { this.feed.scrollTop = this.feed.scrollHeight; });
     } else {
       const body = this.panelBodies[id];
       if (body) this.flyoutBody.append(body);
@@ -381,11 +402,146 @@ export class UI {
   private closePanel(): void {
     if (this.openPanel === 'alerts') {
       this.feed.classList.remove('in-flyout');
-      this.root.append(this.feed);
+      this.feed.remove();
     }
     this.openPanel = null;
     this.flyout.classList.add('hidden');
     this.syncToolButtons();
+  }
+
+  // ------------------------------------------------------------ alerts
+  /** Publish the bar's real height so map-anchored UI can sit clear of it. */
+  private syncBarHeight(): void {
+    const h = this.civicBar.offsetHeight;
+    if (h > 0 && h !== this.lastBarHeight) {
+      this.lastBarHeight = h;
+      this.root.style.setProperty('--bar-h', `${h}px`);
+    }
+  }
+
+  /**
+   * Fan the notification stream out to its two surfaces. Everything reaches
+   * the archive; only what earns attention becomes a toast.
+   */
+  private syncAlerts(): void {
+    const g = this.g;
+    let asiNotices = 0;
+    let newAlerts = 0;
+    let maxSeq = this.lastSeq;
+    for (const n of g.notifications) {
+      if (n.seq <= this.lastSeq) continue;
+      if (n.seq > maxSeq) maxSeq = n.seq;
+      const firstSighting = !this.archiveEls.has(n.id);
+      if (firstSighting) {
+        if (n.kind === 'asi') asiNotices++;
+        if (n.kind === 'asi' || n.kind === 'warn' || n.kind === 'system') newAlerts++;
+      }
+      this.pushArchive(n);
+      this.pushToast(n);
+    }
+    this.lastSeq = maxSeq;
+    if (asiNotices > 0) this.sound?.systemTone();
+    if (this.openPanel !== 'alerts') {
+      this.unreadAlerts = Math.min(99, this.unreadAlerts + newAlerts);
+    }
+    // The per-id bookkeeping outlives the notifications themselves; prune it
+    // against the live stream rather than letting it grow all game.
+    if (this.toastedSeverity.size > 200) {
+      const live = new Set(g.notifications.map((n) => n.id));
+      for (const id of [...this.toastedSeverity.keys()]) {
+        if (!live.has(id) && !this.toasts.has(id)) this.toastedSeverity.delete(id);
+      }
+    }
+  }
+
+  private pushArchive(n: Notification): void {
+    const year = Math.floor(n.tick / 12) + 1;
+    const rep = n.count > 1 ? ` <span class="feed-rep">×${n.count}</span>` : '';
+    const html = `<span class="feed-date">Y${year} ${MONTHS[n.tick % 12]}</span> ${n.text}${rep}`;
+    const cls = `feed-item ${n.kind} sev-${n.severity}`;
+    const existing = this.archiveEls.get(n.id);
+    if (existing) {
+      existing.innerHTML = html;
+      existing.className = cls;
+      return;
+    }
+    const item = el('div', cls);
+    item.innerHTML = html;
+    this.archiveEls.set(n.id, item);
+    this.feed.append(item);
+    while (this.feed.children.length > 60) {
+      const oldest = this.feed.firstElementChild;
+      if (!oldest) break;
+      for (const [id, e] of this.archiveEls) {
+        if (e === oldest) { this.archiveEls.delete(id); break; }
+      }
+      oldest.remove();
+    }
+    // Follow the tail only if the reader hasn't scrolled back to look at something.
+    if (this.openPanel === 'alerts') {
+      const atTail = this.feed.scrollHeight - this.feed.scrollTop - this.feed.clientHeight < 40;
+      if (atTail) requestAnimationFrame(() => { this.feed.scrollTop = this.feed.scrollHeight; });
+    }
+  }
+
+  private pushToast(n: Notification): void {
+    const live = this.toasts.get(n.id);
+    if (live) {
+      // Keep a visible toast's figures current without restarting its clock —
+      // a condition that persists for a decade must not pin a toast open.
+      const txt = live.el.querySelector<HTMLElement>('.toast-text');
+      const cnt = live.el.querySelector<HTMLElement>('.toast-count');
+      if (txt) txt.textContent = n.text;
+      if (cnt) cnt.textContent = n.count > 1 ? `×${n.count}` : '';
+    }
+    const alreadyShown = this.toastedSeverity.get(n.id);
+    // Speak on first sight, and again only if the condition has got worse.
+    // Ordinary repeats live in the archive and nowhere else.
+    if (alreadyShown !== undefined && SEV_RANK[n.severity] <= SEV_RANK[alreadyShown]) return;
+    this.toastedSeverity.set(n.id, n.severity);
+
+    if (live) { // escalation: restyle in place and grant the longer lifetime
+      live.el.className = `toast ${n.kind} sev-${n.severity}`;
+      live.severity = n.severity;
+      window.clearTimeout(live.timer);
+      live.timer = window.setTimeout(() => this.dismissToast(n.id), TOAST_MS[n.severity]);
+      return;
+    }
+
+    // Rate limiting: a busy moment drops the quiet alerts rather than burying
+    // the loud ones. Nothing is lost — the archive has all of it.
+    if (this.toasts.size >= MAX_TOASTS) {
+      const quieter = [...this.toasts.entries()]
+        .filter(([, t]) => SEV_RANK[t.severity] <= SEV_RANK[n.severity])
+        .sort((a, b) => SEV_RANK[a[1].severity] - SEV_RANK[b[1].severity])[0];
+      if (!quieter) return; // everything on screen outranks this one
+      this.dismissToast(quieter[0], true);
+    }
+
+    const t = el('div', `toast ${n.kind} sev-${n.severity}`);
+    t.innerHTML = '<span class="toast-text"></span><span class="toast-count"></span>';
+    const txt = t.querySelector<HTMLElement>('.toast-text');
+    const cnt = t.querySelector<HTMLElement>('.toast-count');
+    if (txt) txt.textContent = n.text;
+    if (cnt) cnt.textContent = n.count > 1 ? `×${n.count}` : '';
+    t.title = 'Dismiss';
+    t.onclick = () => this.dismissToast(n.id);
+    this.toastStack.append(t);
+    this.toasts.set(n.id, {
+      el: t,
+      severity: n.severity,
+      timer: window.setTimeout(() => this.dismissToast(n.id), TOAST_MS[n.severity]),
+    });
+  }
+
+  private dismissToast(id: number, immediate = false): void {
+    const t = this.toasts.get(id);
+    if (!t) return;
+    this.toasts.delete(id);
+    window.clearTimeout(t.timer);
+    if (immediate) { t.el.remove(); return; }
+    t.el.classList.add('out');
+    window.setTimeout(() => t.el.remove(), 400);
   }
 
   private syncToolButtons(): void {
@@ -965,23 +1121,8 @@ export class UI {
     this.syncPolicyButtons();
 
     // Notifications --------------------------------------------------------
-    let asiNotices = 0;
-    let newAlerts = 0;
-    while (this.shownNotifications < g.notifications.length) {
-      const n = g.notifications[this.shownNotifications++];
-      if (n.kind === 'asi') asiNotices++;
-      if (n.kind === 'asi' || n.kind === 'warn' || n.kind === 'system') newAlerts++;
-      const item = el('div', `feed-item ${n.kind}`);
-      const year2 = Math.floor(n.tick / 12) + 1;
-      item.innerHTML = `<span class="feed-date">Y${year2} ${MONTHS[n.tick % 12]}</span> ${n.text}`;
-      this.feed.append(item);
-      while (this.feed.children.length > 60) this.feed.firstChild?.remove();
-      this.feed.scrollTop = this.feed.scrollHeight;
-    }
-    if (asiNotices > 0) this.sound?.systemTone();
-    if (this.openPanel !== 'alerts') {
-      this.unreadAlerts = Math.min(99, this.unreadAlerts + newAlerts);
-    }
+    this.syncBarHeight();
+    this.syncAlerts();
     // Keep an open build flyout current without rebuilding it: recreating the
     // cards every refresh would yank them out from under the cursor.
     this.syncBuildFlyout();

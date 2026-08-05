@@ -1,4 +1,4 @@
-import type { Building, BuildingType, EmergenceWeights, GameState, GroupId, CorpId, PolicyId, Tile } from './types';
+import type { Building, BuildingType, EmergenceWeights, GameState, GroupId, CorpId, NotifyKind, PolicyId, Severity, Tile } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 import { scenarioDef, type ScenarioDef, type ScenarioId } from './scenarios';
@@ -150,8 +150,53 @@ export function removeBuilding(g: GameState, id: number): void {
   g.mapVersion++;
 }
 
-export function notify(g: GameState, text: string, kind: 'info' | 'warn' | 'system' | 'asi' = 'info'): void {
-  g.notifications.push({ tick: g.tick, text, kind });
+/** Severity a kind carries unless a caller says otherwise. */
+const DEFAULT_SEVERITY: Record<NotifyKind, Severity> = {
+  info: 'low',
+  warn: 'medium',
+  system: 'medium',
+  asi: 'high',
+};
+
+/** Months a keyed condition stays "the same episode" before it may speak again. */
+const DEFAULT_COOLDOWN = 12;
+
+export interface NotifyOpts {
+  /**
+   * Identity of an ongoing condition — a grid under strain, a budget in
+   * deficit. Repeats inside the cooldown fold into the standing alert with a
+   * count rather than filling the feed with the same sentence.
+   */
+  key?: string;
+  severity?: Severity;
+  /** Override the default per-key quiet period, in months. */
+  cooldown?: number;
+}
+
+export function notify(g: GameState, text: string, kind: NotifyKind = 'info', opts: NotifyOpts = {}): void {
+  const severity = opts.severity ?? DEFAULT_SEVERITY[kind];
+  if (opts.key) {
+    // Only the most recent entry for this key matters: if it is still inside
+    // its cooldown the condition has not stopped, so update it in place.
+    for (let i = g.notifications.length - 1; i >= 0; i--) {
+      const n = g.notifications[i];
+      if (n.key !== opts.key) continue;
+      // `tick` stays at the episode's start: sliding it forward would mean a
+      // permanent condition never finished its cooldown and so never spoke
+      // again, leaving the player to assume it had resolved. Instead each
+      // episode runs for the cooldown, then re-announces itself.
+      if (g.tick - n.tick < (opts.cooldown ?? DEFAULT_COOLDOWN)) {
+        n.count++;
+        n.text = text;          // keep the latest figures
+        n.severity = severity;  // a worsening condition may escalate
+        n.seq = ++g.notificationSeq;
+        return;
+      }
+      break;
+    }
+  }
+  const seq = ++g.notificationSeq;
+  g.notifications.push({ id: seq, seq, tick: g.tick, text, kind, severity, key: opts.key, count: 1 });
   if (g.notifications.length > 120) g.notifications.splice(0, g.notifications.length - 120);
 }
 
@@ -247,6 +292,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
       weights: profile.weights, thresholds: profile.thresholds, shadowPolicies: [], diluted: [],
     },
     notifications: [],
+    notificationSeq: 0,
     pendingEvent: null,
     pendingReport: null,
     firedEvents: new Set(),

@@ -126,7 +126,6 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .collapse-btn { padding: 6px 7px; }
 /* anchored UI follows the bar up when it folds */
 body.bar-collapsed .inspector { bottom: 62px; }
-body.bar-collapsed .feed { bottom: 62px; }
 body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 /* collapsed, the console lies down: LCD beside the transport, not above it */
 .civic-bar.collapsed .console { flex-direction: row; align-items: center; gap: 8px; padding: 3px 8px; }
@@ -291,13 +290,56 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 }
 .asi-tag { color: var(--asi); font-size: 10px; font-family: var(--mono); }
 
-/* ---------------- feed ---------------- */
+/* ---------------- alerts: transient toasts ---------------- */
+/* The right-hand column speaks and then stops speaking. Anything that matters
+   after the moment has passed is in the Alerts panel. */
+/* Sits clear of the bar, whose height changes when it collapses and when the
+   system starts removing controls — so the offset is measured, not guessed. */
+.toast-stack {
+  position: absolute; bottom: calc(var(--bar-h, 130px) + 10px); right: 10px; width: 300px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 5px;
+  z-index: 55; pointer-events: none;
+}
+.toast {
+  pointer-events: auto; cursor: pointer;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-left: 3px solid var(--panel-border);
+  padding: 6px 9px; font-size: 11px; border-radius: 3px; line-height: 1.35;
+  display: flex; gap: 6px; align-items: baseline;
+  backdrop-filter: blur(2px);
+  animation: toast-in 200ms ease-out;
+}
+.toast:hover { border-color: var(--text-dim); }
+.toast-text { flex: 1; }
+.toast-count { color: var(--text-dim); font-family: var(--mono); font-size: 10px; }
+.toast.warn { border-left-color: var(--mid); }
+.toast.system { border-left-color: var(--accent); }
+.toast.asi { border-left-color: var(--asi); color: #c8ecf4; }
+/* Severity is carried by weight and glow, not by a fifth colour. */
+.toast.sev-low { opacity: 0.82; font-size: 10.5px; padding: 5px 9px; }
+.toast.sev-high { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 3px 14px rgba(0, 0, 0, 0.45); }
+.toast.sev-high .toast-text { font-weight: 600; }
+.toast.out { animation: toast-out 380ms ease-in forwards; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: none; max-height: 80px; }
+  to { opacity: 0; transform: translateX(14px); max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: -5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+  .toast.out { animation: none; opacity: 0; }
+}
+
+/* ---------------- alerts: the archive ---------------- */
 .feed {
-  position: absolute; bottom: 120px; right: 10px; width: 300px; max-height: 190px;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 3px; z-index: 9;
+  display: flex; flex-direction: column; gap: 3px;
 }
 .feed.in-flyout {
-  position: static; width: auto; max-height: 46vh; bottom: auto; right: auto;
+  position: static; width: auto; max-height: 46vh; overflow-y: auto;
 }
 .feed-item {
   background: var(--panel-bg); border-left: 3px solid var(--panel-border);
@@ -306,7 +348,13 @@ body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
 .feed-item.warn { border-left-color: var(--mid); }
 .feed-item.system { border-left-color: var(--accent); }
 .feed-item.asi { border-left-color: var(--asi); color: #c8ecf4; }
+.feed-item.sev-low { opacity: 0.72; }
+.feed-item.sev-high { border-left-width: 5px; }
 .feed-date { color: var(--text-dim); font-family: var(--mono); font-size: 10px; margin-right: 4px; }
+.feed-rep {
+  color: var(--text-dim); font-family: var(--mono); font-size: 10px;
+  border: 1px solid var(--panel-border); border-radius: 6px; padding: 0 4px; margin-left: 3px;
+}
 
 /* ---------------- modal ---------------- */
 .modal {
@@ -373,11 +421,14 @@ body.bar-collapsed .modal { padding-bottom: 58px; }
 .sys-flash.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---------------- late-game interface "optimization" ---------------- */
-body.phase4 .panel, body.phase4 .civic-bar, body.phase4 .flyout, body.phase4 .feed-item {
+body.phase4 .panel, body.phase4 .civic-bar, body.phase4 .flyout, body.phase4 .feed-item, body.phase4 .toast {
   border-color: #2a4a5a;
 }
 body.phase4 .civic-bar { background: linear-gradient(to bottom, rgba(12,20,28,0.95), rgba(8,14,20,0.98)); }
-body.phase4 .feed-item.warn { border-left-color: #6aa8d8; } /* warnings look calmer now */
+/* warnings look calmer now, and stop shouting */
+body.phase4 .feed-item.warn, body.phase4 .toast.warn { border-left-color: #6aa8d8; }
+body.phase4 .toast.sev-high { box-shadow: none; }
+body.phase4 .toast.sev-high .toast-text { font-weight: 400; }
 body.phase4 .shutdown-btn { opacity: 0.6; }
 body.phase5 .bar-toolbelt { opacity: 0.8; }
 body.phase5 .shutdown-btn { opacity: 0.35; }
@@ -416,7 +467,7 @@ body.observer .civic-bar::after {
   font-family: var(--mono); font-size: 11px; letter-spacing: 2px; color: #7fb4c4;
   background: rgba(8,14,20,0.96); pointer-events: none;
 }
-body.observer .feed { opacity: 0.8; }
+body.observer .feed, body.observer .toast { opacity: 0.8; }
 body.observer #game { cursor: default; }
 
 /* scrollbars */

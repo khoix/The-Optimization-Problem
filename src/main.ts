@@ -1,5 +1,5 @@
 import './style.css';
-import { newGame, canPlace, isRoadType, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
+import { newGame, canPlace, isRoadType, notify, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
@@ -44,7 +44,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 // Debug/testing handles (also lets the curious peek behind the curtain).
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
-(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas };
+(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify };
 
 // ---------------------------------------------------------------- input
 let dragging = false;
