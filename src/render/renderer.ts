@@ -94,6 +94,33 @@ export class Renderer {
   private clouds: HTMLCanvasElement;
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
+  /** Screen-sized gradients. Their geometry only changes on resize. */
+  private vignetteGrad: CanvasGradient | null = null;
+  private tiltMaskGrad: CanvasGradient | null = null;
+
+  /** Whether anything was written to the emissive buffer this frame. */
+  private emissiveUsed = false;
+
+  /**
+   * Per-pass frame timing. Off by default and free when off — one boolean
+   * check per section. Turn on with `__renderer.profiling = true` and read
+   * `__renderer.passTimings()`; optimisation should target something measured
+   * rather than something suspected.
+   */
+  profiling = false;
+  private marks: Array<[string, number]> = [];
+  private stamp(label: string): void {
+    if (this.profiling) this.marks.push([label, performance.now()]);
+  }
+  /** Milliseconds attributable to each pass of the last rendered frame. */
+  passTimings(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (let i = 1; i < this.marks.length; i++) {
+      out[this.marks[i][0]] = +(this.marks[i][1] - this.marks[i - 1][1]).toFixed(3);
+    }
+    return out;
+  }
+
   constructor(screen: HTMLCanvasElement) {
     this.screen = screen;
     this.sctx = screen.getContext('2d')!;
@@ -129,6 +156,11 @@ export class Renderer {
     // Low-res scratch for bloom: blur once at world resolution, scale after.
     [this.bloomTmp, this.blctx] = mk();
     this.sctx.imageSmoothingEnabled = false;
+    // Rebuilt here rather than per frame: createRadialGradient and its linear
+    // sibling were being constructed 60 times a second to describe something
+    // that only changes when the window does.
+    this.vignetteGrad = null;
+    this.tiltMaskGrad = null;
   }
 
   setZoom(z: number, cx: number, cy: number): void {
@@ -197,6 +229,8 @@ export class Renderer {
   }
 
   render(g: GameState, ui: UiRenderState): void {
+    this.marks.length = 0;
+    this.stamp('start');
     const W = this.world.width, H = this.world.height;
     this.clampCamera(g);
     const camX = Math.floor(this.camX), camY = Math.floor(this.camY);
@@ -230,6 +264,7 @@ export class Renderer {
 
     const nightF = this.nightFactor();
 
+    this.stamp('terrain');
     // ------------------------------------------------------------ agents
     // Drawn before the buildings, not after: with the height axis a tall
     // building's mass now covers ground behind it, and a car on that street
@@ -252,6 +287,7 @@ export class Renderer {
           this.ectx.globalAlpha = nightF * 0.8;
           this.ectx.fillStyle = '#ffe9b0';
           this.ectx.fillRect(dx + (a.dir === 1 ? 2 : a.dir === 3 ? -3 : 0), dy + (a.dir === 2 ? 2 : a.dir === 0 ? -3 : 0), 1, 1);
+          this.emissiveUsed = true;
           this.ectx.globalAlpha = 1;
         }
       } else {
@@ -259,6 +295,7 @@ export class Renderer {
       }
     }
 
+    this.stamp('agents');
     // ------------------------------------------------------------ trees (with wind sway)
     // Before the buildings, for the same reason as the agents: a tree standing
     // behind a tower must be hidden by it, not painted over its facade.
@@ -276,8 +313,10 @@ export class Renderer {
       }
     }
 
+    this.stamp('trees');
     // ------------------------------------------------------------ buildings
     this.ectx.clearRect(0, 0, W, H);
+    this.emissiveUsed = false;
 
     // The x-ray window is cut out of the buildings themselves rather than
     // pasted back over them. Anything standing nearer than the point under the
@@ -427,6 +466,7 @@ export class Renderer {
           w.globalAlpha = 1;
           this.ectx.globalAlpha = a;
           this.ectx.drawImage(spr.emissive, rx, ry);
+          this.emissiveUsed = true;
           this.ectx.globalAlpha = 1;
           // Facade windows join the same bloom pass, so towers light up at night.
           if (fac) {
@@ -437,6 +477,7 @@ export class Renderer {
               w.globalAlpha = 1;
               this.ectx.globalAlpha = a;
               this.ectx.drawImage(fac.emissive, rx, wallTop, def.w * TILE, wallBottom - wallTop);
+              this.emissiveUsed = true;
               this.ectx.globalAlpha = 1;
             }
           }
@@ -459,28 +500,43 @@ export class Renderer {
       w.stroke();
     }
 
+    this.stamp('buildings');
     // ------------------------------------------------------------ water reflections
     // Screen-space reflections, pixel-art style: each water tile mirrors the
     // strip above it with a slow wobble. At night the mirrored emissives read
     // as city lights on the river.
+    // Batched by row rather than by tile. Each reflection reads the world
+    // canvas it is being drawn onto, which the browser has to reconcile — so
+    // the count of those reads is what costs, not their area. Runs of adjacent
+    // water share a wobble and a flip, so one draw does the whole run.
+    const alpha = 0.15 + nightF * 0.12;
+    w.save();
+    w.globalAlpha = alpha;
+    w.scale(1, -1);
     for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const tile = g.map[ty * g.mapW + tx];
-        if (tile.terrain !== 'water') continue;
-        const above = ty > 0 ? g.map[(ty - 1) * g.mapW + tx] : null;
-        if (!above || (above.terrain === 'water' && above.buildingId === -1)) continue;
-        const dx = tx * TILE - camX, dy = ty * TILE - camY;
-        if (dy - TILE < 0) continue; // source strip must be on-canvas
-        const wob = Math.round(Math.sin(this.t * 1.7 + ty * 0.8) * 1);
-        w.save();
-        w.globalAlpha = 0.15 + nightF * 0.12;
-        w.translate(dx, dy);
-        w.scale(1, -1);
-        w.drawImage(this.world, dx + wob, dy - TILE, TILE, TILE, 0, -TILE, TILE, TILE);
-        w.restore();
+      const dy = ty * TILE - camY;
+      if (dy - TILE < 0) continue; // source strip must be on-canvas
+      const wob = Math.round(Math.sin(this.t * 1.7 + ty * 0.8) * 1);
+      const row = ty * g.mapW, above = (ty - 1) * g.mapW;
+      let runStart = -1;
+      for (let tx = x0; tx <= x1 + 1; tx++) {
+        const t = tx <= x1 ? g.map[row + tx] : null;
+        const a = t && ty > 0 ? g.map[above + tx] : null;
+        const reflects = !!t && t.terrain === 'water' && !!a &&
+          !(a.terrain === 'water' && a.buildingId === -1);
+        if (reflects && runStart < 0) runStart = tx;
+        if (!reflects && runStart >= 0) {
+          const dx = runStart * TILE - camX;
+          const wpx = (tx - runStart) * TILE;
+          // The y axis is flipped, so the destination top edge is -(dy + TILE).
+          w.drawImage(this.world, dx + wob, dy - TILE, wpx, TILE, dx, -(dy + TILE), wpx, TILE);
+          runStart = -1;
+        }
       }
     }
+    w.restore();
 
+    this.stamp('water reflections');
     // ------------------------------------------------------------ pollution haze
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
@@ -492,6 +548,7 @@ export class Renderer {
       }
     }
 
+    this.stamp('pollution haze');
     // ------------------------------------------------------------ particles
     for (const pt of this.life.particles) {
       const dx = Math.round(pt.x - camX), dy = Math.round(pt.y - camY);
@@ -513,6 +570,7 @@ export class Renderer {
       }
     }
 
+    this.stamp('particles');
     // ------------------------------------------------------------ cloud shadows
     if (this.rain < 0.4) {
       const cw = this.clouds.width;
@@ -523,10 +581,12 @@ export class Renderer {
       w.globalAlpha = 1;
     }
 
+    this.stamp('cloud shadows');
     // ------------------------------------------------------------ diagnostics
     // Drawn under the build cursor so placing while a layer is up still reads.
     if (ui.overlay) this.drawOverlay(w, g, ui.overlay, camX, camY, x0, y0, x1, y1);
 
+    this.stamp('diagnostics');
     // ------------------------------------------------------------ build cursor
     if (ui.buildType && ui.hoverTile) {
       const def = BUILDING_DEFS[ui.buildType];
@@ -597,6 +657,7 @@ export class Renderer {
       w.fillRect(cx + 2, cy + 7, 2, 2);
     }
 
+    this.stamp('build cursor');
     // ------------------------------------------------------------ lighting pass
     const [ar, ag, ab] = ambientAt(this.hour);
     const rainDim = 1 - this.rain * 0.25;
@@ -621,6 +682,7 @@ export class Renderer {
     w.drawImage(this.light, 0, 0);
     w.globalCompositeOperation = 'source-over';
 
+    this.stamp('lighting');
     // ------------------------------------------------------------ compose to screen
     const s = this.sctx;
     const sw = this.screen.width, sh = this.screen.height;
@@ -636,20 +698,25 @@ export class Renderer {
 
     // bloom: blur the emissive once at low (world) resolution, then let the
     // pixel upscale spread it — far cheaper than filtering at screen size.
+    // Skipped outright when nothing emissive was drawn: a blurred copy of an
+    // empty buffer plus two full-screen 'lighter' composites is a lot of work
+    // to add nothing, and at midday with no data centres that is every frame.
     const bloomStrength = 0.25 + nightF * 0.75;
-    this.blctx.clearRect(0, 0, W, H);
-    this.blctx.filter = 'blur(3px)';
-    this.blctx.drawImage(this.emiss, 0, 0);
-    this.blctx.filter = 'none';
-    s.imageSmoothingEnabled = true; // smooth scale sells the glow
-    s.globalCompositeOperation = 'lighter';
-    s.globalAlpha = bloomStrength * 0.55;
-    s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-    s.globalAlpha = bloomStrength * 0.5;
-    s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-    s.globalAlpha = 1;
-    s.globalCompositeOperation = 'source-over';
-    s.imageSmoothingEnabled = false;
+    if (this.emissiveUsed) {
+      this.blctx.clearRect(0, 0, W, H);
+      this.blctx.filter = 'blur(3px)';
+      this.blctx.drawImage(this.emiss, 0, 0);
+      this.blctx.filter = 'none';
+      s.imageSmoothingEnabled = true; // smooth scale sells the glow
+      s.globalCompositeOperation = 'lighter';
+      s.globalAlpha = bloomStrength * 0.55;
+      s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
+      s.globalAlpha = bloomStrength * 0.5;
+      s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
+      s.globalAlpha = 1;
+      s.globalCompositeOperation = 'source-over';
+      s.imageSmoothingEnabled = false;
+    }
 
     // volumetric light: dawn/dusk shafts, storm breaks, night compute pillars
     this.drawLightShafts(g, camX, camY);
@@ -662,12 +729,15 @@ export class Renderer {
     this.bctx.drawImage(this.screen, 0, 0, sw, sh, 0, 0, hw, hh);
     this.bctx.filter = 'none';
     this.bctx.globalCompositeOperation = 'destination-in';
-    const mask = this.bctx.createLinearGradient(0, 0, 0, hh);
-    mask.addColorStop(0, 'rgba(0,0,0,0.9)');
-    mask.addColorStop(0.3, 'rgba(0,0,0,0)');
-    mask.addColorStop(0.7, 'rgba(0,0,0,0)');
-    mask.addColorStop(1, 'rgba(0,0,0,0.9)');
-    this.bctx.fillStyle = mask;
+    if (!this.tiltMaskGrad) {
+      const mask = this.bctx.createLinearGradient(0, 0, 0, hh);
+      mask.addColorStop(0, 'rgba(0,0,0,0.9)');
+      mask.addColorStop(0.3, 'rgba(0,0,0,0)');
+      mask.addColorStop(0.7, 'rgba(0,0,0,0)');
+      mask.addColorStop(1, 'rgba(0,0,0,0.9)');
+      this.tiltMaskGrad = mask;
+    }
+    this.bctx.fillStyle = this.tiltMaskGrad;
     this.bctx.fillRect(0, 0, hw, hh);
     this.bctx.globalCompositeOperation = 'source-over';
     s.imageSmoothingEnabled = true;
@@ -675,11 +745,15 @@ export class Renderer {
     s.imageSmoothingEnabled = false;
 
     // vignette
-    const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(8,10,18,0.32)');
-    s.fillStyle = vg;
+    if (!this.vignetteGrad) {
+      const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(8,10,18,0.32)');
+      this.vignetteGrad = vg;
+    }
+    s.fillStyle = this.vignetteGrad;
     s.fillRect(0, 0, sw, sh);
+    this.stamp('compose');
   }
 
   nightFactor(): number {
@@ -715,6 +789,7 @@ export class Renderer {
           this.ectx.globalAlpha = nightF * 0.8;
           this.ectx.fillStyle = fg;
           this.ectx.fillRect(cx + 1, cy + 1, 3, 2);
+          this.emissiveUsed = true;
           this.ectx.globalAlpha = 1;
         }
       }

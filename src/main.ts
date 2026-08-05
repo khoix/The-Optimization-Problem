@@ -84,27 +84,56 @@ canvas.addEventListener('mousedown', (ev) => {
     }
   }
 });
+/**
+ * The pointer moves faster than the screen does.
+ *
+ * A mouse reports at 125Hz or better; the frame runs at 60. Doing the work in
+ * the handler meant tile maths, a hover-card rewrite and two forced layouts per
+ * *event* — twice the frame rate, on a document whose HUD has grown a lot. The
+ * handler now only records where the pointer is, and the frame loop acts on it
+ * once. Nothing is dropped: the last position before a frame is the only one
+ * that could have been drawn anyway.
+ */
+let cursorX = 0, cursorY = 0, cursorOnMap = false, cursorDirty = false;
+let panDX = 0, panDY = 0;
+// getBoundingClientRect() forces layout; the canvas fills a fixed viewport, so
+// its rect only changes on resize.
+let canvasRect = canvas.getBoundingClientRect();
+const refreshCanvasRect = () => { canvasRect = canvas.getBoundingClientRect(); };
+
 window.addEventListener('mousemove', (ev) => {
-  const rect = canvas.getBoundingClientRect();
-  const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
-  const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
-  // The listener is on the window so dragging keeps working past the canvas
-  // edge, which means the pointer may be over the bar, a drawer or a toast —
-  // all of which sit above map tiles. Those are not the map, so nothing about
-  // the tile underneath them should be reported.
-  const onMap = ev.target === canvas;
-  hoverTile = onMap && tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
-  hoverWorld = hoverTile ? [wx, wy] : null;
+  cursorX = ev.clientX; cursorY = ev.clientY;
+  // The listener is on the window so dragging survives leaving the canvas,
+  // which means the pointer is often over the bar, a drawer or a toast — all
+  // of which sit above map tiles. Those are not the map.
+  cursorOnMap = ev.target === canvas;
+  cursorDirty = true;
   xrayHeld = modifierHeld(ev);
-  ui.showHover(hoverTile, ev.clientX, ev.clientY);
   if (dragging) {
-    renderer.camX -= (ev.clientX - lastMx) / renderer.zoom;
-    renderer.camY -= (ev.clientY - lastMy) / renderer.zoom;
+    panDX += ev.clientX - lastMx;
+    panDY += ev.clientY - lastMy;
     lastMx = ev.clientX; lastMy = ev.clientY;
-  } else if (roadPainting && hoverTile && ui.tool.kind === 'build') {
-    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1]);
   }
 });
+
+/** Turn the recorded pointer into tiles, hover text and camera motion. */
+function applyCursor(): void {
+  if (panDX !== 0 || panDY !== 0) {
+    renderer.camX -= panDX / renderer.zoom;
+    renderer.camY -= panDY / renderer.zoom;
+    panDX = 0; panDY = 0;
+  }
+  if (!cursorDirty) return;
+  cursorDirty = false;
+  const [wx, wy] = renderer.screenToWorld(cursorX - canvasRect.left, cursorY - canvasRect.top);
+  const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
+  hoverTile = cursorOnMap && tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+  hoverWorld = hoverTile ? [wx, wy] : null;
+  ui.showHover(hoverTile, cursorX, cursorY);
+  if (!dragging && roadPainting && hoverTile && ui.tool.kind === 'build') {
+    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1]);
+  }
+}
 window.addEventListener('mouseup', () => { dragging = false; roadPainting = false; });
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 canvas.addEventListener('wheel', (ev) => {
@@ -139,7 +168,8 @@ window.addEventListener('keydown', (ev) => {
       break;
   }
 });
-window.addEventListener('resize', () => renderer.resize());
+window.addEventListener('resize', () => { renderer.resize(); refreshCanvasRect(); });
+window.addEventListener('scroll', refreshCanvasRect, { passive: true });
 
 function cursorTile(ev: MouseEvent): [number, number] | null {
   const rect = canvas.getBoundingClientRect();
@@ -213,6 +243,7 @@ function frame(now: number): void {
     endStateSaved = true;
     saveTo(AUTO_SLOT, g);
   }
+  applyCursor();
   renderer.hour = (renderer.hour + dt * mul * HOURS_PER_SECOND) % 24;
   renderer.update(g, dt, mul);
   sound.update(g, dt, renderer.nightFactor(), renderer.rain, renderer.snowing);

@@ -194,6 +194,8 @@ export class UI {
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
   private hoverCard!: HTMLElement;
+  private hoverHtml = '';
+  private hoverSize: [number, number] = [190, 60];
   private explainCard!: HTMLElement;
   private observerOverlay!: HTMLElement;
   private titleScreen!: HTMLElement;
@@ -1503,14 +1505,24 @@ export class UI {
       html = `<div class="hc-title">${terrainName}</div>
         <div class="hc-stats">${buildable ? 'Buildable' : 'Not buildable'}${t.pollution > 0.04 ? ` · Pollution ${Math.round(t.pollution * 100)}%` : ''}</div>`;
     }
-    this.hoverCard.innerHTML = html;
-    this.hoverCard.classList.remove('hidden');
-    // Keep the card on-screen and clear of the bar.
-    const w = this.hoverCard.offsetWidth || 190, h = this.hoverCard.offsetHeight || 60;
+    // Rewriting identical markup still costs a style recalc, and reading
+    // offsetWidth straight afterwards forces a synchronous layout of the whole
+    // document — which the HUD has grown a great deal of. Only touch the DOM
+    // when the text actually changed, and reuse the measurement until it does.
+    if (html !== this.hoverHtml) {
+      this.hoverHtml = html;
+      this.hoverCard.innerHTML = html;
+      this.hoverCard.classList.remove('hidden');
+      this.hoverSize = [this.hoverCard.offsetWidth || 190, this.hoverCard.offsetHeight || 60];
+    } else {
+      this.hoverCard.classList.remove('hidden');
+    }
+    // Positioned by transform rather than left/top: the compositor can move it
+    // without laying the page out again.
+    const [w, h] = this.hoverSize;
     const px = Math.min(sx + 16, window.innerWidth - w - 8);
     const py = Math.min(sy + 16, window.innerHeight - h - 120);
-    this.hoverCard.style.left = `${px}px`;
-    this.hoverCard.style.top = `${py}px`;
+    this.hoverCard.style.transform = `translate3d(${Math.round(px)}px,${Math.round(py)}px,0)`;
   }
 
   private flashSystemNote(text: string): void {
