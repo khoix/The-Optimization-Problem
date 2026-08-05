@@ -47,6 +47,7 @@ export class UI {
   private civicBar!: HTMLElement;
   private vitals!: HTMLElement;
   private toolbelt!: HTMLElement;
+  private toolRow!: HTMLElement;
   private barRight!: HTMLElement;
   private barStatus!: HTMLElement;
   private flyout!: HTMLElement;
@@ -65,6 +66,7 @@ export class UI {
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   private unreadAlerts = 0;
+  private collapsed = localStorage.getItem('top:barCollapsed') === '1';
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -91,12 +93,20 @@ export class UI {
     this.civicBar = el('div', 'civic-bar');
     this.vitals = el('div', 'bar-vitals');
     this.toolbelt = el('div', 'bar-toolbelt');
-    this.barRight = el('div', 'bar-right');
-    this.civicBar.append(this.vitals, this.toolbelt, this.barRight);
+    this.barRight = el('div', 'bar-system');
 
-    // ---- right section: clock, speed, alerts, system ----
-    this.barStatus = el('div', 'bar-status');
-    const spd = el('div', 'speed-controls');
+    // Row 1: the tool belt gets its own full-width row so it can breathe.
+    // A hidden spacer mirrors the Demolish button's width on the left, so the
+    // category buttons centre on the bar rather than on the space left over.
+    this.toolRow = el('div', 'bar-row bar-row-tools');
+    this.toolRow.append(this.toolbelt);
+
+    // ---- centre console: an LCD status display over the transport row ----
+    const console_ = el('div', 'console');
+    const lcd = el('div', 'lcd');
+    this.barStatus = el('div', 'lcd-readout');
+    lcd.append(this.barStatus, el('div', 'lcd-glass'));
+    const spd = el('div', 'transport');
     ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
       b.dataset.speed = String(sp);
@@ -110,15 +120,20 @@ export class UI {
       };
       spd.append(b);
     });
-    const sysRow = el('div', 'sys-controls');
-    const alertsBtn = el('button', 'bar-tool alert-btn');
-    alertsBtn.innerHTML = '<span class="tool-ico">🔔</span><span class="tool-label">Alerts</span>';
+    console_.append(lcd, spd);
+
+    // ---- right: alerts and system authority, one row, never stacked ----
+    const alertsBtn = el('button', 'sys-btn alert-btn');
+    alertsBtn.innerHTML = '<span class="sys-ico">🔔</span><span class="sys-text">Alerts</span>';
     alertsBtn.dataset.panel = 'alerts';
     alertsBtn.onclick = () => this.togglePanel('alerts');
-    const overrideBtn = el('button', 'sys-btn override-btn', 'Manual Override');
-    overrideBtn.title = 'Emergency administrative authority.';
+    const overrideBtn = el('button', 'sys-btn override-btn');
+    overrideBtn.innerHTML = '<span class="sys-ico">⚠</span><span class="sys-text">Override</span>';
+    overrideBtn.title = 'Manual Override — emergency administrative authority.';
     overrideBtn.onclick = () => this.manualOverride();
-    const saveBtn = el('button', 'sys-btn', 'Save');
+    const saveBtn = el('button', 'sys-btn');
+    saveBtn.innerHTML = '<span class="sys-ico">💾</span><span class="sys-text">Save</span>';
+    saveBtn.title = 'Save game';
     saveBtn.onclick = () => {
       if (this.g.asi.phase >= 5) {
         this.flashSystemNote('State persistence is managed automatically.');
@@ -126,29 +141,34 @@ export class UI {
       }
       this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
     };
-    const loadBtn = el('button', 'sys-btn', 'Load');
+    const loadBtn = el('button', 'sys-btn');
+    loadBtn.innerHTML = '<span class="sys-ico">📂</span><span class="sys-text">Load</span>';
+    loadBtn.title = 'Load game';
     loadBtn.onclick = () => this.showLoadMenu();
-    const newBtn = el('button', 'sys-btn', 'New');
-    newBtn.onclick = () => this.showModal('Begin New Simulation',
-      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
-      [
-        ...SCENARIO_ORDER.map((id) => ({
-          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
-          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
-        })),
-        { label: 'Cancel', action: () => {} },
-      ]);
-    const muteBtn = el('button', 'sys-btn', '🔊');
+    const newBtn = el('button', 'sys-btn');
+    newBtn.innerHTML = '<span class="sys-ico">✦</span><span class="sys-text">New</span>';
+    newBtn.title = 'Begin a new simulation';
+    newBtn.onclick = () => this.showScenarioPicker();
+    const muteBtn = el('button', 'sys-btn mute-btn');
+    muteBtn.innerHTML = '<span class="sys-ico">🔊</span>';
     muteBtn.title = 'Mute';
     muteBtn.onclick = () => {
       const so = this.sound;
       if (!so) return;
       so.init();
       so.setEnabled(!so.enabled);
-      muteBtn.textContent = so.enabled ? '🔊' : '🔇';
+      const ico = muteBtn.querySelector('.sys-ico');
+      if (ico) ico.textContent = so.enabled ? '🔊' : '🔇';
     };
-    sysRow.append(overrideBtn, saveBtn, loadBtn, newBtn, muteBtn);
-    this.barRight.append(this.barStatus, spd, alertsBtn, sysRow);
+    const collapseBtn = el('button', 'sys-btn collapse-btn');
+    collapseBtn.title = 'Collapse the bar (Tab)';
+    collapseBtn.onclick = () => this.toggleCollapse();
+    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn, collapseBtn);
+
+    // Row 2: vitals | console | system, with the console genuinely centred.
+    const consoleRow = el('div', 'bar-row bar-row-console');
+    consoleRow.append(this.vitals, console_, this.barRight);
+    this.civicBar.append(this.toolRow, consoleRow);
 
     this.feed = el('div', 'feed');
     this.modal = el('div', 'modal hidden');
@@ -160,6 +180,56 @@ export class UI {
 
     this.renderToolbelt();
     this.buildSystemPanels();
+    this.applyCollapse();
+  }
+
+  /** Collapse the bar to a single row when the map matters more than the tools. */
+  toggleCollapse(): void {
+    this.collapsed = !this.collapsed;
+    localStorage.setItem('top:barCollapsed', this.collapsed ? '1' : '0');
+    if (this.collapsed) this.closePanel();
+    this.applyCollapse();
+  }
+
+  private applyCollapse(): void {
+    this.civicBar.classList.toggle('collapsed', this.collapsed);
+    document.body.classList.toggle('bar-collapsed', this.collapsed);
+    const btn = this.civicBar.querySelector<HTMLElement>('.collapse-btn');
+    if (btn) {
+      btn.innerHTML = `<span class="sys-ico">${this.collapsed ? '▲' : '▼'}</span>`;
+      btn.title = this.collapsed ? 'Expand the bar (Tab)' : 'Collapse the bar (Tab)';
+    }
+  }
+
+  /** The New Game dialog: always a scenario choice, never a silent restart. */
+  showScenarioPicker(): void {
+    this.showModal('Begin New Simulation',
+      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
+      [
+        ...SCENARIO_ORDER.map((id) => ({
+          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
+          action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
+        })),
+        { label: 'Cancel', action: () => {} },
+      ]);
+  }
+
+  /**
+   * Escape backs out one layer at a time: flyout, then inspector, then the
+   * active build tool. Modals handle their own dismissal.
+   */
+  handleEscape(): void {
+    if (!this.modal.classList.contains('hidden')) return;
+    if (this.openPanel) { this.closePanel(); return; }
+    if (!this.inspector.classList.contains('hidden')) {
+      this.selectedBuildingId = null;
+      this.inspector.classList.add('hidden');
+      return;
+    }
+    if (this.tool.kind !== 'none') {
+      this.tool = { kind: 'none' };
+      this.syncToolButtons();
+    }
   }
 
   /** Build categories as the player thinks of them, not as the data model does. */
@@ -205,6 +275,9 @@ export class UI {
       btn.onclick = () => this.togglePanel(id);
       this.toolbelt.append(btn);
     }
+    // Demolish sits outside the scrolling belt, pinned right, with a hidden
+    // twin on the left keeping the centred group honestly centred.
+    this.toolRow.querySelectorAll('.tool-spacer, .demolish').forEach((n) => n.remove());
     const demo = el('button', 'bar-tool demolish');
     demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
     demo.onclick = () => {
@@ -212,7 +285,11 @@ export class UI {
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
     };
-    this.toolbelt.append(demo);
+    const spacer = el('div', 'bar-tool tool-spacer');
+    spacer.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>';
+    spacer.setAttribute('aria-hidden', 'true');
+    this.toolRow.prepend(spacer);
+    this.toolRow.append(demo);
     this.syncToolButtons();
   }
 
@@ -739,40 +816,68 @@ export class UI {
           <span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>
         </span></div>`;
     };
+    // A 0..100 indicator rendered in the same visual language as the gauges,
+    // so nothing in the bar reads as a bare number.
+    const meter = (icon: string, label: string, value: number, opts?: { invert?: boolean; suffix?: string }) => {
+      const v = Math.max(0, Math.min(100, value));
+      const good = opts?.invert ? 100 - v : v;
+      const cls = good < 30 ? 'gauge-bad' : good < 55 ? 'gauge-warn' : 'gauge-ok';
+      const shown = hideNegatives ? 'gauge-calm' : cls;
+      const text = hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`;
+      return `<div class="vital" title="${label}">
+        <span class="vital-ico">${icon}</span>
+        <span class="vital-body">
+          <span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>
+          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>
+        </span></div>`;
+    };
     const housingCap = [...g.buildings.values()]
       .filter((b) => b.progress >= 1 && b.active)
       .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
     const capitalCls = r.capital < 0 ? 'bad' : '';
+    // Primary row survives collapse; secondary row is the first thing hidden.
     this.vitals.innerHTML =
-      `<div class="vital vital-wide"><span class="vital-ico">§</span><span class="vital-body">
-        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}</span>
-        <span class="vital-label">Capital</span></span></div>` +
-      `<div class="vital vital-wide"><span class="vital-ico">👤</span><span class="vital-body">
-        <span class="vital-num">${g.population.toLocaleString()}</span>
-        <span class="vital-label">${tierOf(g.population).name}</span></span></div>` +
+      `<div class="vital-group vital-primary">` +
+      `<div class="vital" title="Capital"><span class="vital-ico">§</span><span class="vital-body">
+        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>
+        <span class="gauge gauge-void"></span></span></div>` +
       gauge('⚡', 'Power', r.powerDemand, r.powerCapacity) +
       gauge('💧', 'Water', r.waterDemand, r.waterCapacity) +
       gauge('▣', 'Compute', r.computeDemand, r.compute) +
       gauge('🏠', 'Housing', g.population, housingCap) +
-      `<div class="vital-mini">
-        <span title="${unempLabel}">${unempLabel.slice(0, 4)} <b>${hideNegatives ? '—' : unemp + '%'}</b></span>
-        <span title="${unrestLabel}">${unrestLabel.slice(0, 4)} <b>${unrestVal}</b></span>
-        <span title="Public trust">Trust <b>${Math.round(g.indicators.trust)}</b></span>
-        <span title="Public health">Health <b>${Math.round(g.indicators.health)}</b></span>
-        <span title="Regional attractiveness">Appeal <b>${Math.round(g.attractiveness.overall * 100)}</b></span>
-      </div>`;
+      `</div>` +
+      `<div class="vital-group vital-secondary">` +
+      meter('☺', 'Trust', g.indicators.trust) +
+      meter('✚', 'Health', g.indicators.health) +
+      meter('★', 'Appeal', g.attractiveness.overall * 100) +
+      meter('👥', unempLabel, unemp, { invert: true, suffix: '%' }) +
+      meter('✊', unrestLabel, g.unrest * 100, { invert: true, suffix: '%' }) +
+      `</div>`;
 
-    // ---- Right section: clock and speed state ----
+    // ---- Centre console: the LCD readout ----
+    // The display is deliberately spare and instrument-like. Once the system
+    // takes over it stops reporting a class and starts reporting a mode.
+    const lcdClass = g.asi.observer ? 'OBSERVATION' : tierOf(g.population).name.toUpperCase();
     this.barStatus.innerHTML =
-      `<span class="bar-date">Year ${year}</span><span class="bar-month">${month}</span>`;
-    for (const b of this.barRight.querySelectorAll<HTMLElement>('.speed-btn')) {
+      `<span class="lcd-line lcd-main">YEAR ${year}<span class="lcd-dot">·</span>${month.toUpperCase()}</span>` +
+      `<span class="lcd-line lcd-sub">${lcdClass}</span>`;
+    // Hovering the display expands it into the regional summary.
+    const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
+    this.barStatus.title =
+      `${tierOf(g.population).name} · population ${g.population.toLocaleString()}\n` +
+      `Migration queue: ${queue}\n` +
+      `Jobs: ${g.jobsFilled} filled of ${g.jobsTotal}\n` +
+      `Attractiveness: ${Math.round(g.attractiveness.overall * 100)}\n` +
+      `Year ${year}, ${month}`;
+    this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
+    for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
     }
     const alertBtn = this.barRight.querySelector<HTMLElement>('.alert-btn');
     if (alertBtn) {
       alertBtn.classList.toggle('has-unread', this.unreadAlerts > 0);
-      const lbl = alertBtn.querySelector('.tool-label');
-      if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts (${this.unreadAlerts})` : 'Alerts';
+      const lbl = alertBtn.querySelector('.sys-text');
+      if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts ${this.unreadAlerts}` : 'Alerts';
     }
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
