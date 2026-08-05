@@ -76,6 +76,11 @@ Four starting regions, each a different shape of the same trap:
 - **Rustbelt Revival** — declining industrial city: aged infrastructure, thin coffers, a large displaced-worker bloc; automation-weighted emergence
 - **Azure Coast** — wealthy, organized, land-poor; research-weighted emergence
 
+## Development history
+
+[`RELEASE_NOTES.md`](RELEASE_NOTES.md) documents every milestone in order — what
+changed, and where one exists, what was wrong.
+
 ## Roadmap
 
 - More events beyond the current 102; deeper population-group interactions

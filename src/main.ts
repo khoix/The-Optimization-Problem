@@ -2,7 +2,7 @@ import './style.css';
 import { newGame, canPlace, isRoadType, notify, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
-import { UI } from './ui/ui';
+import { UI, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
 import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
@@ -31,21 +31,89 @@ const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
 const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
 // A menu backdrop is scenery, not an administration: it must never autosave
-// over the save the player is about to be offered.
+// over the save the player is about to be offered. Mutable, because the menu
+// is somewhere the player can now return to without reloading the page.
+let atMenu = wantsMenu;
 const freshGame = g.tick === 0 && !wantsMenu;
 
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
 
 const sound = new Soundscape();
-// Browsers require a user gesture before audio starts.
-window.addEventListener('pointerdown', () => sound.init(), { once: true });
-window.addEventListener('keydown', () => sound.init(), { once: true });
+/**
+ * Audio needs a user gesture, and the gesture does not survive a reload — so
+ * arriving here from Continue or Load lands on a page that has never been
+ * touched, however deliberately the player clicked to get here.
+ *
+ * These listeners are deliberately permanent rather than `once`. A gesture the
+ * browser declines to count must not spend the only attempt, and a context can
+ * be suspended long after it started — a backgrounded tab, an audio device
+ * change — with no way back if we have already unhooked. init() is a no-op
+ * once running, so the standing cost is a function call per click.
+ */
+const armAudio = (): void => sound.init();
+for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
+  window.addEventListener(ev, armAudio);
+}
+// Coming back to the tab can leave the context suspended behind us.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) sound.init();
+});
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
 ui.sound = sound;
+ui.onSession = startSession;
 if (wantsMenu) { g.speed = 0; ui.showTitle(); }
 else if (freshGame) ui.showIntro();
+
+/**
+ * Replace the region on screen without reloading the page.
+ *
+ * This used to be a `location.reload()` with a boot flag, which was simple and
+ * wrong in one specific way: the click that asked for the new session is the
+ * only thing authorising audio, and it does not survive the navigation. The
+ * player pressed Continue, got a silent city, and had to click again for no
+ * reason they could see.
+ *
+ * `g` is the object every other system points at — the UI holds it, the
+ * renderer and the soundscape are handed it each frame — so the state is
+ * copied *into* it rather than rebound. Keys the incoming state does not have
+ * are removed first: a leftover field from the previous city would be far
+ * harder to find than a missing one.
+ */
+function startSession(req: SessionRequest): void {
+  const next = req.kind === 'load'
+    ? loadFrom(req.slot)
+    : newGame(undefined, req.kind === 'new' ? req.scenario : 'verdant');
+  if (!next) {
+    ui.flashSystemNote('That save could not be read.');
+    return;
+  }
+  for (const k of Object.keys(g)) if (!(k in next)) delete (g as unknown as Record<string, unknown>)[k];
+  Object.assign(g, next);
+
+  atMenu = req.kind === 'menu';
+  if (atMenu) g.speed = 0;
+  endStateSaved = false;
+  simAccum = 0;
+  roadsBuiltSinceRecord = 0;
+
+  // Nothing about where the pointer was means anything on a different map.
+  hoverTile = null; hoverWorld = null;
+  dragging = false; roadPainting = false;
+  panDX = 0; panDY = 0; cursorDirty = true;
+  xrayHeld = false;
+
+  renderer.resetSession();
+  renderer.centerOn(Math.floor(g.mapW * 0.52), Math.floor(g.mapH * 0.5));
+  ui.resetSession();
+
+  if (atMenu) ui.showTitle();
+  else if (req.kind === 'new') ui.showIntro();
+  // We are inside the click that asked for this, so the gesture is still live
+  // and the browser will let the context start. That is the whole point.
+  sound.init();
+}
 
 const SPEED_MUL = [0, 1, 2.5, 6];
 
@@ -235,11 +303,11 @@ function frame(now: number): void {
     simAccum -= TICK_SECONDS;
     simTick(g);
     updateTutorial(g);
-    if (!wantsMenu && g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
+    if (!atMenu && g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
   }
   // Capture the terminal state once, immediately — a locked observer save is
   // part of the design, not an accident of timing.
-  if ((g.gameOver || g.asi.observer) && !endStateSaved && !wantsMenu) {
+  if ((g.gameOver || g.asi.observer) && !endStateSaved && !atMenu) {
     endStateSaved = true;
     saveTo(AUTO_SLOT, g);
   }

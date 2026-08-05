@@ -181,6 +181,27 @@ export class Renderer {
     this.camY = ty * TILE - this.screen.height / this.zoom / 2;
   }
 
+  /**
+   * Forget the region currently on screen. Called when a session is replaced
+   * in place rather than by a page load.
+   *
+   * The terrain cache is invalidated explicitly rather than by trusting
+   * mapVersion to differ: two unrelated regions can easily agree on that
+   * number, and the failure — a whole map of the wrong terrain — would be
+   * silent. Traffic and weather go with it, since both are descriptions of a
+   * city that no longer exists.
+   */
+  resetSession(): void {
+    this.cachedMapVersion = -1;
+    this.life = new AmbientLife();
+    this.hour = 9;
+    this.rain = 0;
+    this.rainTarget = 0;
+    this.snowing = false;
+    this.weatherTimer = 20;
+    this.t = 0;
+  }
+
   /** 0 winter, 1 spring, 2 summer, 3 autumn — from the simulation month. */
   static seasonOf(tick: number): number {
     const m = tick % 12;

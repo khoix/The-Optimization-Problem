@@ -17,9 +17,23 @@ export class Soundscape {
   private humPure!: GainNode;   // sine component: the optimized hum
   private birdTimer = 0;
 
-  /** Must be called from a user gesture (autoplay policy). Safe to call twice. */
+  /** True once the context exists and is actually producing sound. */
+  get running(): boolean {
+    return this.ctx?.state === 'running';
+  }
+
+  /**
+   * Must be called from a user gesture (autoplay policy). Safe to call twice.
+   *
+   * A context built without an activation starts suspended, and returning early
+   * on `this.ctx` meant every later gesture was a no-op — one bad first attempt
+   * and the session stayed silent for good. Re-entry now resumes instead.
+   */
   init(): void {
-    if (this.ctx) return;
+    if (this.ctx) {
+      if (this.ctx.state !== 'running') void this.ctx.resume();
+      return;
+    }
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
@@ -65,6 +79,9 @@ export class Soundscape {
     this.humPure = ctx.createGain(); this.humPure.gain.value = 0;
     pure.connect(this.humPure).connect(this.humGain);
     pure.start();
+    // Chrome can still hand back a suspended context — a backgrounded tab, or
+    // a gesture it declined to count. Ask once; the caller keeps trying.
+    if (ctx.state !== 'running') void ctx.resume();
   }
 
   setEnabled(on: boolean): void {

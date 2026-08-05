@@ -125,19 +125,14 @@ export function loadFrom(slot: string): GameState | null {
   }
 }
 
-/** Ask the next page load to boot from a slot, then reload. */
-export function requestLoad(slot: string): void {
-  localStorage.setItem(BOOT_FLAG, `load:${slot}`);
-  location.reload();
-}
-
-/** Ask the next page load to open the title screen, then reload. */
-export function requestMenu(): void {
-  localStorage.setItem(BOOT_FLAG, 'menu');
-  location.reload();
-}
-
-/** Consume the boot flag: 'menu', 'new' / 'new:<scenario>', a slot name, or null. */
+/**
+ * Consume the boot flag: 'menu', 'new' / 'new:<scenario>', a slot name, or null.
+ *
+ * The flag only ever describes the *first* frame of a page. Switching sessions
+ * afterwards — continue, load, new region, back to the menu — swaps the state
+ * in place and never reloads, because a reload throws away the click that
+ * asked for it and audio needs that click. See `startSession` in main.ts.
+ */
 export function consumeBootFlag(): string | null {
   const flag = localStorage.getItem(BOOT_FLAG);
   localStorage.removeItem(BOOT_FLAG);
