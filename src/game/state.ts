@@ -325,7 +325,11 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     // the whole settlement on day one.
     ['water_plant', cx + 5, cy + 1],
     ['solar_farm', cx + 5, cy - 3],
-    ['factory', cx - 4, cy + 5],
+    // Sited a tile east of the block corner: a 3x3 at cx-4 puts its left
+    // column straight onto the grid's own north-south street, which canPlace
+    // rejects — so the founding industry silently never existed and every
+    // region but Rustbelt opened with one retail unit and no other workplace.
+    ['factory', cx - 3, cy + 5],
   ];
   if (scen.extraIndustry) {
     starter.push(['factory', cx + 1, cy + 5], ['coal_plant', cx + 5, cy + 5],
@@ -342,6 +346,9 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
       }
     }
     const b = placeBuilding(g, t, x, y, { free: true, instant: true });
+    // A founding building that fails to place leaves no trace at all — no
+    // error, just a region quietly missing a workplace. Say so.
+    if (!b) console.warn(`Founding ${t} at ${x},${y} could not be placed.`);
     // Rustbelt infrastructure has been limping along for decades.
     if (b && scen.agedStart) b.age = 100 + ((b.id * 37) % 90);
   }

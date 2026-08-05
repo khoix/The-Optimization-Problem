@@ -28,11 +28,23 @@ interface NetworkCache {
   roadCapacity: number;
 }
 
-let cache: NetworkCache | null = null;
+/**
+ * Cached per state, not globally.
+ *
+ * A single module-level entry keyed on mapVersion alone was correct only while
+ * exactly one GameState existed. The walkthrough puts a second region on screen
+ * — a small illustrative town rendered beside the live one — and two unrelated
+ * maps can easily agree on a version number, at which point one of them
+ * silently gets the other's road components: wrong staffing, wrong capacity,
+ * districts going dark for no visible reason. Keyed by the state itself, that
+ * cannot happen, and a WeakMap doesn't keep a finished region alive.
+ */
+const caches = new WeakMap<GameState, NetworkCache>();
 
-/** Flood-fill road tiles into connected components. Cached by mapVersion. */
+/** Flood-fill road tiles into connected components. Cached per state+mapVersion. */
 export function roadNetwork(g: GameState): NetworkCache {
-  if (cache && cache.mapVersion === g.mapVersion) return cache;
+  const cached = caches.get(g);
+  if (cached && cached.mapVersion === g.mapVersion) return cached;
   const n = g.mapW * g.mapH;
   const component = new Int32Array(n).fill(-1);
   let componentCount = 0;
@@ -60,8 +72,20 @@ export function roadNetwork(g: GameState): NetworkCache {
       }
     }
   }
-  cache = { mapVersion: g.mapVersion, component, componentCount, roadCapacity };
-  return cache;
+  const built: NetworkCache = { mapVersion: g.mapVersion, component, componentCount, roadCapacity };
+  caches.set(g, built);
+  return built;
+}
+
+/**
+ * Forget a state's cached network. Keying by identity handles two states
+ * colliding on a version number, but not one state *becoming* a different
+ * region: the in-place session swap assigns a whole new map onto the same
+ * object, and the incoming mapVersion can match the one already cached.
+ * Called from startSession, alongside the renderer's own cache reset.
+ */
+export function invalidateNetwork(g: GameState): void {
+  caches.delete(g);
 }
 
 /** Road components a building's footprint touches (orthogonally adjacent). */

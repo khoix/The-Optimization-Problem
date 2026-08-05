@@ -20,6 +20,7 @@ import { SCENARIOS, SCENARIO_ORDER, type ScenarioId } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
+import { Guide } from './guide';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -75,38 +76,6 @@ const HOTKEYS: Array<[string, string]> = [
   ['Esc', 'Close a panel, then the inspector, then the active tool'],
   ['?', 'This list'],
 ];
-
-/**
- * How the region works, in the order a new administrator meets it. Deliberately
- * silent about what the compute is ultimately for — that is the game's to show.
- */
-const HOW_TO_BODY = `
-<p><b>You are the regional development authority.</b> Build housing, utilities and
-services; keep the population fed with power, water and work; and hold enough
-public support to survive an election every four years. There is no final
-score — the job is to keep the balance as the region grows.</p>
-
-<p><b>Building.</b> Pick a category from the tool belt and click the map.
-Everything needs a road: a building with no frontage cannot be staffed, and one
-outside a utility's service area draws nothing. Idle buildings carry a warning
-badge, and the <i>Layers</i> panel will show you exactly which are stranded.</p>
-
-<p><b>The numbers.</b> Hover any figure on the bar or in <i>Indicators</i> to see
-what it measures and what moves it. Capacity gauges read need first, then
-capacity. Watch Service Expectations: residents normalise whatever you deliver,
-so a standard you meet once becomes the standard you are judged against.</p>
-
-<p><b>Decisions.</b> Events arrive every so often and pause the clock. Each option
-shows its projected impact. There is rarely a clean choice, and no option is
-free — if one looks free, the cost is somewhere you are not being shown.</p>
-
-<p><b>Politics.</b> Eight groups with competing interests, weighted by their share
-of the population. No major policy pleases everyone. Weighted support below 50%
-at an election ends your administration.</p>
-
-<p><b>Compute.</b> Demand for it rises whether or not you build for it, and meeting
-that demand is usually the reasonable thing to do. Allocate it between sectors
-in the <i>Compute</i> panel.</p>`;
 
 /** The diagnostic layers, with the legend each one needs to mean anything. */
 const LAYER_DEFS: Array<{
@@ -224,6 +193,8 @@ export class UI {
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   private unreadAlerts = 0;
   private prefs: Prefs = loadPrefs();
+  /** The walkthrough. Built on first use — it carries a renderer of its own. */
+  private guide: Guide | null = null;
   private get collapsed(): boolean { return this.prefs.barCollapsed; }
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
@@ -375,7 +346,10 @@ export class UI {
     this.titleScreen.innerHTML = `
       <div class="title-card">
         <h1>The Optimization Problem</h1>
-        <p class="title-tag">A region-management simulation. Every decision is reasonable.</p>
+        <p class="title-tag">Every decision is reasonable.<br><span>That is the problem.</span></p>
+        <p class="title-what">Govern a growing region — housing, power, water, work, and
+          the computing infrastructure everyone keeps asking you to approve. There is no
+          final score. The job is to keep the balance as the region grows.</p>
         <div class="title-actions">
           ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
           ${hasSaves ? '<button id="t-load" class="title-btn">Load Save</button>' : ''}
@@ -383,6 +357,8 @@ export class UI {
           <button id="t-how" class="title-btn">How to Play</button>
           <button id="t-settings" class="title-btn">Settings</button>
         </div>
+        ${resumeLabel || hasSaves ? '' :
+          '<p class="title-hint">New here? <b>How to Play</b> is a short walk through the region before you take it on.</p>'}
         ${auto?.locked ? '<p class="title-note">The saved administration ended in observer mode. It can be watched, but not resumed.</p>' : ''}
         ${auto?.ended ? '<p class="title-note">The saved administration was terminated. It can be reviewed, but not continued.</p>' : ''}
       </div>`;
@@ -393,7 +369,7 @@ export class UI {
     on('#t-continue', () => this.onSession({ kind: 'load', slot: AUTO_SLOT }));
     on('#t-load', () => this.showLoadMenu(true));
     on('#t-new', () => this.showScenarioPicker(true));
-    on('#t-how', () => this.showHowTo());
+    on('#t-how', () => this.showHowTo(true));
     on('#t-settings', () => this.showSettings());
   }
 
@@ -449,9 +425,16 @@ export class UI {
     this.refresh();
   }
 
-  /** How the region actually works, in the order a new administrator meets it. */
-  showHowTo(): void {
-    this.showModal('How to Play', HOW_TO_BODY, [{ label: 'Close', action: () => {} }]);
+  /**
+   * The walkthrough. From the title screen it ends by handing the reader
+   * straight to the scenario picker, since somebody who has just read how to
+   * play is trying to play; from inside a region it simply closes.
+   */
+  showHowTo(fromTitle = false): void {
+    this.guide ??= new Guide(this.root);
+    this.guide.show(fromTitle
+      ? { label: 'Choose a Region', action: () => this.showScenarioPicker(true) }
+      : { label: 'Back to the Region', action: () => {} });
   }
 
   /** The hamburger: everything that isn't playing the game. */
@@ -466,6 +449,7 @@ export class UI {
       }],
       ['📂', 'Load Game', () => this.showLoadMenu()],
       ['✦', 'New Simulation', () => this.showScenarioPicker()],
+      ['❓', 'How to Play', () => this.showHowTo()],
       ['⚙', 'Settings', () => this.showSettings()],
       ['☰', 'Main Menu', () => this.confirmMainMenu()],
     ];
@@ -851,6 +835,7 @@ export class UI {
     this.showModal('Settings',
       `<div class="settings-list">${body}</div>`,
       [
+        { label: 'How to Play', action: () => this.showHowTo() },
         { label: 'Keyboard Shortcuts', action: () => this.showHotkeys() },
         { label: 'Reset to Defaults', action: () => { this.prefs = { ...DEFAULT_PREFS }; savePrefs(this.prefs); this.applyPrefs(); this.showSettings(); } },
         { label: 'Close', action: () => {} },

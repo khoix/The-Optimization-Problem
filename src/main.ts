@@ -9,6 +9,7 @@ import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
+import { invalidateNetwork } from './game/network';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -104,6 +105,7 @@ function startSession(req: SessionRequest): void {
   panDX = 0; panDY = 0; cursorDirty = true;
   xrayHeld = false;
 
+  invalidateNetwork(g);
   renderer.resetSession();
   renderer.centerOn(Math.floor(g.mapW * 0.52), Math.floor(g.mapH * 0.5));
   ui.resetSession();
