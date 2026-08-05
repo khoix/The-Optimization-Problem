@@ -5,7 +5,7 @@ import { Renderer, type UiRenderState } from './render/renderer';
 import { UI } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
@@ -22,10 +22,15 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 // Boot: an explicit request wins; otherwise continue the autosave; otherwise
 // found a new region.
 const bootFlag = consumeBootFlag();
+// The title screen is the entry point: on an explicit request, and on a first
+// launch with nothing to continue. Everything else goes straight to the region.
+const wantsMenu = bootFlag === 'menu' || (bootFlag === null && peek(AUTO_SLOT) === null);
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
-const g = (isNew ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
-const freshGame = g.tick === 0;
+const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
+// A menu backdrop is scenery, not an administration: it must never autosave
+// over the save the player is about to be offered.
+const freshGame = g.tick === 0 && !wantsMenu;
 
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
@@ -37,7 +42,8 @@ window.addEventListener('keydown', () => sound.init(), { once: true });
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
 ui.sound = sound;
-if (freshGame) ui.showIntro();
+if (wantsMenu) { g.speed = 0; ui.showTitle(); }
+else if (freshGame) ui.showIntro();
 
 const SPEED_MUL = [0, 1, 2.5, 6];
 
@@ -100,6 +106,7 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
     case 'l': case 'L': ui.cycleOverlay(); break;
+    case '?': ui.showHotkeys(); break;
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
       ev.preventDefault();
@@ -173,11 +180,11 @@ function frame(now: number): void {
     simAccum -= TICK_SECONDS;
     simTick(g);
     updateTutorial(g);
-    if (g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
+    if (!wantsMenu && g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
   }
   // Capture the terminal state once, immediately — a locked observer save is
   // part of the design, not an accident of timing.
-  if ((g.gameOver || g.asi.observer) && !endStateSaved) {
+  if ((g.gameOver || g.asi.observer) && !endStateSaved && !wantsMenu) {
     endStateSaved = true;
     saveTo(AUTO_SLOT, g);
   }

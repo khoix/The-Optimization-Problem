@@ -19,6 +19,8 @@ export interface SaveEnvelope {
   tick: number;
   population: number;
   locked: boolean;        // observer-mode save: watchable, never resumable
+  /** The administration ended conventionally — the save reopens on its epitaph. */
+  ended: boolean;
   state: Record<string, unknown>;
 }
 
@@ -36,6 +38,7 @@ export function serialize(g: GameState): SaveEnvelope {
     tick: g.tick,
     population: g.population,
     locked: g.asi.observer,
+    ended: g.gameOver != null && !g.asi.observer,
     state,
   };
 }
@@ -128,11 +131,17 @@ export function requestLoad(slot: string): void {
   location.reload();
 }
 
-/** Consume the boot flag: 'new' / 'new:<scenario>', a slot name to load from, or null. */
+/** Ask the next page load to open the title screen, then reload. */
+export function requestMenu(): void {
+  localStorage.setItem(BOOT_FLAG, 'menu');
+  location.reload();
+}
+
+/** Consume the boot flag: 'menu', 'new' / 'new:<scenario>', a slot name, or null. */
 export function consumeBootFlag(): string | null {
   const flag = localStorage.getItem(BOOT_FLAG);
   localStorage.removeItem(BOOT_FLAG);
-  if (flag === 'new' || flag?.startsWith('new:')) return flag;
+  if (flag === 'menu' || flag === 'new' || flag?.startsWith('new:')) return flag;
   if (flag?.startsWith('load:')) return flag.slice(5);
   return null;
 }

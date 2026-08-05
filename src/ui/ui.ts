@@ -9,7 +9,7 @@ import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { removeBuilding, notify, record } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, saveTo } from '../game/save';
+import { AUTO_SLOT, BOOT_FLAG, MANUAL_SLOT, peek, requestLoad, requestMenu, saveTo } from '../game/save';
 import { tierOf, buildingCondition } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
@@ -19,6 +19,7 @@ import type { OverlayId } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
+import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
 
@@ -29,6 +30,51 @@ type PanelItem =
       value: string; explain?: string; reading?: string; extraClass?: string;
     }
   | { kind: 'block'; key: string; className: string; html: string; explain?: string; reading?: string };
+
+/** Every binding the game listens for. The `?` overlay renders this verbatim. */
+const HOTKEYS: Array<[string, string]> = [
+  ['W A S D', 'Pan the camera'],
+  ['↑ ← ↓ →', 'Pan the camera'],
+  ['Scroll', 'Zoom in and out'],
+  ['Middle / right drag', 'Drag the map'],
+  ['Space', 'Pause and resume'],
+  ['Tab', 'Collapse or expand the Civic Systems Bar'],
+  ['L', 'Cycle the diagnostic map layers'],
+  ['Esc', 'Close a panel, then the inspector, then the active tool'],
+  ['?', 'This list'],
+];
+
+/**
+ * How the region works, in the order a new administrator meets it. Deliberately
+ * silent about what the compute is ultimately for — that is the game's to show.
+ */
+const HOW_TO_BODY = `
+<p><b>You are the regional development authority.</b> Build housing, utilities and
+services; keep the population fed with power, water and work; and hold enough
+public support to survive an election every four years. There is no final
+score — the job is to keep the balance as the region grows.</p>
+
+<p><b>Building.</b> Pick a category from the tool belt and click the map.
+Everything needs a road: a building with no frontage cannot be staffed, and one
+outside a utility's service area draws nothing. Idle buildings carry a warning
+badge, and the <i>Layers</i> panel will show you exactly which are stranded.</p>
+
+<p><b>The numbers.</b> Hover any figure on the bar or in <i>Indicators</i> to see
+what it measures and what moves it. Capacity gauges read need first, then
+capacity. Watch Service Expectations: residents normalise whatever you deliver,
+so a standard you meet once becomes the standard you are judged against.</p>
+
+<p><b>Decisions.</b> Events arrive every so often and pause the clock. Each option
+shows its projected impact. There is rarely a clean choice, and no option is
+free — if one looks free, the cost is somewhere you are not being shown.</p>
+
+<p><b>Politics.</b> Eight groups with competing interests, weighted by their share
+of the population. No major policy pleases everyone. Weighted support below 50%
+at an election ends your administration.</p>
+
+<p><b>Compute.</b> Demand for it rises whether or not you build for it, and meeting
+that demand is usually the reasonable thing to do. Allocate it between sectors
+in the <i>Compute</i> panel.</p>`;
 
 /** The diagnostic layers, with the legend each one needs to mean anything. */
 const LAYER_DEFS: Array<{
@@ -115,13 +161,17 @@ export class UI {
   private hoverCard!: HTMLElement;
   private explainCard!: HTMLElement;
   private observerOverlay!: HTMLElement;
+  private titleScreen!: HTMLElement;
+  private consoleRow!: HTMLElement;
+  private vitalsDock!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
   private lastBuildMenuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   private unreadAlerts = 0;
-  private collapsed = localStorage.getItem('top:barCollapsed') === '1';
+  private prefs: Prefs = loadPrefs();
+  private get collapsed(): boolean { return this.prefs.barCollapsed; }
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -208,22 +258,29 @@ export class UI {
     muteBtn.innerHTML = '<span class="sys-ico">🔊</span>';
     muteBtn.title = 'Mute';
     muteBtn.onclick = () => {
-      const so = this.sound;
-      if (!so) return;
-      so.init();
-      so.setEnabled(!so.enabled);
-      const ico = muteBtn.querySelector('.sys-ico');
-      if (ico) ico.textContent = so.enabled ? '🔊' : '🔇';
+      this.sound?.init();
+      this.setPref('sound', !this.prefs.sound);
     };
+    const settingsBtn = el('button', 'sys-btn');
+    settingsBtn.innerHTML = '<span class="sys-ico">⚙</span>';
+    settingsBtn.title = 'Settings';
+    settingsBtn.onclick = () => this.showSettings();
+    const menuBtn = el('button', 'sys-btn');
+    menuBtn.innerHTML = '<span class="sys-ico">☰</span>';
+    menuBtn.title = 'Main menu';
+    menuBtn.onclick = () => requestMenu();
     const collapseBtn = el('button', 'sys-btn collapse-btn');
     collapseBtn.title = 'Collapse the bar (Tab)';
     collapseBtn.onclick = () => this.toggleCollapse();
-    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn, collapseBtn);
+    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn,
+      settingsBtn, menuBtn, collapseBtn);
 
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
     consoleRow.append(this.vitals, console_, this.barRight);
+    this.consoleRow = consoleRow;
     this.civicBar.append(this.toolRow, consoleRow);
+    this.vitalsDock = el('div', 'vitals-dock hidden');
 
     // Two surfaces, one stream. Toasts are the transient right-hand column and
     // fade on their own; the feed is the permanent archive, and lives in the
@@ -237,20 +294,19 @@ export class UI {
     this.root.append(this.explainCard);
     this.installExplainers();
     this.observerOverlay = el('div', 'observer-overlay hidden');
-    this.root.append(this.flyout, this.civicBar, this.toastStack, this.inspector,
-      this.hoverCard, this.modal, this.observerOverlay);
+    this.titleScreen = el('div', 'title-screen hidden');
+    this.root.append(this.flyout, this.civicBar, this.vitalsDock, this.toastStack,
+      this.inspector, this.hoverCard, this.modal, this.observerOverlay, this.titleScreen);
 
     this.renderToolbelt();
     this.buildSystemPanels();
-    this.applyCollapse();
+    this.applyPrefs();
   }
 
   /** Collapse the bar to a single row when the map matters more than the tools. */
   toggleCollapse(): void {
-    this.collapsed = !this.collapsed;
-    localStorage.setItem('top:barCollapsed', this.collapsed ? '1' : '0');
+    this.setPref('barCollapsed', !this.prefs.barCollapsed);
     if (this.collapsed) this.closePanel();
-    this.applyCollapse();
   }
 
   private applyCollapse(): void {
@@ -264,8 +320,52 @@ export class UI {
     this.syncBarHeight(); // don't wait for the next refresh to reflow the toasts
   }
 
+  /**
+   * The title screen, over a live map so the region is the first thing seen.
+   * Reached at first launch, and from any ending — a terminated administration
+   * must have somewhere to go that isn't straight back into the same region.
+   */
+  showTitle(): void {
+    const auto = peek(AUTO_SLOT);
+    const year = auto ? Math.floor(auto.tick / 12) + 1 : 0;
+    // A finished administration is not something to "continue" — saying so
+    // would send the player straight back into the modal they just left.
+    const resumeLabel = !auto ? null
+      : auto.locked ? `Continue Observation — Year ${year}`
+      : auto.ended ? `Review Final State — Year ${year}`
+      : `Continue — Year ${year}, population ${auto.population.toLocaleString()}`;
+    this.titleScreen.classList.remove('hidden');
+    document.body.classList.add('at-title');
+    this.titleScreen.innerHTML = `
+      <div class="title-card">
+        <h1>The Optimization Problem</h1>
+        <p class="title-tag">A region-management simulation. Every decision is reasonable.</p>
+        <div class="title-actions">
+          ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
+          <button id="t-new" class="title-btn${resumeLabel ? '' : ' primary'}">Begin New Simulation</button>
+          <button id="t-how" class="title-btn">How to Play</button>
+          <button id="t-settings" class="title-btn">Settings</button>
+        </div>
+        ${auto?.locked ? '<p class="title-note">The saved administration ended in observer mode. It can be watched, but not resumed.</p>' : ''}
+        ${auto?.ended ? '<p class="title-note">The saved administration was terminated. It can be reviewed, but not continued.</p>' : ''}
+      </div>`;
+    const on = (id: string, fn: () => void) => {
+      const b = this.titleScreen.querySelector<HTMLElement>(id);
+      if (b) b.onclick = fn;
+    };
+    on('#t-continue', () => requestLoad(AUTO_SLOT));
+    on('#t-new', () => this.showScenarioPicker(true));
+    on('#t-how', () => this.showHowTo());
+    on('#t-settings', () => this.showSettings());
+  }
+
+  /** How the region actually works, in the order a new administrator meets it. */
+  showHowTo(): void {
+    this.showModal('How to Play', HOW_TO_BODY, [{ label: 'Close', action: () => {} }]);
+  }
+
   /** The New Game dialog: always a scenario choice, never a silent restart. */
-  showScenarioPicker(): void {
+  showScenarioPicker(fromTitle = false): void {
     this.showModal('Begin New Simulation',
       'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
       [
@@ -273,7 +373,9 @@ export class UI {
           label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
           action: () => { localStorage.setItem(BOOT_FLAG, `new:${id}`); location.reload(); },
         })),
-        { label: 'Cancel', action: () => {} },
+        // Cancelling out of the picker must not strand the player on a blank
+        // map: if the title screen sent them here, the title screen gets them back.
+        { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
       ]);
   }
 
@@ -454,6 +556,88 @@ export class UI {
     this.syncToolButtons();
   }
 
+  // ------------------------------------------------------------ preferences
+  /** Change one preference, persist the set, and apply the consequences. */
+  private setPref<K extends keyof Prefs>(key: K, value: Prefs[K]): void {
+    this.prefs[key] = value;
+    savePrefs(this.prefs);
+    this.applyPrefs();
+    this.syncSettingsPanel();
+  }
+
+  /** Push the current preferences into the interface. Safe to call repeatedly. */
+  private applyPrefs(): void {
+    const p = this.prefs;
+    this.applyCollapse();
+    document.body.classList.toggle('vitals-sidebar', p.vitalsPlacement === 'sidebar');
+    document.body.classList.toggle('reduced-motion', p.reducedMotion);
+    // Vital signs live in the bar or in their own column; the element moves
+    // rather than being duplicated, so nothing can drift between the two.
+    const host = p.vitalsPlacement === 'sidebar' ? this.vitalsDock : this.consoleRow;
+    if (this.vitals.parentElement !== host) {
+      if (host === this.consoleRow) host.prepend(this.vitals);
+      else host.append(this.vitals);
+    }
+    this.vitalsDock.classList.toggle('hidden', p.vitalsPlacement !== 'sidebar');
+    this.sound?.setEnabled(p.sound);
+    if (!p.toasts) for (const id of [...this.toasts.keys()]) this.dismissToast(id, true);
+    if (this.overlay !== p.layer) this.setOverlay(p.layer);
+    this.syncBarHeight();
+  }
+
+  showSettings(): void {
+    const rows: Array<{ key: keyof Prefs; label: string; desc: string; options?: Array<[string, string]> }> = [
+      { key: 'autoPauseOnDecision', label: 'Pause on decisions', desc: 'Stop the clock when a decision or report arrives.' },
+      { key: 'toasts', label: 'Alert pop-ups', desc: 'Transient alerts over the map. The Alerts panel keeps everything either way.' },
+      { key: 'sound', label: 'Sound', desc: 'Ambient soundscape and interface tones.' },
+      { key: 'reducedMotion', label: 'Reduced motion', desc: 'Suppress interface animation beyond the system setting.' },
+      {
+        key: 'vitalsPlacement', label: 'Vital signs', desc: 'In the Civic Systems Bar, or in their own column.',
+        options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
+      },
+    ];
+    const body = rows.map((r) => {
+      const control = r.options
+        ? `<span class="set-seg">${r.options.map(([v, l]) =>
+            `<button class="set-opt" data-pref="${r.key}" data-value="${v}">${l}</button>`).join('')}</span>`
+        : `<button class="set-toggle" data-pref="${r.key}"></button>`;
+      return `<div class="set-row"><div class="set-text"><b>${r.label}</b><small>${r.desc}</small></div>${control}</div>`;
+    }).join('');
+    this.showModal('Settings',
+      `<div class="settings-list">${body}</div>`,
+      [
+        { label: 'Keyboard Shortcuts', action: () => this.showHotkeys() },
+        { label: 'Reset to Defaults', action: () => { this.prefs = { ...DEFAULT_PREFS }; savePrefs(this.prefs); this.applyPrefs(); this.showSettings(); } },
+        { label: 'Close', action: () => {} },
+      ]);
+    for (const b of this.modal.querySelectorAll<HTMLElement>('[data-pref]')) {
+      b.onclick = () => {
+        const key = b.dataset.pref as keyof Prefs;
+        if (b.dataset.value !== undefined) this.setPref(key, b.dataset.value as never);
+        else this.setPref(key, !this.prefs[key] as never);
+      };
+    }
+    this.syncSettingsPanel();
+  }
+
+  private syncSettingsPanel(): void {
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.set-toggle[data-pref]')) {
+      const on = !!this.prefs[b.dataset.pref as keyof Prefs];
+      b.classList.toggle('on', on);
+      b.textContent = on ? 'On' : 'Off';
+    }
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.set-opt[data-pref]')) {
+      b.classList.toggle('on', this.prefs[b.dataset.pref as keyof Prefs] === b.dataset.value);
+    }
+  }
+
+  showHotkeys(): void {
+    const rows = HOTKEYS.map(([k, d]) =>
+      `<div class="key-row"><kbd>${k}</kbd><span>${d}</span></div>`).join('');
+    this.showModal('Keyboard Shortcuts', `<div class="key-list">${rows}</div>`,
+      [{ label: 'Close', action: () => {} }]);
+  }
+
   // ------------------------------------------------------------ map layers
   /**
    * Diagnostic layers. The indicators panel says a district is underserved;
@@ -481,6 +665,7 @@ export class UI {
   /** Switch the active layer, or clear it with null. */
   setOverlay(id: OverlayId | null): void {
     this.overlay = id;
+    if (this.prefs.layer !== id) { this.prefs.layer = id; savePrefs(this.prefs); }
     this.syncLayerButtons();
   }
 
@@ -696,6 +881,7 @@ export class UI {
   }
 
   private pushToast(n: Notification): void {
+    if (!this.prefs.toasts) return;
     const live = this.toasts.get(n.id);
     if (live) {
       // Keep a visible toast's figures current without restarting its clock —
@@ -760,6 +946,9 @@ export class UI {
       const panel = b.dataset.panel;
       b.classList.toggle('open', panel != null && panel === this.openPanel);
       b.classList.toggle('active', this.tool.kind === 'demolish' && b.classList.contains('demolish'));
+      // The layer badge is synced here too, so a layer restored at boot lights
+      // its button even though the toolbelt is built after the preferences load.
+      if (panel === 'layers') b.classList.toggle('layer-on', this.overlay !== null);
     }
     for (const b of this.flyout.querySelectorAll<HTMLElement>('.build-card')) {
       b.classList.toggle('active', this.tool.kind === 'build' && b.dataset.type === this.tool.type);
@@ -1060,6 +1249,7 @@ export class UI {
    */
   private autoPause(): void {
     const g = this.g;
+    if (!this.prefs.autoPauseOnDecision) { this.resumeSpeed = null; return; }
     if (g.speed > 0 && pauseAllowed(g)) {
       this.resumeSpeed = g.speed;
       this.onSpeed(0);
@@ -1283,6 +1473,8 @@ export class UI {
       const lbl = alertBtn.querySelector('.sys-text');
       if (lbl) lbl.textContent = this.unreadAlerts > 0 ? `Alerts ${this.unreadAlerts}` : 'Alerts';
     }
+    const muteIco = this.barRight.querySelector<HTMLElement>('.mute-btn .sys-ico');
+    if (muteIco) muteIco.textContent = this.prefs.sound ? '🔊' : '🔇';
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
 
@@ -1463,7 +1655,8 @@ export class UI {
       document.body.classList.add('ended');
       this.showModal('Administration Terminated', g.gameOver, [
         { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
-        { label: 'Begin New Simulation', action: () => { localStorage.setItem(BOOT_FLAG, 'new'); location.reload(); } },
+        { label: 'Begin New Simulation', action: () => this.showScenarioPicker() },
+        { label: 'Return to Main Menu', action: () => requestMenu() },
       ]);
     }
   }
@@ -1481,6 +1674,7 @@ export class UI {
           <button id="obs-continue">Continue Observation</button>
           <button id="obs-history">Review Historical Decisions</button>
           <button id="obs-restart">Begin New Simulation</button>
+          <button id="obs-menu">Return to Main Menu</button>
         </div>
       </div>`;
     (this.observerOverlay.querySelector('#obs-continue') as HTMLElement).onclick = () => {
@@ -1491,8 +1685,9 @@ export class UI {
       this.showHistory();
     };
     (this.observerOverlay.querySelector('#obs-restart') as HTMLElement).onclick = () => {
-      localStorage.setItem(BOOT_FLAG, 'new');
-      location.reload();
+      this.observerOverlay.classList.add('dismissed');
+      this.showScenarioPicker();
     };
+    (this.observerOverlay.querySelector('#obs-menu') as HTMLElement).onclick = () => requestMenu();
   }
 }
