@@ -97,6 +97,7 @@ window.addEventListener('keydown', (ev) => {
     case 'ArrowLeft': case 'a': renderer.camX -= pan; break;
     case 'ArrowRight': case 'd': renderer.camX += pan; break;
     case 'Escape': ui.handleEscape(); break;
+    case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
       ev.preventDefault();
       g.speed = g.speed === 0 ? 1 : 0;

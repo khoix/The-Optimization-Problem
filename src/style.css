@@ -88,12 +88,21 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 /* left: vital signs */
 .bar-vitals {
   flex: 1 1 0; min-width: 0;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px;
+  display: flex; flex-direction: column; gap: 4px;
 }
-.vital { display: flex; align-items: center; gap: 6px; min-width: 96px; }
+.vital-group { display: flex; gap: 12px; flex-wrap: wrap; }
+.vital { display: flex; align-items: center; gap: 5px; min-width: 92px; }
 .vital-ico { font-size: 12px; width: 14px; text-align: center; opacity: 0.85; }
 .vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.vital-num { font-family: var(--mono); font-size: 12px; color: #fff; line-height: 1; }
+.vital-num {
+  font-family: var(--mono); font-size: 12px; color: #fff; line-height: 1;
+  display: flex; align-items: baseline; gap: 4px; white-space: nowrap;
+}
+.vital-label-inline {
+  font-family: var(--font); font-size: 8.5px; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.gauge-void { background: transparent; }
 .vital-num.bad { color: var(--bad); }
 .vital-cap { color: var(--text-dim); font-size: 10px; }
 .vital-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; }
@@ -109,6 +118,21 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 }
 .vital-mini b { color: var(--text); }
 
+/* collapsed: one row — tool belt and secondary indicators fold away */
+.civic-bar.collapsed .bar-row-tools { display: none; }
+.civic-bar.collapsed .vital-secondary { display: none; }
+.civic-bar.collapsed { padding-bottom: 5px; }
+.collapse-btn { padding: 6px 7px; }
+/* anchored UI follows the bar up when it folds */
+body.bar-collapsed .inspector { bottom: 62px; }
+body.bar-collapsed .feed { bottom: 62px; }
+body.bar-collapsed .flyout { bottom: 58px; max-height: calc(100% - 150px); }
+/* collapsed, the console lies down: LCD beside the transport, not above it */
+.civic-bar.collapsed .console { flex-direction: row; align-items: center; gap: 8px; padding: 3px 8px; }
+.civic-bar.collapsed .lcd { min-width: 132px; }
+.civic-bar.collapsed .lcd-readout { flex-direction: row; align-items: baseline; gap: 7px; }
+.civic-bar.collapsed .lcd-sub { font-size: 8px; }
+
 /* centre: LCD-behind-glass console with transport row */
 .console {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -120,10 +144,10 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
   position: relative; overflow: hidden;
   min-width: 146px; padding: 3px 10px 4px; border-radius: 3px;
   background:
-    repeating-linear-gradient(rgba(0,0,0,0.16) 0 1px, transparent 1px 2px),
-    linear-gradient(to bottom, #16301f, #0f2417);
-  border: 1px solid #0a1a10;
-  box-shadow: inset 0 2px 5px rgba(0,0,0,0.75), 0 0 10px rgba(90,220,140,0.09);
+    repeating-linear-gradient(rgba(0,0,0,0.18) 0 1px, transparent 1px 2px),
+    linear-gradient(to bottom, #16264a, #0d1730);
+  border: 1px solid #08101f;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,0.78), 0 0 11px rgba(90,150,255,0.12);
 }
 .lcd-glass {
   position: absolute; inset: 0; pointer-events: none;
@@ -131,8 +155,8 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 }
 .lcd-readout { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .lcd-line {
-  font-family: var(--mono); color: #6ef2a4; letter-spacing: 1.5px; line-height: 1.1;
-  text-shadow: 0 0 5px rgba(110,242,164,0.55);
+  font-family: var(--mono); color: #8fc4ff; letter-spacing: 1.5px; line-height: 1.1;
+  text-shadow: 0 0 6px rgba(120,175,255,0.6);
 }
 .lcd-main { font-size: 12px; font-weight: 600; }
 .lcd-dot { margin: 0 5px; opacity: 0.6; }
@@ -147,8 +171,8 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 }
 .speed-btn:hover { color: var(--text); background: #232c3f; }
 .speed-btn.active {
-  color: #6ef2a4; background: #1b3527; border-color: #3f7a58;
-  box-shadow: inset 0 0 6px rgba(110,242,164,0.2);
+  color: #8fc4ff; background: #1a2a4a; border-color: #3f5c8a;
+  box-shadow: inset 0 0 6px rgba(120,175,255,0.22);
 }
 
 /* centre: tool belt */

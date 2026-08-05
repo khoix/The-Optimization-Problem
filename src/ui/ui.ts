@@ -65,6 +65,7 @@ export class UI {
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   private unreadAlerts = 0;
+  private collapsed = localStorage.getItem('top:barCollapsed') === '1';
 
   constructor(root: HTMLElement, private g: GameState, private onSpeed: (s: 0 | 1 | 2 | 3) => void) {
     this.root = root;
@@ -156,7 +157,10 @@ export class UI {
       const ico = muteBtn.querySelector('.sys-ico');
       if (ico) ico.textContent = so.enabled ? '🔊' : '🔇';
     };
-    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn);
+    const collapseBtn = el('button', 'sys-btn collapse-btn');
+    collapseBtn.title = 'Collapse the bar (Tab)';
+    collapseBtn.onclick = () => this.toggleCollapse();
+    this.barRight.append(alertsBtn, overrideBtn, saveBtn, loadBtn, newBtn, muteBtn, collapseBtn);
 
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
@@ -173,6 +177,25 @@ export class UI {
 
     this.renderToolbelt();
     this.buildSystemPanels();
+    this.applyCollapse();
+  }
+
+  /** Collapse the bar to a single row when the map matters more than the tools. */
+  toggleCollapse(): void {
+    this.collapsed = !this.collapsed;
+    localStorage.setItem('top:barCollapsed', this.collapsed ? '1' : '0');
+    if (this.collapsed) this.closePanel();
+    this.applyCollapse();
+  }
+
+  private applyCollapse(): void {
+    this.civicBar.classList.toggle('collapsed', this.collapsed);
+    document.body.classList.toggle('bar-collapsed', this.collapsed);
+    const btn = this.civicBar.querySelector<HTMLElement>('.collapse-btn');
+    if (btn) {
+      btn.innerHTML = `<span class="sys-ico">${this.collapsed ? '▲' : '▼'}</span>`;
+      btn.title = this.collapsed ? 'Expand the bar (Tab)' : 'Collapse the bar (Tab)';
+    }
   }
 
   /** The New Game dialog: always a scenario choice, never a silent restart. */
@@ -783,28 +806,43 @@ export class UI {
           <span class="gauge"><span class="gauge-fill ${shown}" style="width:${Math.min(100, pct)}%"></span></span>
         </span></div>`;
     };
+    // A 0..100 indicator rendered in the same visual language as the gauges,
+    // so nothing in the bar reads as a bare number.
+    const meter = (icon: string, label: string, value: number, opts?: { invert?: boolean; suffix?: string }) => {
+      const v = Math.max(0, Math.min(100, value));
+      const good = opts?.invert ? 100 - v : v;
+      const cls = good < 30 ? 'gauge-bad' : good < 55 ? 'gauge-warn' : 'gauge-ok';
+      const shown = hideNegatives ? 'gauge-calm' : cls;
+      const text = hideNegatives && opts?.invert ? '—' : `${Math.round(v)}${opts?.suffix ?? ''}`;
+      return `<div class="vital" title="${label}">
+        <span class="vital-ico">${icon}</span>
+        <span class="vital-body">
+          <span class="vital-num">${text}<span class="vital-label-inline">${label}</span></span>
+          <span class="gauge"><span class="gauge-fill ${shown}" style="width:${v}%"></span></span>
+        </span></div>`;
+    };
     const housingCap = [...g.buildings.values()]
       .filter((b) => b.progress >= 1 && b.active)
       .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
     const capitalCls = r.capital < 0 ? 'bad' : '';
+    // Primary row survives collapse; secondary row is the first thing hidden.
     this.vitals.innerHTML =
-      `<div class="vital vital-wide"><span class="vital-ico">§</span><span class="vital-body">
-        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}</span>
-        <span class="vital-label">Capital</span></span></div>` +
-      `<div class="vital vital-wide"><span class="vital-ico">👤</span><span class="vital-body">
-        <span class="vital-num">${g.population.toLocaleString()}</span>
-        <span class="vital-label">${tierOf(g.population).name}</span></span></div>` +
+      `<div class="vital-group vital-primary">` +
+      `<div class="vital" title="Capital"><span class="vital-ico">§</span><span class="vital-body">
+        <span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>
+        <span class="gauge gauge-void"></span></span></div>` +
       gauge('⚡', 'Power', r.powerDemand, r.powerCapacity) +
       gauge('💧', 'Water', r.waterDemand, r.waterCapacity) +
       gauge('▣', 'Compute', r.computeDemand, r.compute) +
       gauge('🏠', 'Housing', g.population, housingCap) +
-      `<div class="vital-mini">
-        <span title="${unempLabel}">${unempLabel.slice(0, 4)} <b>${hideNegatives ? '—' : unemp + '%'}</b></span>
-        <span title="${unrestLabel}">${unrestLabel.slice(0, 4)} <b>${unrestVal}</b></span>
-        <span title="Public trust">Trust <b>${Math.round(g.indicators.trust)}</b></span>
-        <span title="Public health">Health <b>${Math.round(g.indicators.health)}</b></span>
-        <span title="Regional attractiveness">Appeal <b>${Math.round(g.attractiveness.overall * 100)}</b></span>
-      </div>`;
+      `</div>` +
+      `<div class="vital-group vital-secondary">` +
+      meter('☺', 'Trust', g.indicators.trust) +
+      meter('✚', 'Health', g.indicators.health) +
+      meter('★', 'Appeal', g.attractiveness.overall * 100) +
+      meter('👥', unempLabel, unemp, { invert: true, suffix: '%' }) +
+      meter('✊', unrestLabel, g.unrest * 100, { invert: true, suffix: '%' }) +
+      `</div>`;
 
     // ---- Centre console: the LCD readout ----
     // The display is deliberately spare and instrument-like. Once the system
@@ -813,6 +851,14 @@ export class UI {
     this.barStatus.innerHTML =
       `<span class="lcd-line lcd-main">YEAR ${year}<span class="lcd-dot">·</span>${month.toUpperCase()}</span>` +
       `<span class="lcd-line lcd-sub">${lcdClass}</span>`;
+    // Hovering the display expands it into the regional summary.
+    const queue = Math.max(0, Math.round(g.migrationDemand - g.population));
+    this.barStatus.title =
+      `${tierOf(g.population).name} · population ${g.population.toLocaleString()}\n` +
+      `Migration queue: ${queue}\n` +
+      `Jobs: ${g.jobsFilled} filled of ${g.jobsTotal}\n` +
+      `Attractiveness: ${Math.round(g.attractiveness.overall * 100)}\n` +
+      `Year ${year}, ${month}`;
     this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
