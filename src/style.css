@@ -350,7 +350,10 @@ body.bar-collapsed .inspector { bottom: 62px; }
 
 /* hover status card */
 .hover-card {
-  position: fixed; pointer-events: none;
+  /* Anchored at the origin and moved by transform, so repositioning is a
+     compositor job rather than a layout one. */
+  position: fixed; top: 0; left: 0; will-change: transform;
+  pointer-events: none;
   background: rgba(14,18,28,0.96); border: 1px solid var(--panel-border);
   border-radius: 5px; padding: 6px 9px; max-width: 220px;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
