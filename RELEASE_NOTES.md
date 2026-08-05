@@ -659,9 +659,9 @@ screen against a forced rebuild), and the game still playable afterwards.
 **The tagline.** *"A region-management simulation. Every decision is reasonable."*
 The second sentence was the good half, doing the joke before the reader had anything
 to attach it to; the first told a newcomer almost nothing. It now leads with the hook
-in two beats — **every decision is reasonable / that is the problem** — then says
-plainly what the game is and that there is nothing to win. A scrim behind the card
-keeps it readable over whatever terrain happens to be underneath.
+in two beats — **every decision is reasonable / that is the problem** — then names
+what you govern in one line and stops. A scrim behind the card keeps it readable over
+whatever terrain happens to be underneath.
 
 **How to Play** was six paragraphs of reference prose: useful to somebody already
 playing, no use at all to somebody deciding whether to. It is now an eight-page

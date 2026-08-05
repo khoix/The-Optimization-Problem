@@ -82,9 +82,8 @@ const PAGES: GuidePage[] = [
       over everything in it: what gets built, where the power comes from, which policies
       apply, and what the region does about the technology sector that keeps asking to
       invest here.</p>
-      <p><b>The mandate is balance, not victory.</b> There is no final score and nothing to
-      win — the job is to keep a growing region in working order, indefinitely. It ends
-      only if you let something collapse, or if the electorate replaces you.</p>`,
+      <p><b>Keep it in balance as it grows.</b> It ends two ways: you let something
+      collapse, or the electorate replaces you at an election.</p>`,
     figure: { kind: 'map', at: [CX, CY], zoom: 3, hour: 7.5 },
     caption: 'Your region, the morning you take office.',
   },

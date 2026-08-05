@@ -348,8 +348,7 @@ export class UI {
         <h1>The Optimization Problem</h1>
         <p class="title-tag">Every decision is reasonable.<br><span>That is the problem.</span></p>
         <p class="title-what">Govern a growing region — housing, power, water, work, and
-          the computing infrastructure everyone keeps asking you to approve. There is no
-          final score. The job is to keep the balance as the region grows.</p>
+          the computing infrastructure everyone keeps asking you to approve.</p>
         <div class="title-actions">
           ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
           ${hasSaves ? '<button id="t-load" class="title-btn">Load Save</button>' : ''}
