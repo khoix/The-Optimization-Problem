@@ -146,7 +146,13 @@ export class AmbientLife {
     const targetY = a.ty * TILE + TILE / 2 + (a.kind === 'car' ? dx * laneOff * 0.5 : -dx * laneOff);
     const distX = targetX - a.x, distY = targetY - a.y;
     const dist = Math.hypot(distX, distY);
-    if (dist < 1.5) {
+    // Arrival is "this step would reach it", not a fixed radius. At 6x the
+    // update covers up to 0.6s, which is far enough to overshoot a 12px tile:
+    // the direction vector then flips and the agent oscillates around the
+    // target instead of arriving. That was the jitter — and only on the fast
+    // ones, which is why it looked like some cars and not others.
+    const step = speed * dt;
+    if (dist <= Math.max(1.5, step)) {
       // arrived at tile center: choose next road tile
       const options: number[] = [];
       for (let d = 0; d < 4; d++) {
@@ -162,9 +168,12 @@ export class AmbientLife {
       a.dir = dir;
       a.tx += DIRS[dir][0];
       a.ty += DIRS[dir][1];
+      // Land on the point rather than near it, so the next leg starts clean.
+      a.x = targetX;
+      a.y = targetY;
     } else {
-      a.x += (distX / dist) * speed * dt;
-      a.y += (distY / dist) * speed * dt;
+      a.x += (distX / dist) * step;
+      a.y += (distY / dist) * step;
     }
   }
 }
