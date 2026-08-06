@@ -701,6 +701,55 @@ bar restyles the guide with it.
 
 ---
 
+## Milestone 26 — editing the map — `08fcd87`
+
+Three refusals the map used to make are now prices or actions.
+
+**Demolition demolishes.** The tool removed roads on click but opened the inspector
+when it hit a building, so a tool called Demolish reliably demolished pavement and
+reliably demolished nothing else. Clicking a building now takes it — through
+`canDemolish`, the same gate the inspector always used, because the refusals are the
+story: at phase 2 the system declines to decommission a data centre, and that had to
+survive being reached by a different route.
+
+- Anything above §150 **asks first**. A misplaced click should not be able to spend a
+  nuclear plant.
+- A drag **sweeps roads and rock but never a building**. Losing a line of pavement to
+  an overshot drag is a few tiles of capital; losing a hospital to one is a different
+  afternoon.
+
+> **Fix.** `removeBuilding` returned nothing at all, so correcting a placement mistake
+> cost the full price twice — once to build it and once to be rid of it. Demolition
+> now refunds 35% scaled by condition: a worn plant is worth scrapping, a misplaced
+> new one is worth moving, and neither is free.
+
+**Rock is a price rather than a permanent no.** It was the map's one terrain that
+could not be built on and could not be changed. Clearing costs §25 a tile through the
+demolish tool, paint-draggable like roads. The hover card carries the change: rock
+used to read *"Not buildable"* and stop, which was the whole of what the interface had
+to say about it. It now says what to do about it, and quotes the price when the tool
+that can do it is out.
+
+**Bridges** are a fifth road class rather than a flag on the other four, so the flood
+fill, staffing and congestion treat a deck as pavement without knowing what is
+underneath — a crossing joins two road components with no change to `network.ts` at
+all. §45 a tile, street capacity.
+
+The span rule is the whole design: a bridge tile needs land within **eight tiles on
+both sides along at least one axis**. That is one sentence — a bridge reaches the far
+bank — and it means rivers can be crossed anywhere while the Azure Coast's ocean
+cannot be paved flat. Existing deck counts as bank, so a crossing can be built from
+either end and meet in the middle.
+
+> **Fix, found while building it.** Water is animated and therefore drawn live, on top
+> of whatever the terrain cache baked — so a deck coming from the cache was painted
+> over by the river every frame and was simply invisible. The deck is redrawn after
+> the water, with transparent margins, which is also what lets the river keep moving
+> either side of the crossing. Bridged tiles no longer mirror anything either: a deck
+> is not a surface the sky reflects in.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
