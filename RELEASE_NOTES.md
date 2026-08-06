@@ -933,6 +933,91 @@ make: Settings carries Auto / On / Off.
 
 ---
 
+## Milestone 31 — what the console tells you — `c93983a`
+
+Three pieces of feedback that were missing rather than wrong.
+
+### Demolish highlights its target
+
+Build has always drawn a coloured footprint before the click lands. Demolish drew
+nothing — which was survivable while demolishing a building opened the inspector, and
+stopped being survivable in M26 when it became immediate.
+
+Three outcomes read differently under the cursor, because they are three different
+things: **red** for a removal, **amber** for clearing rock (a purchase, not a
+demolition), **grey** for a refusal. The refusal matters most: a phase-2 *operationally
+infeasible* is now visible before the click rather than only in the modal after it, and
+so is rock you cannot currently afford. A building's mass above the ground is outlined
+as well as its footprint — a tall block whose base alone is marked reads as though only
+the base is going.
+
+### Speed survives a pause
+
+Space paused, and then resumed at 1×, whatever you had been watching at. Anyone playing
+at ▶▶▶ re-picked it after every glance at an alert.
+
+The bar owns speed now. Every control routes through a single write path that records
+the last running speed, and space restores it. The transport buttons stay explicit —
+clicking a speed means that speed; only space is a suspension that undoes itself. A new
+region starts over at 1× rather than inheriting the last one's.
+
+> **Fix.** Space wrote `g.speed` directly and so bypassed `pauseAllowed` entirely: at
+> phase 4+ the pause *button* got the system's refusal while the keyboard quietly worked.
+> Both go through the same gate now, and say the same words.
+
+### Policy attribution
+
+Ten policies move revenue and four spend. Twenty-seven of twenty-nine move approval.
+Nothing in the interface ever said so — you adopted a policy on its description and
+inferred its effect from a balance that moves for a dozen other reasons.
+
+The simulation now books every figure to a **monthly ledger** as it computes it, in the
+order it applies it. The order is part of the answer: a policy that scales revenue is
+worth whatever it scales, which depends on everything booked before it. Indicators
+carries the breakdown — income and outgoings, largest lines first, policy lines marked —
+and the policy list shows each enacted policy's current net per month beside it.
+
+Automation Tax is the case that makes the point. It earns §6 per active automated
+factory and costs a fifth of what those factories make; both halves are booked
+separately, and the row shows the net. A policy in force that currently moves no money —
+Carbon Tax in a region that burns no coal — shows nothing, which is also worth knowing.
+
+**Investor sentiment is booked too.** Up to a fifth of the month's income, appearing or
+vanishing purely on whether the region grew, landing after income minus expenses and
+therefore never shown anywhere. It is a line now.
+
+Each side's lines sum *exactly* to that side's total, and the two sides reconcile with
+the treasury's actual movement across the tick. The tests assert the sums rather than the
+individual figures: if the arithmetic ever stops closing, the breakdown is lying, and a
+per-figure assertion would not catch it.
+
+### Verification
+
+41 checks in a headless-Chromium harness, all passing. The demolish highlight is measured
+as a colour shift on the **composed canvas** rather than the world buffer, so it is proved
+to survive the whole pipeline — grade, bloom, shafts, tilt-shift, vignette — not merely to
+have been drawn somewhere upstream.
+
+> **Fix — the probe was measuring the wrong tiles.** It assumed `TILE = 24`; the game uses
+> 16. Every hover landed two-thirds of the way to somewhere else. Two cases passed anyway,
+> because the tile they wrongly landed on happened to be the right *kind* of ground — a
+> rock probe that found rock, and an empty-ground probe that found empty ground. The
+> constant comes from the game now.
+
+> **Note — a coin-flip cannot be asserted once.** `pauseAllowed` is deliberately random at
+> phase 4+: pausing *becomes unreliable*, which is the point. A single press proves
+> nothing either way. The check presses across a run of ticks and requires both outcomes
+> to appear, plus observer mode where the refusal is absolute.
+
+> **Note — three probes were passing on the wrong premise.** Automation Tax showed nothing
+> because the region had no automated factories; UBI showed nothing because nobody was
+> unemployed; and the reconciliation showed zero because the region had quietly ended and
+> the simulation had stopped ticking. All three were the test failing to set up the
+> condition it was testing, and all three reported cleanly once the probe said what state
+> it had actually produced.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -960,7 +1045,19 @@ silently failed to place, and "fourteen starter buildings are active" was true w
 the fifteenth had never existed to be counted. Both read a positive fact and inferred
 completeness from it.
 
+M31 added a fifth, and it is the quietest: **a test that passes because it never set up
+the condition it was testing.** Automation Tax's ledger lines were empty — correctly,
+because the region had no automated factories to tax. UBI's cost was zero — correctly,
+because nobody was out of work. Neither assertion was wrong about the code; both were
+wrong about the world they had built to run it in. The repair was to make each probe
+report the state it had actually produced alongside its result, so an empty answer says
+whether it is empty because the feature is broken or because there was nothing to say.
+M31's `TILE = 24` was the same shape of error from the other side: a probe measuring the
+wrong place, with two of its cases passing anyway because the wrong place happened to
+contain the right kind of thing.
+
 The standing rules that came out of all this: **make the assertion touch real state,
 not a proxy for it**; **count what should be there, not what is**; **feed it what the
-game feeds it**; and when a test passes over a symptom the player can still see, the
-test is the thing that is wrong.
+game feeds it**; **make the probe say what it built, not only what it found**; and when
+a test passes over a symptom the player can still see, the test is the thing that is
+wrong.
