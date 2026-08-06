@@ -560,7 +560,10 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
-  const mul = SPEED_MUL[g.asi.observer ? 1 : g.speed];
+  // Observer mode used to pin the clock to 1x and ignore g.speed entirely,
+  // which was consistent while the transport was greyed out and became a lie
+  // the moment it wasn't. Watching is a thing you do at your own pace.
+  const mul = SPEED_MUL[g.speed];
 
   simAccum += dt * mul;
   while (simAccum >= TICK_SECONDS) {
