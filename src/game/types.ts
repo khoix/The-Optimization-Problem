@@ -336,6 +336,8 @@ export interface GameState {
    * the bar means the same thing at sixty residents and sixty thousand.
    */
   lastNet: number;
+  /** Gross income for the month — the rate bar's full-scale reference. */
+  lastIncome: number;
   lastOutgoings: number;
   /** Recent net figures, newest last. The bar reads their mean, not one tick. */
   netHistory: number[];

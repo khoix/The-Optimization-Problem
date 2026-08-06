@@ -339,6 +339,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     peakPopulation: scen.startPopulation,
     lastPopulation: scen.startPopulation,
     lastNet: 0,
+    lastIncome: 0,
     lastOutgoings: 0,
     netHistory: [],
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },

@@ -119,8 +119,15 @@ const CONFIRM_DEMOLITION_ABOVE = 150;
 /** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
 const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
 const SEV_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
-/** Above this many at once, the quiet ones give way. */
+/**
+ * Above this many at once, the quiet ones give way.
+ *
+ * One on a phone. Four stacked alerts is a reasonable corner of a 1280px
+ * screen and most of a 390px one, and a toast that covers the map is a toast
+ * that has stopped being an aside.
+ */
 const MAX_TOASTS = 4;
+const MAX_TOASTS_COMPACT = 1;
 
 /** Why a completed building isn't running — stated plainly, in the inspector. */
 const OFFLINE_REASONS: Record<string, string> = {
@@ -158,6 +165,9 @@ export class UI {
    * main.ts immediately after construction, alongside the soundscape.
    */
   onSession!: (req: SessionRequest) => void;
+
+  /** Attached by main.ts. The UI only ever touches its render preferences. */
+  renderer: { tiltShift: boolean } | null = null;
 
   private root: HTMLElement;
   private civicBar!: HTMLElement;
@@ -253,7 +263,10 @@ export class UI {
     this.tierBar.innerHTML = '<span class="lcd-tier-fill"></span>';
     lcd.append(this.barStatus, this.tierBar, el('div', 'lcd-glass'));
     const spd = el('div', 'transport');
-    ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
+    // ▮▮ rather than ⏸: the latter is in a block with emoji presentation by
+    // default, so it arrived as a colour glyph beside three monochrome
+    // triangles. ▮ is Geometric Shapes, like ▶, and stays text.
+    ([['▮▮', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
       b.dataset.speed = String(sp);
       b.title = ['Pause', 'Normal speed', 'Fast', 'Fastest'][sp];
@@ -452,7 +465,16 @@ export class UI {
 
   /** The hamburger: everything that isn't playing the game. */
   private buildMenuPanel(host: HTMLElement): void {
-    const items: Array<[string, string, () => void]> = [
+    const items: Array<[string, string, () => void]> = [];
+    // On a phone the bar cannot afford four system buttons beside the console,
+    // and these two are the widest. They keep their keys and their unread
+    // count; they just live one tap deeper.
+    if (window.innerWidth <= COMPACT_WIDTH) {
+      const unread = this.unreadAlerts > 0 ? ` (${this.unreadAlerts})` : '';
+      items.push(['🔔', `Alerts${unread}`, () => this.togglePanel('alerts')]);
+      items.push(['⚠', 'Manual Override', () => this.manualOverride()]);
+    }
+    items.push(
       ['💾', 'Save Game', () => {
         if (this.g.asi.phase >= 5) {
           this.flashSystemNote('State persistence is managed automatically.');
@@ -465,7 +487,7 @@ export class UI {
       ['❓', 'How to Play', () => this.showHowTo()],
       ['⚙', 'Settings', () => this.showSettings()],
       ['☰', 'Main Menu', () => this.confirmMainMenu()],
-    ];
+    );
     for (const [icon, label, action] of items) {
       const b = el('button', 'menu-item');
       b.innerHTML = `<span class="menu-ico">${icon}</span><span>${label}</span>`;
@@ -704,7 +726,11 @@ export class UI {
    * drawer clamped to the screen edge still points at its own button.
    */
   private anchorDrawer(id: string): void {
-    const btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
+    let btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
+    // A panel reached from inside the hamburger has no button of its own on
+    // the bar to grow out of, so it grows out of the hamburger instead —
+    // which is where the player just pressed.
+    if (btn && btn.offsetParent === null) btn = this.civicBar.querySelector<HTMLElement>('[data-panel="menu"]');
     if (!btn) return;
     // Narrow menus read as menus; the data panels keep their working width.
     // On a phone there is no width to spend on either distinction: a drawer
@@ -812,6 +838,14 @@ export class UI {
   }
 
   /** Push the current preferences into the interface. Safe to call repeatedly. */
+  /** Re-apply the preferences that need the renderer, once it is attached. */
+  applyRenderPrefs(): void {
+    if (!this.renderer) return;
+    this.renderer.tiltShift = this.prefs.depthOfField === 'auto'
+      ? window.innerWidth > COMPACT_WIDTH
+      : this.prefs.depthOfField === 'on';
+  }
+
   private applyPrefs(): void {
     const p = this.prefs;
     this.applyCollapse();
@@ -828,6 +862,11 @@ export class UI {
     this.sound?.setEnabled(p.sound);
     if (!p.toasts) for (const id of [...this.toasts.keys()]) this.dismissToast(id, true);
     if (this.overlay !== p.layer) this.setOverlay(p.layer);
+    if (this.renderer) {
+      this.renderer.tiltShift = p.depthOfField === 'auto'
+        ? window.innerWidth > COMPACT_WIDTH
+        : p.depthOfField === 'on';
+    }
     this.syncBarHeight();
   }
 
@@ -837,6 +876,11 @@ export class UI {
       { key: 'toasts', label: 'Alert pop-ups', desc: 'Transient alerts over the map. The Alerts panel keeps everything either way.' },
       { key: 'sound', label: 'Sound', desc: 'Ambient soundscape and interface tones.' },
       { key: 'reducedMotion', label: 'Reduced motion', desc: 'Suppress interface animation beyond the system setting.' },
+      {
+        key: 'depthOfField', label: 'Depth of field',
+        desc: 'Soft focus at the top and bottom of the map. The most expensive thing the renderer does — off by default on small screens, where the effect is a few millimetres tall.',
+        options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
+      },
       {
         key: 'vitalsPlacement', label: 'Vital signs', desc: 'In the Civic Systems Bar, or in their own column.',
         options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
@@ -1192,7 +1236,8 @@ export class UI {
 
     // Rate limiting: a busy moment drops the quiet alerts rather than burying
     // the loud ones. Nothing is lost — the archive has all of it.
-    if (this.toasts.size >= MAX_TOASTS) {
+    const cap = window.innerWidth <= COMPACT_WIDTH ? MAX_TOASTS_COMPACT : MAX_TOASTS;
+    if (this.toasts.size >= cap) {
       const quieter = [...this.toasts.entries()]
         .filter(([, t]) => SEV_RANK[t.severity] <= SEV_RANK[n.severity])
         .sort((a, b) => SEV_RANK[a[1].severity] - SEV_RANK[b[1].severity])[0];
@@ -1797,9 +1842,10 @@ export class UI {
       : `${sign}§${Math.abs(Math.round(flow.net)).toLocaleString()} a month over the last ` +
         `${flow.months} of ${NET_WINDOW} — ` +
         (Math.abs(flow.frac) < 0.02 ? 'about breaking even'
-          : flow.net > 0 ? `a surplus of ${Math.round(flow.frac * 100)}% of outgoings`
-          : `a deficit of ${Math.round(-flow.frac * 100)}% of outgoings`) +
-        `. Spending §${Math.round(flow.outgoings).toLocaleString()} a month.`;
+          : flow.net > 0 ? `keeping ${Math.round(flow.frac * 100)}% of what comes in`
+          : `losing ${Math.round(-flow.frac * 100)}% of turnover`) +
+        `. Taking §${Math.round(flow.income).toLocaleString()} a month, spending ` +
+        `§${Math.round(flow.outgoings).toLocaleString()}.`;
     vital(primary, 'capital', '§',
       `<span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>` +
       `<span class="gauge gauge-rate"><span class="gauge-zero"></span>` +
@@ -1857,6 +1903,14 @@ export class UI {
     }
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
+    // With Alerts folded into the hamburger, the hamburger carries its unread
+    // mark — otherwise the one thing a compact bar most needs to tell you is
+    // the one thing hidden behind a tap.
+    const menuBtn = this.barRight.querySelector<HTMLElement>('[data-panel="menu"]');
+    if (menuBtn) {
+      menuBtn.classList.toggle('has-unread',
+        this.unreadAlerts > 0 && (this.barRight.querySelector<HTMLElement>('.alert-btn')?.offsetParent ?? null) === null);
+    }
 
     // Indicators -----------------------------------------------------------
     const ind = document.getElementById('indicators-body');

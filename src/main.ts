@@ -63,7 +63,9 @@ document.addEventListener('visibilitychange', () => {
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
 ui.sound = sound;
+ui.renderer = renderer;
 ui.onSession = startSession;
+ui.applyRenderPrefs();
 if (wantsMenu) { g.speed = 0; ui.showTitle(); }
 else if (freshGame) ui.showIntro();
 
@@ -425,7 +427,7 @@ window.addEventListener('keydown', (ev) => {
       break;
   }
 });
-window.addEventListener('resize', () => { renderer.resize(); refreshCanvasRect(); });
+window.addEventListener('resize', () => { renderer.resize(); refreshCanvasRect(); ui.applyRenderPrefs(); });
 window.addEventListener('scroll', refreshCanvasRect, { passive: true });
 
 let roadsBuiltSinceRecord = 0;

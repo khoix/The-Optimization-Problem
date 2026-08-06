@@ -64,6 +64,7 @@ export function deserialize(env: SaveEnvelope): GameState {
   // Saves predating the rate bar start it blank rather than wrong: an empty
   // window reads as zero, which is honest, and fills again within six months.
   g.lastNet ??= 0;
+  g.lastIncome ??= 0;
   g.lastOutgoings ??= 0;
   g.netHistory ??= [];
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);

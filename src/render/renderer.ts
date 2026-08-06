@@ -102,6 +102,15 @@ export class Renderer {
   private emissiveUsed = false;
 
   /**
+   * Whether the tilt-shift pass runs. Set from preferences by the UI, which
+   * owns the breakpoint — deciding it here would mean resize() silently
+   * undoing an explicit choice on every zoom step. Public also so it can be
+   * measured both ways in one session, which is the only way to tell a real
+   * difference from run-to-run noise.
+   */
+  tiltShift = true;
+
+  /**
    * Per-pass frame timing. Off by default and free when off — one boolean
    * check per section. Turn on with `__renderer.profiling = true` and read
    * `__renderer.passTimings()`; optimisation should target something measured
@@ -730,6 +739,7 @@ export class Renderer {
     const fx = (this.camX - camX) * this.zoom, fy = (this.camY - camY) * this.zoom;
     s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
 
+    this.stamp('· grade+upscale');
     // bloom: blur the emissive once at low (world) resolution, then let the
     // pixel upscale spread it — far cheaper than filtering at screen size.
     // Skipped outright when nothing emissive was drawn: a blurred copy of an
@@ -752,11 +762,29 @@ export class Renderer {
       s.imageSmoothingEnabled = false;
     }
 
+    this.stamp('· bloom');
     // volumetric light: dawn/dusk shafts, storm breaks, night compute pillars
     this.drawLightShafts(g, camX, camY);
 
-    // tilt-shift: blur a half-res copy (the downscale is half the blur
-    // already), mask to the top/bottom bands, and scale back up.
+    this.stamp('· shafts');
+    /**
+     * Tilt-shift: blur a half-res copy, mask it to the top and bottom bands,
+     * scale it back up.
+     *
+     * Skipped on a small screen, and the reason is measured rather than
+     * assumed. On a phone-sized viewport under 4x CPU throttling this pass
+     * alone was 21ms of a 40ms frame — over half the cost of rendering
+     * anything. Halving the scratch buffer again changed it by nothing at
+     * all, which locates the cost precisely: it is not the blur or the
+     * composite, it is `drawImage(this.screen, …)` reading back the canvas
+     * being drawn to, and the browser reconciling that read. One readback,
+     * whatever size the destination.
+     *
+     * What it buys is a few millimetres of soft focus at the very top and
+     * bottom of a 390px screen, one of which is behind the bar. Desktop keeps
+     * it and keeps its cost; a phone gets the frame back.
+     */
+    if (this.tiltShift) {
     const hw = this.blurTmp.width, hh = this.blurTmp.height;
     this.bctx.clearRect(0, 0, hw, hh);
     this.bctx.filter = 'blur(1.5px)';
@@ -777,7 +805,9 @@ export class Renderer {
     s.imageSmoothingEnabled = true;
     s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
     s.imageSmoothingEnabled = false;
+    }
 
+    this.stamp('· tilt-shift');
     // vignette
     if (!this.vignetteGrad) {
       const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
@@ -787,7 +817,7 @@ export class Renderer {
     }
     s.fillStyle = this.vignetteGrad;
     s.fillRect(0, 0, sw, sh);
-    this.stamp('compose');
+    this.stamp('· vignette');
   }
 
   nightFactor(): number {

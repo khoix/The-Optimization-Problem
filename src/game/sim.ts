@@ -535,6 +535,7 @@ export function simTick(g: GameState): void {
   // moved it — trading, sentiment, an event resolved into this month — is in
   // the figure the player is shown.
   g.lastNet = g.resources.capital - capitalBefore;
+  g.lastIncome = income;
   g.lastOutgoings = expenses;
   if (!g.netHistory) g.netHistory = [];
   g.netHistory.push(g.lastNet);
@@ -542,23 +543,33 @@ export function simTick(g: GameState): void {
 }
 
 /**
- * The rate bar's reading: mean recent net, and that net as a fraction of
- * gross outgoings — clamped to ±1, which is a full bar either way.
+ * The rate bar's reading: mean recent net, as a fraction of turnover.
  *
- * Measuring against outgoings rather than against a fixed figure or a rolling
- * maximum is what keeps the bar honest as the region grows. Full right means
- * "netting as much as you spend"; full left means "losing as much as you
- * spend". Both sentences are true at any size, and neither quietly rescales
- * itself out from under a player who has learned to read it.
+ * The reference has to be something that means the same thing at sixty
+ * residents and sixty thousand, which rules out a fixed figure, and something
+ * that does not quietly rescale itself out from under a player who has learned
+ * to read it, which rules out a rolling maximum.
+ *
+ * It was gross *outgoings*, and that was wrong in a way only play could show:
+ * a founding town spends about §6 a month and nets about §35, so the ratio is
+ * six to one and the bar pinned at full right — for fifty months, never
+ * moving, which is exactly no use as an indicator. The tests missed it because
+ * they drove the mapping with figures the game does not produce.
+ *
+ * Turnover is bounded by construction on the side that was pegging: net can
+ * never exceed income by more than the investor-sentiment margin, so a full
+ * right bar means "spending nothing" and is genuinely rare. Full left means
+ * income has collapsed to nothing while the bills continue.
  */
-export function cashflow(g: GameState): { net: number; frac: number; outgoings: number; months: number } {
+export function cashflow(g: GameState): { net: number; frac: number; income: number; outgoings: number; months: number } {
   // Tolerates a state that has never ticked, or one loaded from a save written
   // before any of this existed. A missing window reads as zero, which is both
   // honest and a great deal better than throwing from inside the bar.
   const h = g.netHistory ?? [];
   const net = h.length ? h.reduce((a, b) => a + b, 0) / h.length : 0;
   const outgoings = Math.max(1, g.lastOutgoings || 0);
-  return { net, outgoings, months: h.length, frac: Math.max(-1, Math.min(1, net / outgoings)) };
+  const income = Math.max(1, g.lastIncome || 0);
+  return { net, income, outgoings, months: h.length, frac: Math.max(-1, Math.min(1, net / income)) };
 }
 
 export function computeSatisfaction(g: GameState): number {
