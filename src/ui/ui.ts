@@ -7,10 +7,10 @@ import type { BuildingType, GameState, Notification, PolicyId, Severity } from '
 import { BUILDING_DEFS, BUILD_MENU_ORDER, TIER_NAMES } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
-import { removeBuilding, notify, record } from '../game/state';
+import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, MANUAL_SLOT, peek, saveTo } from '../game/save';
-import { tierOf, tierProgress, buildingCondition } from '../game/sim';
+import { tierOf, tierProgress, buildingCondition, demolishBuilding, demolitionRefund } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
@@ -105,6 +105,9 @@ const LAYER_DEFS: Array<{
 ];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Above this build cost, demolition asks before it happens. */
+const CONFIRM_DEMOLITION_ABOVE = 150;
 
 /** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
 const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
@@ -1389,22 +1392,51 @@ export class UI {
       };
       row.append(ren);
     }
-    const demo = el('button', 'small-btn', 'Demolish');
-    demo.onclick = () => {
-      const check = canDemolish(g, buildingId);
-      if (!check.ok) {
-        this.showModal('Action Unavailable', check.reason ?? '', [{ label: 'Acknowledge', action: () => {} }]);
-        return;
-      }
-      removeBuilding(g, buildingId);
-      record(g, 'demolish', `Demolished ${def.name}.`);
-      this.selectedBuildingId = null;
-      this.inspector.classList.add('hidden');
-    };
+    const demo = el('button', 'small-btn', `Demolish · +§${demolitionRefund(b)}`);
+    demo.onclick = () => this.requestDemolish(buildingId);
     const close = el('button', 'small-btn', 'Close');
     close.onclick = () => { this.selectedBuildingId = null; this.inspector.classList.add('hidden'); };
     row.append(demo, close);
     this.inspector.append(row);
+  }
+
+  /**
+   * Demolish a building, from wherever the request came from.
+   *
+   * The demolish tool used to open the inspector when it hit a building, so a
+   * tool called Demolish reliably demolished roads and reliably didn't
+   * demolish anything else. It does now — but through the same gate the
+   * inspector always used, because the refusals are the story: at phase 2 the
+   * system declines to decommission a data centre, and that has to survive
+   * being reached by a different route.
+   *
+   * Anything substantial asks first. A road is a few tiles and a shrug; a
+   * nuclear plant is nine hundred capital and a district's power, and a
+   * misplaced click should not be able to spend it.
+   */
+  requestDemolish(buildingId: number): void {
+    const g = this.g;
+    const b = g.buildings.get(buildingId);
+    if (!b) return;
+    const def = BUILDING_DEFS[b.type];
+    const check = canDemolish(g, buildingId);
+    if (!check.ok) {
+      this.showModal('Action Unavailable', check.reason ?? '', [{ label: 'Acknowledge', action: () => {} }]);
+      return;
+    }
+    const refund = demolitionRefund(b);
+    const finish = () => {
+      demolishBuilding(g, buildingId);
+      record(g, 'demolish', `Demolished ${def.name}.`);
+      this.flashSystemNote(`${def.name} demolished. §${refund} recovered.`);
+      this.selectedBuildingId = null;
+      this.inspector.classList.add('hidden');
+    };
+    if (def.cost < CONFIRM_DEMOLITION_ABOVE) { finish(); return; }
+    this.showModal('Confirm Demolition',
+      `Demolish the ${def.name}? It cost §${def.cost.toLocaleString()} to build and ` +
+      `§${refund.toLocaleString()} comes back. Anything it was supplying loses it this month.`,
+      [{ label: `Demolish · +§${refund}`, action: finish }, { label: 'Cancel', action: () => {} }]);
   }
 
   // ------------------------------------------------------------ modal & events
@@ -1554,8 +1586,24 @@ export class UI {
     } else {
       const terrainName = { grass: 'Grassland', forest: 'Woodland', water: 'Water', sand: 'Sand', rock: 'Rock' }[t.terrain];
       const buildable = t.terrain !== 'water' && t.terrain !== 'rock';
+      // Rock and water used to read the same — "Not buildable", full stop. Both
+      // are answerable now, so the card says how rather than just no.
+      let note: string;
+      if (t.terrain === 'rock') {
+        note = this.tool.kind === 'demolish'
+          ? `<span class="hc-act">Clear for §${ROCK_CLEAR_COST}</span>`
+          : `Not buildable · clear it with Demolish, §${ROCK_CLEAR_COST}`;
+      } else if (t.terrain === 'water') {
+        note = this.tool.kind === 'build' && this.tool.type === 'bridge'
+          ? (bridgeSpans(g, tile[0], tile[1])
+            ? `<span class="hc-act">Bridge here · §${BUILDING_DEFS.bridge.cost}</span>`
+            : 'Too far from the far bank to bridge')
+          : 'Not buildable · a bridge can cross it';
+      } else {
+        note = buildable ? 'Buildable' : 'Not buildable';
+      }
       html = `<div class="hc-title">${terrainName}</div>
-        <div class="hc-stats">${buildable ? 'Buildable' : 'Not buildable'}${t.pollution > 0.04 ? ` · Pollution ${Math.round(t.pollution * 100)}%` : ''}</div>`;
+        <div class="hc-stats">${note}${t.pollution > 0.04 ? ` · Pollution ${Math.round(t.pollution * 100)}%` : ''}</div>`;
     }
     // Rewriting identical markup still costs a style recalc, and reading
     // offsetWidth straight afterwards forces a synchronous layout of the whole

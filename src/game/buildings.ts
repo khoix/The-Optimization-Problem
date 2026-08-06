@@ -29,6 +29,13 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     power: 0, water: 0, compute: 0, pollution: 0.05, income: 0, buildTicks: 1,
     roadCapacity: 45, roadType: 3, unlockTier: 2,
   },
+  bridge: {
+    type: 'bridge', name: 'Bridge', category: 'civic',
+    desc: 'Carries a street across water. Must reach the far bank — a pier into open ocean is not a crossing.',
+    w: 1, h: 1, cost: 45, upkeep: 0.3, jobs: 0, housing: 0,
+    power: 0, water: 0, compute: 0, pollution: 0, income: 0, buildTicks: 1,
+    roadCapacity: 10, roadType: 4,
+  },
   house: {
     type: 'house', name: 'House', category: 'zone',
     desc: 'Low-density housing for 6 residents.',
@@ -226,7 +233,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
 };
 
 export const BUILD_MENU_ORDER: BuildingType[] = [
-  'dirt_road', 'road', 'avenue', 'highway',
+  'dirt_road', 'road', 'avenue', 'highway', 'bridge',
   'house', 'apartment', 'midrise', 'highrise', 'arcology',
   'park', 'plaza', 'library', 'community_center', 'school', 'sports_complex', 'museum',
   'solar_farm', 'solar_array', 'coal_plant', 'nuclear_plant', 'water_plant', 'water_reclamation',

@@ -276,6 +276,18 @@ export class Renderer {
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
         if (tile.terrain === 'water') {
           w.drawImage(this.terrain.water[waterFrame], dx, dy);
+          // Water is animated, so it is drawn live rather than baked — which
+          // means it lands on top of anything the terrain cache put here. A
+          // bridge deck goes back over it, and its transparent margins let the
+          // river keep moving either side of the crossing.
+          if (tile.road) {
+            let mask = 0;
+            if (g.map[(ty - 1) * g.mapW + tx]?.road) mask |= 1;
+            if (tx + 1 < g.mapW && g.map[ty * g.mapW + tx + 1]?.road) mask |= 2;
+            if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
+            if (tx - 1 >= 0 && g.map[ty * g.mapW + tx - 1]?.road) mask |= 8;
+            w.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
+          }
         } else if (wetRoads && tile.road) {
           w.fillStyle = `rgba(150,180,230,${(0.09 * this.rain).toFixed(3)})`;
           w.fillRect(dx, dy, TILE, TILE);
@@ -543,7 +555,8 @@ export class Renderer {
       for (let tx = x0; tx <= x1 + 1; tx++) {
         const t = tx <= x1 ? g.map[row + tx] : null;
         const a = t && ty > 0 ? g.map[above + tx] : null;
-        const reflects = !!t && t.terrain === 'water' && !!a &&
+        // A bridged tile is deck, not river: nothing mirrors in it.
+        const reflects = !!t && t.terrain === 'water' && !t.road && !!a &&
           !(a.terrain === 'water' && a.buildingId === -1);
         if (reflects && runStart < 0) runStart = tx;
         if (!reflects && runStart >= 0) {

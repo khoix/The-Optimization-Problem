@@ -164,15 +164,44 @@ export function makeRoads(): HTMLCanvasElement[][] {
     { surface: '#3a3a40', surfaceHi: '#44444b', edge: '#6a6a72', line: '#b8b25e', width: 1 }, // street
     { surface: '#34343a', surfaceHi: '#3e3e45', edge: '#7a7a84', line: '#c9c36a', width: 2 }, // avenue
     { surface: '#2e2e34', surfaceHi: '#38383f', edge: '#8a8a94', line: '#d9d372', width: 3 }, // highway
+    { surface: '#6b5a48', surfaceHi: '#7a6853', edge: '#4a3d31', line: '#b8b25e', width: 1 }, // bridge deck
   ];
   return CLASSES.map((cls, type) => {
     const out: HTMLCanvasElement[] = [];
     for (let mask = 0; mask < 16; mask++) {
       const [c, ctx] = canvas(TILE, TILE);
       const p = new Px(ctx);
+      const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
+      if (type === 4) {
+        // A bridge is drawn over live water rather than over a cached ground
+        // tile, so the deck is inset and the tile's edges stay transparent —
+        // the river keeps moving either side of the crossing. Rails run along
+        // the axis that carries traffic; a lone tile gets both.
+        const along = (n || s) && !(e || w) ? 'ns' : (e || w) && !(n || s) ? 'ew' : 'both';
+        const IN = 2;
+        if (along === 'ns') p.r(IN, 0, TILE - IN * 2, TILE, cls.surface);
+        else if (along === 'ew') p.r(0, IN, TILE, TILE - IN * 2, cls.surface);
+        else p.r(IN, IN, TILE - IN * 2, TILE - IN * 2, cls.surface);
+        p.dither(IN, IN, TILE - IN * 2, TILE - IN * 2, cls.surfaceHi, 0.22, 700 + mask);
+        // Rails, and the plank joints that make the deck read as a structure.
+        if (along !== 'ew') {
+          p.r(IN, 0, 1, TILE, cls.edge);
+          p.r(TILE - IN - 1, 0, 1, TILE, cls.edge);
+          for (let y = 1; y < TILE; y += 3) p.r(IN + 1, y, TILE - IN * 2 - 2, 1, '#5d4e3f');
+        }
+        if (along !== 'ns') {
+          p.r(0, IN, TILE, 1, cls.edge);
+          p.r(0, TILE - IN - 1, TILE, 1, cls.edge);
+          for (let x = 1; x < TILE; x += 3) p.r(x, IN + 1, 1, TILE - IN * 2 - 2, '#5d4e3f');
+        }
+        // Pale centre marking, so a bridge still reads as carriageway.
+        if (along === 'ns') { p.r(7, 2, 2, 3, cls.line); p.r(7, 8, 2, 3, cls.line); }
+        else if (along === 'ew') { p.r(2, 7, 3, 2, cls.line); p.r(8, 7, 3, 2, cls.line); }
+        out.push(c);
+        continue;
+      }
       p.r(0, 0, TILE, TILE, cls.surface);
       p.dither(0, 0, TILE, TILE, cls.surfaceHi, type === 0 ? 0.3 : 0.15, 300 + mask + type * 37);
-      const n = !!(mask & 1), e = !!(mask & 2), s = !!(mask & 4), w = !!(mask & 8);
       // curbs / shoulders on unconnected edges
       if (!n) p.r(0, 0, TILE, 1, cls.edge);
       if (!s) p.r(0, TILE - 1, TILE, 1, cls.edge);
@@ -245,6 +274,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   dirt_road: () => { /* handled by makeRoads */ },
   avenue: () => { /* handled by makeRoads */ },
   highway: () => { /* handled by makeRoads */ },
+  bridge: () => { /* handled by makeRoads */ },
 
   house: (p, e, w, h, seed) => {
     const rand = rng(seed);

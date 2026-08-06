@@ -1,7 +1,7 @@
 import type { Building, GameState } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { POLICY_DEFS } from './policies';
-import { notify, policyActive, record, rng, tileAt } from './state';
+import { notify, policyActive, record, removeBuilding, rng, tileAt } from './state';
 import { updateAsi } from './asi';
 import { maybeFireEvent } from './events';
 import { updatePolitics, weightedApproval } from './politics';
@@ -22,6 +22,31 @@ function approach(cur: number, target: number, rate: number): number {
  */
 export function buildingCondition(b: Building): number {
   return Math.max(0.55, Math.min(1, 1 - (b.age - 60) * 0.0022));
+}
+
+/**
+ * What comes back when a building is demolished.
+ *
+ * Removing a building used to return nothing at all, which made correcting a
+ * placement mistake cost the full price twice — once to build it and once to
+ * be rid of it. A partial refund scaled by condition keeps demolition a real
+ * loss without making the map unforgiving to learn on: a worn-out plant is
+ * worth scrapping, a new one you misplaced is worth moving.
+ */
+export const DEMOLITION_REFUND = 0.35;
+
+export function demolitionRefund(b: Building): number {
+  return Math.round(BUILDING_DEFS[b.type].cost * DEMOLITION_REFUND * buildingCondition(b));
+}
+
+/** Demolish and credit the refund. Returns what came back. */
+export function demolishBuilding(g: GameState, id: number): number {
+  const b = g.buildings.get(id);
+  if (!b) return 0;
+  const refund = demolitionRefund(b);
+  g.resources.capital += refund;
+  removeBuilding(g, id);
+  return refund;
 }
 
 /** Upkeep multiplier: old infrastructure costs more to keep limping along. */
