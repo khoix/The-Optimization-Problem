@@ -1,5 +1,5 @@
 import './style.css';
-import { newGame, canPlace, isRoadType, notify, placeBuilding, record, tileAt, MAP_W, MAP_H } from './game/state';
+import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, tileAt, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type UiRenderState } from './render/renderer';
 import { UI, type SessionRequest } from './ui/ui';
@@ -9,7 +9,7 @@ import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
-import { invalidateNetwork } from './game/network';
+import { invalidateNetwork, roadNetwork } from './game/network';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -101,7 +101,8 @@ function startSession(req: SessionRequest): void {
 
   // Nothing about where the pointer was means anything on a different map.
   hoverTile = null; hoverWorld = null;
-  dragging = false; roadPainting = false;
+  dragging = false; roadPainting = false; demolishDragging = false;
+  rocksClearedSinceRecord = 0;
   panDX = 0; panDY = 0; cursorDirty = true;
   xrayHeld = false;
 
@@ -123,7 +124,11 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 (window as unknown as Record<string, unknown>).__game = g;
 (window as unknown as Record<string, unknown>).__renderer = renderer;
 (window as unknown as Record<string, unknown>).__ui = ui;
-(window as unknown as Record<string, unknown>).__api = { canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify };
+(window as unknown as Record<string, unknown>).__api = {
+  canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify,
+  clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
+};
+(window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
 // ---------------------------------------------------------------- input
 let dragging = false;
@@ -138,6 +143,7 @@ let xrayHeld = false;
 const modifierHeld = (ev: MouseEvent | KeyboardEvent): boolean =>
   ui.xrayKey === 'alt' ? ev.altKey : ui.xrayKey === 'shift' ? ev.shiftKey : ev.ctrlKey || ev.metaKey;
 let roadPainting = false;
+let demolishDragging = false;
 
 canvas.addEventListener('mousedown', (ev) => {
   lastMx = ev.clientX; lastMy = ev.clientY;
@@ -149,6 +155,10 @@ canvas.addEventListener('mousedown', (ev) => {
       if (ui.tool.kind === 'build' && isRoadType(ui.tool.type)) roadPainting = true;
     } else if (ui.tool.kind === 'demolish') {
       demolishAtCursor(ev);
+      // Roads and rock are safe to sweep; buildings are not, so a drag never
+      // takes one. Losing a line of pavement to an overshot drag is a few
+      // tiles of capital; losing a hospital to one is a different afternoon.
+      demolishDragging = true;
     } else {
       selectAtCursor(ev);
     }
@@ -203,8 +213,11 @@ function applyCursor(): void {
   if (!dragging && roadPainting && hoverTile && ui.tool.kind === 'build') {
     tryBuild(ui.tool.type, hoverTile[0], hoverTile[1]);
   }
+  if (!dragging && demolishDragging && hoverTile && ui.tool.kind === 'demolish') {
+    demolishTile(hoverTile[0], hoverTile[1], true);
+  }
 }
-window.addEventListener('mouseup', () => { dragging = false; roadPainting = false; });
+window.addEventListener('mouseup', () => { dragging = false; roadPainting = false; demolishDragging = false; });
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 canvas.addEventListener('wheel', (ev) => {
   ev.preventDefault();
@@ -272,13 +285,48 @@ function tryBuildAtCursor(ev: MouseEvent): void {
   tryBuild(ui.tool.type, t[0], t[1]);
 }
 
+let rocksClearedSinceRecord = 0;
+
+/**
+ * Remove whatever is on this tile.
+ *
+ * Three things live here, and until now the tool only really handled one of
+ * them: roads went immediately, buildings opened the inspector instead of
+ * being demolished, and rock could not be touched at all. All three answer to
+ * the same click now. `sweeping` is set when the pointer is being dragged,
+ * which excludes buildings — see the mousedown handler.
+ */
+function demolishTile(tx: number, ty: number, sweeping: boolean): void {
+  if (g.asi.observer || g.gameOver) return;
+  const tile = tileAt(g, tx, ty);
+  if (!tile) return;
+  if (tile.buildingId !== -1) {
+    if (!sweeping) ui.requestDemolish(tile.buildingId);
+    return;
+  }
+  if (tile.road) {
+    tile.road = false;
+    g.mapVersion++;
+    return;
+  }
+  if (tile.terrain === 'rock') {
+    if (g.resources.capital < ROCK_CLEAR_COST) {
+      if (!sweeping) ui.flashSystemNote(`Clearing rock costs §${ROCK_CLEAR_COST} a tile.`);
+      return;
+    }
+    clearRock(g, tx, ty);
+    // Batched like road painting, so sweeping a ridge doesn't flood the log.
+    if (++rocksClearedSinceRecord >= 10) {
+      record(g, 'build', 'Cleared rock for development.');
+      rocksClearedSinceRecord = 0;
+    }
+  }
+}
+
 function demolishAtCursor(ev: MouseEvent): void {
   const t = cursorTile(ev);
-  if (!t || g.asi.observer || g.gameOver) return;
-  const tile = tileAt(g, t[0], t[1]);
-  if (!tile) return;
-  if (tile.road) { tile.road = false; g.mapVersion++; return; }
-  if (tile.buildingId !== -1) ui.showInspector(tile.buildingId);
+  if (!t) return;
+  demolishTile(t[0], t[1], false);
 }
 
 function selectAtCursor(ev: MouseEvent): void {

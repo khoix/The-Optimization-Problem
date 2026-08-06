@@ -83,6 +83,41 @@ export function isRoadType(type: BuildingType): boolean {
   return BUILDING_DEFS[type].roadType !== undefined;
 }
 
+/** What clearing one tile of rock costs the treasury. */
+export const ROCK_CLEAR_COST = 25;
+
+/**
+ * How far a bridge may reach before it stops being a crossing.
+ *
+ * A bridge has to get to the other side. Without a limit the rule "roads may
+ * be laid on water" would let a player pave the Azure Coast's ocean flat, and
+ * the map's shape would stop meaning anything. Eight tiles clears every river
+ * the generator makes and reaches nothing at all across open water.
+ */
+export const MAX_BRIDGE_SPAN = 8;
+
+/**
+ * Is this water tile part of a crossing rather than a pier?
+ *
+ * True when land lies within MAX_BRIDGE_SPAN on *both* sides along at least
+ * one axis — which is the whole rule, stated once: a bridge reaches the far
+ * bank. Existing bridge tiles count as bank, so a crossing can be built from
+ * either end and meet in the middle.
+ */
+export function bridgeSpans(g: GameState, x: number, y: number): boolean {
+  const landward = (dx: number, dy: number): boolean => {
+    for (let i = 1; i <= MAX_BRIDGE_SPAN; i++) {
+      const t = tileAt(g, x + dx * i, y + dy * i);
+      if (!t) return false;
+      if (t.terrain !== 'water') return true;   // reached the bank
+      if (!t.road) continue;                    // open water, keep looking
+      return true;                              // met an existing deck
+    }
+    return false;
+  };
+  return (landward(-1, 0) && landward(1, 0)) || (landward(0, -1) && landward(0, 1));
+}
+
 export function canPlace(g: GameState, type: BuildingType, x: number, y: number): boolean {
   const def = BUILDING_DEFS[type];
   const road = isRoadType(type);
@@ -90,7 +125,14 @@ export function canPlace(g: GameState, type: BuildingType, x: number, y: number)
     for (let dx = 0; dx < def.w; dx++) {
       const t = tileAt(g, x + dx, y + dy);
       if (!t) return false;
-      if (t.terrain === 'water' || t.terrain === 'rock') return false;
+      // A bridge is the one thing that wants water, and wants nothing else:
+      // laying deck across dry ground is just an expensive street.
+      if (type === 'bridge') {
+        if (t.terrain !== 'water') return false;
+        if (!bridgeSpans(g, x + dx, y + dy)) return false;
+      } else if (t.terrain === 'water' || t.terrain === 'rock') {
+        return false;
+      }
       if (t.buildingId !== -1) return false;
       if (t.road && !road) return false;
       // Roads may be laid on empty ground, or over a road of a different
@@ -99,6 +141,24 @@ export function canPlace(g: GameState, type: BuildingType, x: number, y: number)
     }
   }
   return true;
+}
+
+/**
+ * Clear a tile of rock, for money. Returns what it cost, or 0 if there was
+ * nothing to clear or nothing to pay with.
+ *
+ * Rock was the map's one permanent refusal — the only terrain that could not
+ * be built on and could not be changed. It is now a price instead, which is
+ * the same thing the rest of the game does with every other obstacle.
+ */
+export function clearRock(g: GameState, x: number, y: number): number {
+  const t = tileAt(g, x, y);
+  if (!t || t.terrain !== 'rock') return 0;
+  if (g.resources.capital < ROCK_CLEAR_COST) return 0;
+  g.resources.capital -= ROCK_CLEAR_COST;
+  t.terrain = 'grass';
+  g.mapVersion++;
+  return ROCK_CLEAR_COST;
 }
 
 export function placeBuilding(g: GameState, type: BuildingType, x: number, y: number, opts?: { free?: boolean; instant?: boolean; asiBuilt?: boolean }): Building | null {

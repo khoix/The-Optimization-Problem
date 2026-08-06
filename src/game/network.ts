@@ -17,6 +17,10 @@ export const ROAD_DEFS = [
   { type: 'road', name: 'Street', capacity: 10 },
   { type: 'avenue', name: 'Avenue', capacity: 22 },
   { type: 'highway', name: 'Highway', capacity: 45 },
+  // A bridge is a road class rather than a flag on one, so a water tile stays
+  // exactly as connectable as any other: the flood fill, staffing and
+  // congestion all treat it as pavement without knowing what is underneath.
+  { type: 'bridge', name: 'Bridge', capacity: 10 },
 ] as const;
 
 interface NetworkCache {

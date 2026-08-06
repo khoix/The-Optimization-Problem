@@ -818,3 +818,7 @@ body.at-title .guide { padding-bottom: 20px; }
   .guide-figure { aspect-ratio: auto; height: 168px; min-height: 0; }
   .guide-body { font-size: 12.5px; }
 }
+
+/* An affordance in the hover card: this tile is something the current tool
+   can actually act on, and what it costs. */
+.hc-act { color: var(--accent); }

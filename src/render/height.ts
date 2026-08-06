@@ -17,7 +17,7 @@ import { TILE } from './sprites';
  * build here and get a considered height, not silently inherit a default and
  * look wrong in one district nobody checks.
  */
-export const BUILDING_HEIGHT: Record<Exclude<BuildingType, 'dirt_road' | 'road' | 'avenue' | 'highway'>, number> = {
+export const BUILDING_HEIGHT: Record<Exclude<BuildingType, 'dirt_road' | 'road' | 'avenue' | 'highway' | 'bridge'>, number> = {
   // Housing — the skyline, and the clearest read on density.
   house: 7,
   apartment: 15,

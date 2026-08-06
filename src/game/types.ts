@@ -16,6 +16,7 @@ export type BuildingType =
   | 'dirt_road'
   | 'avenue'
   | 'highway'
+  | 'bridge'
   | 'house'
   | 'apartment'
   | 'midrise'
