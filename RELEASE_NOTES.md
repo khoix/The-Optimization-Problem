@@ -805,6 +805,65 @@ the interface that no longer wants your opinion stops making a noise about it.
 
 ---
 
+## Milestone 28 — touch, and a bar that fits a phone — `33ed27d`
+
+The game was mouse-only and laid out for 1280px. On a phone the vitals had truncated to
+bare icons, the tool belt started at its fourth category with the first three off the
+left edge, the console sat on top of the alerts button, and 23 of 24 controls were under
+a 44px target. None of that was visible from a desktop, and none of it was the hard part.
+
+### Input
+
+One pointer path for mouse, touch and pen, with deliberately different gestures on each
+— because a mouse has buttons, a hover position and a wheel, a finger has none of those,
+and pretending otherwise is how a port ends up with a game you can look at but not play.
+
+**Mouse is unchanged**: left acts, middle or right drags, the wheel zooms, moving the
+pointer hovers.
+
+**Touch:**
+- Empty-handed, one finger drags the map and a tap selects.
+- With a tool in hand, one finger acts and drags to paint or sweep; **two fingers pan
+  instead**. A road you have to place tile by tile is not a road anyone will place.
+- Two fingers always pinch to zoom — accumulated and spent in whole steps, because
+  `setZoom` reallocates five canvases and doing that per pointermove is ruinous.
+- **Press and hold** opens the x-ray window and reads out the tile under the finger,
+  which is the only thing touch has in place of a hover.
+
+> **Nothing commits on the way down.** Acting immediately, the way the mouse does, meant
+> every pinch begun with a tool in hand laid one stray tile: the first finger had already
+> built by the time the second arrived to say it was a pinch. The tool now waits for the
+> finger to travel — which starts a stroke from where it began — or to lift, which places
+> the one tile.
+
+### Layout
+
+Below 820px the console row wraps so the vitals get the full width above it; the inline
+labels go (the icon already says what they say, and the label was what truncated the
+figures into nothing); the belt starts at its start, because it scrolls; and drawers take
+the screen rather than half of it.
+
+A landscape phone has about 340px of height, so there the bar lies down into a single row
+and gives up the vitals entirely — every one of them is a tap away in *Indicators*, and
+what stays is what cannot be got at any other way. **129px of a 664px screen became 187px
+that is legible; 166px of a 340px landscape screen became 75px.**
+
+Modals and the walkthrough now reserve room for the bar **by measurement**, using the
+height it already publishes, rather than a constant that was right for exactly one layout.
+
+> **Fix.** M14's contribution was that every figure on the bar explains itself on hover,
+> which on a phone meant it explained itself to nobody. A tap now opens the card and pins
+> it; the next tap anywhere closes it. Chrome *does* emit a synthetic `mouseover` for a
+> tap — but it emits the matching `mouseout` a moment later, so the card appeared and
+> vanished inside one frame. Pinning is what makes it readable.
+
+> **Fix, in the harnesses rather than the game.** The older tests dispatched synthetic
+> `MouseEvent`s, which a pointer-event game never sees. Real input generates both, which
+> is why the live desktop checks passed while the stale ones failed — they were simulating
+> input one layer below where the game reads it.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
