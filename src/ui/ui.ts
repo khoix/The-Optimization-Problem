@@ -106,6 +106,13 @@ const LAYER_DEFS: Array<{
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/**
+ * Below this viewport width the bar reflows and drawers take the screen.
+ * Chosen because it is where the console row stops fitting beside the vitals,
+ * not because it is anybody's device.
+ */
+export const COMPACT_WIDTH = 820;
+
 /** Above this build cost, demolition asks before it happens. */
 const CONFIRM_DEMOLITION_ABOVE = 150;
 
@@ -185,6 +192,8 @@ export class UI {
   private hoverHtml = '';
   private hoverSize: [number, number] = [190, 60];
   private explainCard!: HTMLElement;
+  /** A touch tap holds the explanation open; a hover does not. */
+  private explainPinned = false;
   private observerOverlay!: HTMLElement;
   private titleScreen!: HTMLElement;
   private consoleRow!: HTMLElement;
@@ -386,6 +395,8 @@ export class UI {
    */
   resetSession(): void {
     this.closePanel();
+    this.explainPinned = false;
+    this.explainCard.classList.add('hidden');
     this.tool = { kind: 'none' };
     this.selectedBuildingId = null;
     this.overlay = null;
@@ -696,7 +707,13 @@ export class UI {
     const btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
     if (!btn) return;
     // Narrow menus read as menus; the data panels keep their working width.
-    this.flyout.style.setProperty('--drawer-w', id === 'menu' ? '232px' : '560px');
+    // On a phone there is no width to spend on either distinction: a drawer
+    // takes the screen, because half a screen of policy rows is not a panel,
+    // it is a column of ellipses.
+    const host0 = this.root.getBoundingClientRect();
+    this.flyout.style.setProperty('--drawer-w', host0.width <= COMPACT_WIDTH
+      ? `${Math.round(host0.width - 12)}px`
+      : id === 'menu' ? '232px' : '560px');
     const b = btn.getBoundingClientRect();
     const host = this.root.getBoundingClientRect();
     const margin = 8;
@@ -1010,11 +1027,9 @@ export class UI {
    * panels can be rebuilt from innerHTML on every refresh without rewiring.
    */
   private installExplainers(): void {
-    this.root.addEventListener('mouseover', (ev) => {
-      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
-      if (!t) return;
+    const open = (t: HTMLElement): boolean => {
       const info = EXPLAIN[t.dataset.explain ?? ''];
-      if (!info) return;
+      if (!info) return false;
       // The live reading, if the row carries one, sits above the definition.
       const reading = t.dataset.reading;
       this.explainCard.innerHTML =
@@ -1024,14 +1039,41 @@ export class UI {
         (info.drivers ? `<div class="explain-drivers">${info.drivers}</div>` : '');
       this.explainCard.classList.remove('hidden');
       this.positionExplain(t);
+      return true;
+    };
+    this.root.addEventListener('mouseover', (ev) => {
+      if (this.explainPinned) return;   // a tap owns the card until it is dismissed
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (t) open(t);
     });
     this.root.addEventListener('mouseout', (ev) => {
+      if (this.explainPinned) return;
       const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
       if (!t) return;
       const to = (ev as MouseEvent).relatedTarget as HTMLElement | null;
       if (to?.closest('[data-explain]') === t) return; // still inside the same row
       this.explainCard.classList.add('hidden');
     });
+    /**
+     * Touch has no hover, and M14's whole contribution was that every figure
+     * explains itself on hover — which on a phone meant it explained itself to
+     * nobody. A tap opens the card and pins it; the next tap anywhere closes
+     * it again. Chrome does emit a synthetic mouseover for a tap, but it emits
+     * the matching mouseout a moment later, so the card appeared and vanished
+     * within the same frame. Pinning is what makes it readable.
+     */
+    this.root.addEventListener('pointerup', (ev) => {
+      if (ev.pointerType !== 'touch') return;
+      const t = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-explain]');
+      if (this.explainPinned || !t) {
+        this.explainPinned = false;
+        this.explainCard.classList.add('hidden');
+        return;
+      }
+      this.explainPinned = open(t);
+      // A pinned card must survive the synthetic mouseout that follows a tap.
+      if (this.explainPinned) ev.stopPropagation();
+    }, true);
   }
 
   /** Anchor the card to its row, kept inside the viewport on every edge. */

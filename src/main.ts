@@ -105,6 +105,8 @@ function startSession(req: SessionRequest): void {
   rocksClearedSinceRecord = 0;
   panDX = 0; panDY = 0; cursorDirty = true;
   xrayHeld = false;
+  touches.clear(); pinchRef = 0; pendingZoom = null; toolPending = false;
+  cancelLongPress();
 
   invalidateNetwork(g);
   renderer.resetSession();
@@ -131,8 +133,25 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
 // ---------------------------------------------------------------- input
+//
+// One pointer path for mouse, touch and pen, with deliberately different
+// gestures on each. A mouse has buttons, a hover position and a wheel; a
+// finger has none of those, and pretending otherwise is how a port ends up
+// with a game you can look at but not play.
+//
+// Mouse, unchanged: left acts, middle or right drags the camera, the wheel
+// zooms, and moving the pointer hovers.
+//
+// Touch:
+//   - Empty-handed, one finger drags the map and a tap selects.
+//   - With a tool in hand, one finger acts and drags to paint or sweep —
+//     because a road you have to place tile by tile is not a road you will
+//     place — and two fingers pan instead.
+//   - Two fingers always pinch to zoom.
+//   - Press and hold opens the x-ray window and reads out the tile under
+//     your finger, which is the only thing touch has in place of a hover.
+
 let dragging = false;
-let dragButton = 0;
 let lastMx = 0, lastMy = 0;
 let hoverTile: [number, number] | null = null;
 let hoverWorld: [number, number] | null = null;
@@ -145,25 +164,101 @@ const modifierHeld = (ev: MouseEvent | KeyboardEvent): boolean =>
 let roadPainting = false;
 let demolishDragging = false;
 
-canvas.addEventListener('mousedown', (ev) => {
+/** Live touch points, by pointerId. Two of them means a pinch. */
+const touches = new Map<number, { x: number; y: number }>();
+/** True while the last thing that touched the map was a finger. */
+let touchMode = false;
+/** How far a finger may travel and still count as a tap, in CSS pixels. */
+const TAP_SLOP = 12;
+const LONG_PRESS_MS = 420;
+let tapStartX = 0, tapStartY = 0, tapStartAt = 0, tapTravel = 0;
+/** A tool touched down and has not yet decided whether it is a tap or a drag. */
+let toolPending = false;
+let longPressTimer = 0;
+let longPressing = false;
+/**
+ * Pinch is accumulated and applied in whole steps.
+ *
+ * setZoom() reallocates five canvases, which is fine once per wheel click and
+ * ruinous sixty times a second — so the ratio is tracked continuously and only
+ * spent when it crosses a step.
+ */
+let pinchRef = 0;
+let pinchCx = 0, pinchCy = 0;
+const PINCH_IN = 1.32, PINCH_OUT = 0.76;
+
+const cancelLongPress = (): void => {
+  if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
+  if (longPressing) { longPressing = false; xrayHeld = false; cursorDirty = true; }
+};
+
+canvas.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType === 'touch') { touchDown(ev); return; }
+  touchMode = false;
   lastMx = ev.clientX; lastMy = ev.clientY;
-  dragButton = ev.button;
   if (ev.button === 1 || ev.button === 2) { dragging = true; ev.preventDefault(); return; }
-  if (ev.button === 0) {
-    if (ui.tool.kind === 'build') {
-      tryBuildAtCursor(ev);
-      if (ui.tool.kind === 'build' && isRoadType(ui.tool.type)) roadPainting = true;
-    } else if (ui.tool.kind === 'demolish') {
-      demolishAtCursor(ev);
-      // Roads and rock are safe to sweep; buildings are not, so a drag never
-      // takes one. Losing a line of pavement to an overshot drag is a few
-      // tiles of capital; losing a hospital to one is a different afternoon.
-      demolishDragging = true;
-    } else {
-      selectAtCursor(ev);
-    }
-  }
+  if (ev.button === 0) actAt(ev.clientX, ev.clientY);
 });
+
+/** The left-click / tap action, in one place so both paths agree. */
+function actAt(clientX: number, clientY: number): void {
+  const t = tileFromClient(clientX, clientY);
+  if (ui.tool.kind === 'build') {
+    if (t) tryBuild(ui.tool.type, t[0], t[1]);
+    if (ui.tool.kind === 'build' && isRoadType(ui.tool.type)) roadPainting = true;
+  } else if (ui.tool.kind === 'demolish') {
+    if (t) demolishTile(t[0], t[1], false);
+    // Roads and rock are safe to sweep; buildings are not, so a drag never
+    // takes one. Losing a line of pavement to an overshot drag is a few
+    // tiles of capital; losing a hospital to one is a different afternoon.
+    demolishDragging = true;
+  } else {
+    selectTile(t);
+  }
+}
+
+function touchDown(ev: PointerEvent): void {
+  touchMode = true;
+  // Capture, so a finger that slides off the canvas still reports its move and
+  // its release. Only for touch: capturing the mouse would retarget its moves
+  // to the canvas and make every point on screen look like the map.
+  try { canvas.setPointerCapture(ev.pointerId); } catch { /* pointer already gone */ }
+  touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (touches.size >= 2) {
+    // A second finger means the gesture was never a placement.
+    cancelLongPress();
+    toolPending = false;
+    roadPainting = false; demolishDragging = false;
+    dragging = false;
+    const [a, b] = [...touches.values()];
+    pinchRef = Math.hypot(a.x - b.x, a.y - b.y);
+    pinchCx = (a.x + b.x) / 2; pinchCy = (a.y + b.y) / 2;
+    return;
+  }
+  tapStartX = ev.clientX; tapStartY = ev.clientY;
+  tapStartAt = performance.now(); tapTravel = 0;
+  lastMx = ev.clientX; lastMy = ev.clientY;
+  cursorX = ev.clientX; cursorY = ev.clientY; cursorOnMap = true; cursorDirty = true;
+  // Nothing is committed on the way down.
+  //
+  // Acting immediately, the way the mouse does, meant every pinch that began
+  // with a tool in hand laid one stray tile: the first finger had already
+  // built by the time the second arrived to say it was a pinch. So the tool
+  // waits — for the finger to travel, which starts a paint at the point it
+  // started from, or for it to lift, which places the one tile. A second
+  // finger arriving before either means neither ever happens.
+  if (ui.tool.kind === 'build' || ui.tool.kind === 'demolish') toolPending = true;
+  else dragging = true;
+  longPressTimer = window.setTimeout(() => {
+    longPressTimer = 0;
+    if (touches.size !== 1 || tapTravel > TAP_SLOP) return;
+    longPressing = true;
+    dragging = false;
+    xrayHeld = true;
+    cursorDirty = true;
+  }, LONG_PRESS_MS);
+}
+
 /**
  * The pointer moves faster than the screen does.
  *
@@ -176,12 +271,22 @@ canvas.addEventListener('mousedown', (ev) => {
  */
 let cursorX = 0, cursorY = 0, cursorOnMap = false, cursorDirty = false;
 let panDX = 0, panDY = 0;
+let pendingZoom: [number, number, number] | null = null;
 // getBoundingClientRect() forces layout; the canvas fills a fixed viewport, so
 // its rect only changes on resize.
 let canvasRect = canvas.getBoundingClientRect();
 const refreshCanvasRect = () => { canvasRect = canvas.getBoundingClientRect(); };
 
-window.addEventListener('mousemove', (ev) => {
+/** Tile under a client-space point, or null if that is not the map. */
+function tileFromClient(clientX: number, clientY: number): [number, number] | null {
+  const [wx, wy] = renderer.screenToWorld(clientX - canvasRect.left, clientY - canvasRect.top);
+  const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
+  return tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
+}
+
+window.addEventListener('pointermove', (ev) => {
+  if (ev.pointerType === 'touch') { touchMove(ev); return; }
+  touchMode = false;
   cursorX = ev.clientX; cursorY = ev.clientY;
   // The listener is on the window so dragging survives leaving the canvas,
   // which means the pointer is often over the bar, a drawer or a toast — all
@@ -196,8 +301,50 @@ window.addEventListener('mousemove', (ev) => {
   }
 });
 
+function touchMove(ev: PointerEvent): void {
+  const p = touches.get(ev.pointerId);
+  if (!p) return;
+  p.x = ev.clientX; p.y = ev.clientY;
+  if (touches.size >= 2) {
+    const [a, b] = [...touches.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    panDX += cx - pinchCx; panDY += cy - pinchCy;
+    pinchCx = cx; pinchCy = cy;
+    if (pinchRef > 0) {
+      const ratio = d / pinchRef;
+      if (ratio > PINCH_IN) { pendingZoom = [1, cx, cy]; pinchRef = d; }
+      else if (ratio < PINCH_OUT) { pendingZoom = [-1, cx, cy]; pinchRef = d; }
+    } else {
+      pinchRef = d;
+    }
+    return;
+  }
+  tapTravel += Math.hypot(ev.clientX - lastMx, ev.clientY - lastMy);
+  if (tapTravel > TAP_SLOP) {
+    cancelLongPress();
+    if (toolPending) {
+      // The finger has committed to a stroke. Start it where it began, so a
+      // painted line does not lose its first tile to the slop threshold.
+      toolPending = false;
+      actAt(tapStartX, tapStartY);
+    }
+  }
+  cursorX = ev.clientX; cursorY = ev.clientY; cursorOnMap = true; cursorDirty = true;
+  if (dragging) {
+    panDX += ev.clientX - lastMx;
+    panDY += ev.clientY - lastMy;
+  }
+  lastMx = ev.clientX; lastMy = ev.clientY;
+}
+
 /** Turn the recorded pointer into tiles, hover text and camera motion. */
 function applyCursor(): void {
+  if (pendingZoom) {
+    const [step, zx, zy] = pendingZoom;
+    pendingZoom = null;
+    renderer.setZoom(renderer.zoom + step, zx - canvasRect.left, zy - canvasRect.top);
+  }
   if (panDX !== 0 || panDY !== 0) {
     renderer.camX -= panDX / renderer.zoom;
     renderer.camY -= panDY / renderer.zoom;
@@ -209,7 +356,9 @@ function applyCursor(): void {
   const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
   hoverTile = cursorOnMap && tx >= 0 && ty >= 0 && tx < g.mapW && ty < g.mapH ? [tx, ty] : null;
   hoverWorld = hoverTile ? [wx, wy] : null;
-  ui.showHover(hoverTile, cursorX, cursorY);
+  // A finger has no hover. The card belongs to the mouse, and to the one touch
+  // gesture that asks for it by name.
+  ui.showHover(!touchMode || longPressing ? hoverTile : null, cursorX, cursorY);
   if (!dragging && roadPainting && hoverTile && ui.tool.kind === 'build') {
     tryBuild(ui.tool.type, hoverTile[0], hoverTile[1], true);
   }
@@ -217,7 +366,32 @@ function applyCursor(): void {
     demolishTile(hoverTile[0], hoverTile[1], true);
   }
 }
-window.addEventListener('mouseup', () => { dragging = false; roadPainting = false; demolishDragging = false; });
+
+const endPointer = (ev: PointerEvent, cancelled: boolean): void => {
+  if (ev.pointerType !== 'touch') {
+    dragging = false; roadPainting = false; demolishDragging = false;
+    return;
+  }
+  const wasSingle = touches.size === 1;
+  touches.delete(ev.pointerId);
+  cancelLongPress();
+  if (touches.size < 2) { pinchRef = 0; }
+  if (touches.size === 0) {
+    // A tap that never became a drag does the one-shot version of whatever
+    // was in hand: a tool places or removes exactly one tile, an empty hand
+    // selects.
+    const quick = performance.now() - tapStartAt < 500;
+    const tapped = wasSingle && !cancelled && quick && tapTravel <= TAP_SLOP && !longPressing;
+    if (tapped && toolPending) actAt(tapStartX, tapStartY);
+    else if (tapped && ui.tool.kind === 'none') selectTile(tileFromClient(tapStartX, tapStartY));
+    toolPending = false;
+    dragging = false; roadPainting = false; demolishDragging = false;
+    // Nothing is under a finger once it lifts.
+    cursorOnMap = false; cursorDirty = true;
+  }
+};
+window.addEventListener('pointerup', (ev) => endPointer(ev, false));
+window.addEventListener('pointercancel', (ev) => endPointer(ev, true));
 canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 canvas.addEventListener('wheel', (ev) => {
   ev.preventDefault();
@@ -254,14 +428,6 @@ window.addEventListener('keydown', (ev) => {
 window.addEventListener('resize', () => { renderer.resize(); refreshCanvasRect(); });
 window.addEventListener('scroll', refreshCanvasRect, { passive: true });
 
-function cursorTile(ev: MouseEvent): [number, number] | null {
-  const rect = canvas.getBoundingClientRect();
-  const [wx, wy] = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
-  const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
-  if (tx < 0 || ty < 0 || tx >= g.mapW || ty >= g.mapH) return null;
-  return [tx, ty];
-}
-
 let roadsBuiltSinceRecord = 0;
 
 /**
@@ -287,12 +453,6 @@ function tryBuild(type: keyof typeof BUILDING_DEFS, tx: number, ty: number, swee
   } else if (!sweeping) {
     sound.refused();
   }
-}
-
-function tryBuildAtCursor(ev: MouseEvent): void {
-  const t = cursorTile(ev);
-  if (!t || ui.tool.kind !== 'build') return;
-  tryBuild(ui.tool.type, t[0], t[1]);
 }
 
 let rocksClearedSinceRecord = 0;
@@ -338,14 +498,7 @@ function demolishTile(tx: number, ty: number, sweeping: boolean): void {
   }
 }
 
-function demolishAtCursor(ev: MouseEvent): void {
-  const t = cursorTile(ev);
-  if (!t) return;
-  demolishTile(t[0], t[1], false);
-}
-
-function selectAtCursor(ev: MouseEvent): void {
-  const t = cursorTile(ev);
+function selectTile(t: [number, number] | null): void {
   if (!t) return;
   const tile = tileAt(g, t[0], t[1]);
   if (tile && tile.buildingId !== -1) ui.showInspector(tile.buildingId);
