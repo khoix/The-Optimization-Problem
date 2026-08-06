@@ -19,6 +19,24 @@ export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
 /** Which modifier opens the x-ray window while it is held. */
 export type XrayKey = 'ctrl' | 'alt' | 'shift';
 
+/**
+ * What the demolish tool would do to the tile under the cursor.
+ *
+ * Build has always drawn a coloured footprint before the click lands; demolish
+ * drew nothing, which stopped being survivable once demolition of a building
+ * became immediate rather than a trip through the inspector. Three outcomes are
+ * worth telling apart, so they get three colours: a removal, a paid clearance,
+ * and a refusal — and the refusal is worth seeing *before* the click, not only
+ * in the modal that follows it.
+ */
+export interface DemolishPreview {
+  /** Footprint in tiles: a building's whole extent, or the single tile. */
+  x: number; y: number; w: number; h: number;
+  kind: 'remove' | 'clear' | 'blocked';
+  /** Set for a building, so the mass above the ground can be outlined too. */
+  buildingId: number | null;
+}
+
 export interface UiRenderState {
   hoverTile: [number, number] | null;
   /** Cursor in world pixels, for the x-ray. Null when off the map. */
@@ -27,9 +45,18 @@ export interface UiRenderState {
   xrayRadial: boolean;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
+  /** Null unless the demolish tool is in hand over something it can address. */
+  demolish: DemolishPreview | null;
   selectedBuildingId: number | null;
   overlay: OverlayId | null;
 }
+
+/** Fill, stroke and hatch for each demolition outcome. */
+const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
+  remove: ['rgba(220,80,80,0.34)', '#dc5050'],
+  clear: ['rgba(224,170,72,0.30)', '#e0aa48'],
+  blocked: ['rgba(140,146,164,0.28)', '#8c92a4'],
+};
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
@@ -100,6 +127,15 @@ export class Renderer {
 
   /** Whether anything was written to the emissive buffer this frame. */
   private emissiveUsed = false;
+
+  /**
+   * Whether the tilt-shift pass runs. Set from preferences by the UI, which
+   * owns the breakpoint — deciding it here would mean resize() silently
+   * undoing an explicit choice on every zoom step. Public also so it can be
+   * measured both ways in one session, which is the only way to tell a real
+   * difference from run-to-run noise.
+   */
+  tiltShift = true;
 
   /**
    * Per-pass frame timing. Off by default and free when off — one boolean
@@ -651,6 +687,48 @@ export class Renderer {
       w.strokeStyle = ui.canPlaceHere ? '#6edc82' : '#dc5050';
       w.strokeRect(dx + 0.5, dy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
     }
+    // --------------------------------------------------------- demolish cursor
+    if (ui.demolish) {
+      const d = ui.demolish;
+      const [fill, line] = DEMOLISH_COLORS[d.kind];
+      const dx = d.x * TILE - camX, dy = d.y * TILE - camY;
+      const dw = d.w * TILE, dh = d.h * TILE;
+      w.fillStyle = fill;
+      w.fillRect(dx, dy, dw, dh);
+      // Diagonal hatch. A flat wash reads as selection; strike-through reads as
+      // "this is going away", and it survives being drawn over grass, road and
+      // rock alike, all of which are already busy.
+      w.save();
+      w.beginPath();
+      w.rect(dx, dy, dw, dh);
+      w.clip();
+      w.strokeStyle = line;
+      w.globalAlpha = 0.55;
+      w.lineWidth = 1;
+      for (let i = -dh; i < dw; i += 6) {
+        w.beginPath();
+        w.moveTo(dx + i, dy);
+        w.lineTo(dx + i + dh, dy + dh);
+        w.stroke();
+      }
+      w.restore();
+      w.strokeStyle = line;
+      w.strokeRect(dx + 0.5, dy + 0.5, dw - 1, dh - 1);
+      // A building is mostly not on the tile you clicked — outline the mass too,
+      // or a tall block reads as though only its base is being taken.
+      if (d.buildingId != null) {
+        const db = g.buildings.get(d.buildingId);
+        if (db) {
+          const mh = heightOf(db.type);
+          if (mh > 0) {
+            const [mpx, mpy] = parallaxShift(dx, dy, mh, W, H);
+            w.globalAlpha = 0.5;
+            w.strokeRect(dx + mpx + 0.5, dy - mh + mpy + 0.5, dw - 1, dh - 1);
+            w.globalAlpha = 1;
+          }
+        }
+      }
+    }
     if (ui.selectedBuildingId != null) {
       const b = g.buildings.get(ui.selectedBuildingId);
       if (b) {
@@ -730,6 +808,7 @@ export class Renderer {
     const fx = (this.camX - camX) * this.zoom, fy = (this.camY - camY) * this.zoom;
     s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
 
+    this.stamp('· grade+upscale');
     // bloom: blur the emissive once at low (world) resolution, then let the
     // pixel upscale spread it — far cheaper than filtering at screen size.
     // Skipped outright when nothing emissive was drawn: a blurred copy of an
@@ -752,11 +831,29 @@ export class Renderer {
       s.imageSmoothingEnabled = false;
     }
 
+    this.stamp('· bloom');
     // volumetric light: dawn/dusk shafts, storm breaks, night compute pillars
     this.drawLightShafts(g, camX, camY);
 
-    // tilt-shift: blur a half-res copy (the downscale is half the blur
-    // already), mask to the top/bottom bands, and scale back up.
+    this.stamp('· shafts');
+    /**
+     * Tilt-shift: blur a half-res copy, mask it to the top and bottom bands,
+     * scale it back up.
+     *
+     * Skipped on a small screen, and the reason is measured rather than
+     * assumed. On a phone-sized viewport under 4x CPU throttling this pass
+     * alone was 21ms of a 40ms frame — over half the cost of rendering
+     * anything. Halving the scratch buffer again changed it by nothing at
+     * all, which locates the cost precisely: it is not the blur or the
+     * composite, it is `drawImage(this.screen, …)` reading back the canvas
+     * being drawn to, and the browser reconciling that read. One readback,
+     * whatever size the destination.
+     *
+     * What it buys is a few millimetres of soft focus at the very top and
+     * bottom of a 390px screen, one of which is behind the bar. Desktop keeps
+     * it and keeps its cost; a phone gets the frame back.
+     */
+    if (this.tiltShift) {
     const hw = this.blurTmp.width, hh = this.blurTmp.height;
     this.bctx.clearRect(0, 0, hw, hh);
     this.bctx.filter = 'blur(1.5px)';
@@ -777,7 +874,9 @@ export class Renderer {
     s.imageSmoothingEnabled = true;
     s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
     s.imageSmoothingEnabled = false;
+    }
 
+    this.stamp('· tilt-shift');
     // vignette
     if (!this.vignetteGrad) {
       const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
@@ -787,7 +886,7 @@ export class Renderer {
     }
     s.fillStyle = this.vignetteGrad;
     s.fillRect(0, 0, sw, sh);
-    this.stamp('compose');
+    this.stamp('· vignette');
   }
 
   nightFactor(): number {

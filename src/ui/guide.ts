@@ -136,8 +136,8 @@ const PAGES: GuidePage[] = [
       has to work out which number is which.</p>
       <p><b>Capital reads differently.</b> Its bar is a rate, not a proportion: it grows
       out of the centre, right when the treasury is gaining and left when it is losing,
-      and a full bar either way means the region is moving as much money each month as it
-      spends. It averages half a year, so one expensive decision does not swing it.</p>
+      and the length is that rate measured against everything the region takes in. It
+      averages half a year, so one expensive decision does not swing it.</p>
       <p>Hover anything on the bar or in <i>Indicators</i> and it will tell you what it
       measures, what moves it, and at whose expense. Nothing here expects you to already
       know what it means.</p>`,
@@ -146,7 +146,7 @@ const PAGES: GuidePage[] = [
       html: `<div class="fig-hud">
         ${fig_gauge('⚡', '412', '500', 82, 'gauge-ok', 'Comfortable — 82% of capacity in use.')}
         ${fig_gauge('💧', '340', '300', 113, 'gauge-bad', 'Over capacity. Something is about to go dark.')}
-        ${fig_rate('4,180', 0.52, 'gauge-ok', 'Capital, gaining — a surplus of about half what you spend.')}
+        ${fig_rate('4,180', 0.52, 'gauge-ok', 'Capital, gaining — keeping about half of what comes in.')}
         ${fig_rate('1,905', -0.7, 'gauge-bad', 'The same bar, going the other way. This region has months, not years.')}
         ${fig_meter('☺', 'Trust', 61, '61', 'gauge-ok', 'An indicator, same visual language.')}
         ${fig_meter('⚠', 'Unrest', 38, '38', 'gauge-warn', 'Inverted: for this one, low is the good end.')}
@@ -444,7 +444,7 @@ export class Guide {
       this.renderer.rain = 0;
       this.renderer.hour = p.figure.hour;
       const ui: UiRenderState = {
-        hoverTile: null, buildType: null, canPlaceHere: false, selectedBuildingId: null,
+        hoverTile: null, buildType: null, canPlaceHere: false, demolish: null, selectedBuildingId: null,
         overlay: p.figure.overlay ?? null, cursorWorld: null, xrayRadial: false,
       };
       this.renderer.render(this.scene, ui);

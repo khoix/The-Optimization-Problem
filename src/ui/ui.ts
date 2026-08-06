@@ -116,11 +116,32 @@ export const COMPACT_WIDTH = 820;
 /** Above this build cost, demolition asks before it happens. */
 const CONFIRM_DEMOLITION_ABOVE = 150;
 
+/** What the system says when it declines to stop. Same words from every control. */
+const PAUSE_REFUSED = 'Pause request received. Simulation continuity has been prioritized.';
+
+/**
+ * Ledger figures, to one decimal.
+ *
+ * The rest of the interface rounds money to whole §, which is right for a
+ * balance and wrong for a breakdown: half the lines on a young region are worth
+ * under a §, and a column of zeroes that visibly fails to add up would read as
+ * a broken panel rather than a small one.
+ */
+const money = (v: number): string => (Math.abs(v) < 0.05 ? '0.0' : v.toFixed(1));
+const signedMoney = (v: number): string => `${v < 0 ? '−' : '+'}§${money(Math.abs(v))}`;
+
 /** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
 const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
 const SEV_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
-/** Above this many at once, the quiet ones give way. */
+/**
+ * Above this many at once, the quiet ones give way.
+ *
+ * One on a phone. Four stacked alerts is a reasonable corner of a 1280px
+ * screen and most of a 390px one, and a toast that covers the map is a toast
+ * that has stopped being an aside.
+ */
 const MAX_TOASTS = 4;
+const MAX_TOASTS_COMPACT = 1;
 
 /** Why a completed building isn't running — stated plainly, in the inspector. */
 const OFFLINE_REASONS: Record<string, string> = {
@@ -158,6 +179,9 @@ export class UI {
    * main.ts immediately after construction, alongside the soundscape.
    */
   onSession!: (req: SessionRequest) => void;
+
+  /** Attached by main.ts. The UI only ever touches its render preferences. */
+  renderer: { tiltShift: boolean } | null = null;
 
   private root: HTMLElement;
   private civicBar!: HTMLElement;
@@ -203,6 +227,14 @@ export class UI {
   private lastBuildMenuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
+  /**
+   * The speed the player last chose to run at. A pause is a suspension, not a
+   * decision to slow down: someone watching at ▶▶▶ who taps space to read an
+   * alert means to come back to ▶▶▶, and dropping them to 1× made them re-pick
+   * it every time. Every speed change in the bar routes through setSpeed so
+   * this stays true regardless of which control moved it.
+   */
+  private runSpeed: 1 | 2 | 3 = 1;
   private unreadAlerts = 0;
   private prefs: Prefs = loadPrefs();
   /** The walkthrough. Built on first use — it carries a renderer of its own. */
@@ -253,16 +285,19 @@ export class UI {
     this.tierBar.innerHTML = '<span class="lcd-tier-fill"></span>';
     lcd.append(this.barStatus, this.tierBar, el('div', 'lcd-glass'));
     const spd = el('div', 'transport');
-    ([['⏸', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
+    // ▮▮ rather than ⏸: the latter is in a block with emoji presentation by
+    // default, so it arrived as a colour glyph beside three monochrome
+    // triangles. ▮ is Geometric Shapes, like ▶, and stays text.
+    ([['▮▮', 0], ['▶', 1], ['▶▶', 2], ['▶▶▶', 3]] as Array<[string, 0 | 1 | 2 | 3]>).forEach(([label, sp]) => {
       const b = el('button', 'speed-btn', label);
       b.dataset.speed = String(sp);
       b.title = ['Pause', 'Normal speed', 'Fast', 'Fastest'][sp];
       b.onclick = () => {
         if (sp === 0 && !pauseAllowed(this.g)) {
-          this.flashSystemNote('Pause request received. Simulation continuity has been prioritized.');
+          this.flashSystemNote(PAUSE_REFUSED);
           return;
         }
-        this.onSpeed(sp);
+        this.setSpeed(sp);
       };
       spd.append(b);
     });
@@ -401,6 +436,7 @@ export class UI {
     this.selectedBuildingId = null;
     this.overlay = null;
     this.resumeSpeed = null;
+    this.runSpeed = 1;
     this.allocDragging = false;
 
     this.titleScreen.classList.add('hidden');
@@ -452,7 +488,16 @@ export class UI {
 
   /** The hamburger: everything that isn't playing the game. */
   private buildMenuPanel(host: HTMLElement): void {
-    const items: Array<[string, string, () => void]> = [
+    const items: Array<[string, string, () => void]> = [];
+    // On a phone the bar cannot afford four system buttons beside the console,
+    // and these two are the widest. They keep their keys and their unread
+    // count; they just live one tap deeper.
+    if (window.innerWidth <= COMPACT_WIDTH) {
+      const unread = this.unreadAlerts > 0 ? ` (${this.unreadAlerts})` : '';
+      items.push(['🔔', `Alerts${unread}`, () => this.togglePanel('alerts')]);
+      items.push(['⚠', 'Manual Override', () => this.manualOverride()]);
+    }
+    items.push(
       ['💾', 'Save Game', () => {
         if (this.g.asi.phase >= 5) {
           this.flashSystemNote('State persistence is managed automatically.');
@@ -465,7 +510,7 @@ export class UI {
       ['❓', 'How to Play', () => this.showHowTo()],
       ['⚙', 'Settings', () => this.showSettings()],
       ['☰', 'Main Menu', () => this.confirmMainMenu()],
-    ];
+    );
     for (const [icon, label, action] of items) {
       const b = el('button', 'menu-item');
       b.innerHTML = `<span class="menu-ico">${icon}</span><span>${label}</span>`;
@@ -704,7 +749,11 @@ export class UI {
    * drawer clamped to the screen edge still points at its own button.
    */
   private anchorDrawer(id: string): void {
-    const btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
+    let btn = this.civicBar.querySelector<HTMLElement>(`[data-panel="${id}"]`);
+    // A panel reached from inside the hamburger has no button of its own on
+    // the bar to grow out of, so it grows out of the hamburger instead —
+    // which is where the player just pressed.
+    if (btn && btn.offsetParent === null) btn = this.civicBar.querySelector<HTMLElement>('[data-panel="menu"]');
     if (!btn) return;
     // Narrow menus read as menus; the data panels keep their working width.
     // On a phone there is no width to spend on either distinction: a drawer
@@ -812,6 +861,14 @@ export class UI {
   }
 
   /** Push the current preferences into the interface. Safe to call repeatedly. */
+  /** Re-apply the preferences that need the renderer, once it is attached. */
+  applyRenderPrefs(): void {
+    if (!this.renderer) return;
+    this.renderer.tiltShift = this.prefs.depthOfField === 'auto'
+      ? window.innerWidth > COMPACT_WIDTH
+      : this.prefs.depthOfField === 'on';
+  }
+
   private applyPrefs(): void {
     const p = this.prefs;
     this.applyCollapse();
@@ -828,6 +885,11 @@ export class UI {
     this.sound?.setEnabled(p.sound);
     if (!p.toasts) for (const id of [...this.toasts.keys()]) this.dismissToast(id, true);
     if (this.overlay !== p.layer) this.setOverlay(p.layer);
+    if (this.renderer) {
+      this.renderer.tiltShift = p.depthOfField === 'auto'
+        ? window.innerWidth > COMPACT_WIDTH
+        : p.depthOfField === 'on';
+    }
     this.syncBarHeight();
   }
 
@@ -837,6 +899,11 @@ export class UI {
       { key: 'toasts', label: 'Alert pop-ups', desc: 'Transient alerts over the map. The Alerts panel keeps everything either way.' },
       { key: 'sound', label: 'Sound', desc: 'Ambient soundscape and interface tones.' },
       { key: 'reducedMotion', label: 'Reduced motion', desc: 'Suppress interface animation beyond the system setting.' },
+      {
+        key: 'depthOfField', label: 'Depth of field',
+        desc: 'Soft focus at the top and bottom of the map. The most expensive thing the renderer does — off by default on small screens, where the effect is a few millimetres tall.',
+        options: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']],
+      },
       {
         key: 'vitalsPlacement', label: 'Vital signs', desc: 'In the Civic Systems Bar, or in their own column.',
         options: [['bar', 'In bar'], ['sidebar', 'Sidebar']],
@@ -1192,7 +1259,8 @@ export class UI {
 
     // Rate limiting: a busy moment drops the quiet alerts rather than burying
     // the loud ones. Nothing is lost — the archive has all of it.
-    if (this.toasts.size >= MAX_TOASTS) {
+    const cap = window.innerWidth <= COMPACT_WIDTH ? MAX_TOASTS_COMPACT : MAX_TOASTS;
+    if (this.toasts.size >= cap) {
       const quieter = [...this.toasts.entries()]
         .filter(([, t]) => SEV_RANK[t.severity] <= SEV_RANK[n.severity])
         .sort((a, b) => SEV_RANK[a[1].severity] - SEV_RANK[b[1].severity])[0];
@@ -1333,8 +1401,11 @@ export class UI {
         const btn = el('button', 'policy-toggle');
         btn.dataset.policy = id;
         btn.onclick = () => this.togglePolicy(id, btn);
-        const text = el('div', 'policy-text', `<b>${def.name}</b><br><small>${def.desc}</small>`);
-        row.append(btn, text);
+        const text = el('div', 'policy-text',
+          `<b>${def.name}</b><br><small>${def.desc}</small>`);
+        // Filled from the ledger once a month has closed under this policy.
+        const eff = el('span', 'policy-effect');
+        row.append(btn, text, eff);
         pol.append(row);
       }
     }
@@ -1405,9 +1476,64 @@ export class UI {
   private syncPolicyButtons(): void {
     for (const btn of this.panelBodies.policies.querySelectorAll<HTMLElement>('.policy-toggle')) {
       const id = btn.dataset.policy as PolicyId;
-      btn.classList.toggle('on', this.g.policies.has(id));
-      btn.textContent = this.g.policies.has(id) ? 'ON' : 'OFF';
+      const on = this.g.policies.has(id);
+      btn.classList.toggle('on', on);
+      btn.textContent = on ? 'ON' : 'OFF';
+      // What this policy is doing to the treasury right now. Only for the ones
+      // that are on and that actually touch money — a blank row says "this one
+      // buys you something other than capital", which is also worth knowing.
+      const eff = btn.parentElement?.querySelector<HTMLElement>('.policy-effect');
+      if (!eff) continue;
+      const net = on ? this.policyCashflow(id) : null;
+      if (net === null || Math.abs(net) < 0.05) {
+        eff.textContent = '';
+        eff.className = 'policy-effect';
+      } else {
+        eff.textContent = `${signedMoney(net)}/mo`;
+        eff.className = `policy-effect ${net < 0 ? 'eff-bad' : 'eff-good'}`;
+      }
     }
+  }
+
+  /** This policy's net effect on last month's treasury, per the ledger. */
+  private policyCashflow(id: PolicyId): number {
+    const led = this.g.ledger;
+    if (!led) return 0;
+    let net = 0;
+    for (const l of led.income) if (l.policy === id) net += l.amount;
+    for (const l of led.outgoings) if (l.policy === id) net -= l.amount;
+    return net;
+  }
+
+  /**
+   * Last month's cashflow, line by line.
+   *
+   * Rebuilt as a string rather than diffed row by row: it is a dozen rows that
+   * all change together once a month, behind a panel that is usually closed.
+   */
+  private ledgerHtml(): string {
+    const g = this.g;
+    const led = g.ledger ?? { income: [], outgoings: [] };
+    if (led.income.length === 0 && led.outgoings.length === 0) {
+      return '<div class="ledger-empty">No month has closed yet.</div>';
+    }
+    const side = (title: string, lines: typeof led.income, total: number, cls: string): string => {
+      // Biggest first: the answer to "where did it go" is nearly always the
+      // top line, and a fixed simulation order buries it under small change.
+      const sorted = [...lines].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+      const rows = sorted.map((l) => {
+        const neg = l.amount < 0;
+        return `<div class="ledger-row${l.policy ? ' from-policy' : ''}">` +
+          `<span class="ledger-label">${l.label}${l.rate !== undefined ? ` <small>${l.rate > 0 ? '+' : '−'}${Math.round(Math.abs(l.rate) * 100)}%</small>` : ''}</span>` +
+          `<span class="ledger-amt${neg ? ' neg' : ''}">${neg ? '−' : ''}§${money(Math.abs(l.amount))}</span></div>`;
+      }).join('');
+      return `<div class="ledger-side ${cls}">` +
+        `<div class="ledger-head"><span>${title}</span><span>§${money(total)}</span></div>${rows}</div>`;
+    };
+    const net = g.lastIncome - g.lastOutgoings;
+    return side('Income', led.income, g.lastIncome, 'led-in') +
+      side('Outgoings', led.outgoings, g.lastOutgoings, 'led-out') +
+      `<div class="ledger-net"><span>Net</span><span class="${net < 0 ? 'neg' : ''}">${signedMoney(net)}</span></div>`;
   }
 
   // ------------------------------------------------------------ inspector
@@ -1582,7 +1708,7 @@ export class UI {
     if (!this.prefs.autoPauseOnDecision) { this.resumeSpeed = null; return; }
     if (g.speed > 0 && pauseAllowed(g)) {
       this.resumeSpeed = g.speed;
-      this.onSpeed(0);
+      this.setSpeed(0);
     } else {
       this.resumeSpeed = null;
     }
@@ -1590,9 +1716,38 @@ export class UI {
 
   private autoResume(): void {
     if (this.resumeSpeed != null && this.g.speed === 0 && !this.g.asi.observer && !this.g.gameOver) {
-      this.onSpeed(this.resumeSpeed);
+      this.setSpeed(this.resumeSpeed);
     }
     this.resumeSpeed = null;
+  }
+
+  /**
+   * The single write path for speed. Anything that runs the clock records the
+   * speed it ran at, so a later resume has something to return to.
+   */
+  private setSpeed(s: 0 | 1 | 2 | 3): void {
+    if (s !== 0) this.runSpeed = s;
+    this.onSpeed(s);
+  }
+
+  /**
+   * Space. Not the same as clicking a transport button: the buttons are
+   * explicit ("run at 2×"), this is a suspension that undoes itself. Pause
+   * still has to ask — at phase 4+ the system may decline — and resuming goes
+   * back to the speed the player was actually watching at.
+   */
+  toggleSpeed(): void {
+    const g = this.g;
+    if (g.speed === 0) {
+      if (g.asi.observer || g.gameOver) return;
+      this.setSpeed(this.runSpeed);
+      return;
+    }
+    if (!pauseAllowed(g)) {
+      this.flashSystemNote(PAUSE_REFUSED);
+      return;
+    }
+    this.setSpeed(0);
   }
 
   /**
@@ -1797,9 +1952,10 @@ export class UI {
       : `${sign}§${Math.abs(Math.round(flow.net)).toLocaleString()} a month over the last ` +
         `${flow.months} of ${NET_WINDOW} — ` +
         (Math.abs(flow.frac) < 0.02 ? 'about breaking even'
-          : flow.net > 0 ? `a surplus of ${Math.round(flow.frac * 100)}% of outgoings`
-          : `a deficit of ${Math.round(-flow.frac * 100)}% of outgoings`) +
-        `. Spending §${Math.round(flow.outgoings).toLocaleString()} a month.`;
+          : flow.net > 0 ? `keeping ${Math.round(flow.frac * 100)}% of what comes in`
+          : `losing ${Math.round(-flow.frac * 100)}% of turnover`) +
+        `. Taking §${Math.round(flow.income).toLocaleString()} a month, spending ` +
+        `§${Math.round(flow.outgoings).toLocaleString()}.`;
     vital(primary, 'capital', '§',
       `<span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>` +
       `<span class="gauge gauge-rate"><span class="gauge-zero"></span>` +
@@ -1857,6 +2013,14 @@ export class UI {
     }
     const ovr = this.barRight.querySelector<HTMLElement>('.override-btn');
     if (ovr) ovr.classList.toggle('degraded', g.asi.phase >= 3);
+    // With Alerts folded into the hamburger, the hamburger carries its unread
+    // mark — otherwise the one thing a compact bar most needs to tell you is
+    // the one thing hidden behind a tap.
+    const menuBtn = this.barRight.querySelector<HTMLElement>('[data-panel="menu"]');
+    if (menuBtn) {
+      menuBtn.classList.toggle('has-unread',
+        this.unreadAlerts > 0 && (this.barRight.querySelector<HTMLElement>('.alert-btn')?.offsetParent ?? null) === null);
+    }
 
     // Indicators -----------------------------------------------------------
     const ind = document.getElementById('indicators-body');
@@ -1878,6 +2042,18 @@ export class UI {
           reading: opts?.reading, extraClass: opts?.extraClass,
         });
       };
+
+      // Treasury first. Every other panel on this list explains a number the
+      // bar already shows; until now the one number the player watches most
+      // closely — the balance — was the only one with nothing behind it.
+      items.push({
+        kind: 'block', key: 'h.treasury', className: 'cat-label', html: 'Treasury',
+        explain: 'capital',
+        reading: `Last month: §${money(g.lastIncome)} in, §${money(g.lastOutgoings)} out`,
+      });
+      items.push({
+        kind: 'block', key: 'treasury.ledger', className: 'ledger', html: this.ledgerHtml(),
+      });
 
       header('h.qol', 'Quality of Life');
       const rows: Array<[string, string, number]> = [

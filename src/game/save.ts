@@ -64,8 +64,14 @@ export function deserialize(env: SaveEnvelope): GameState {
   // Saves predating the rate bar start it blank rather than wrong: an empty
   // window reads as zero, which is honest, and fills again within six months.
   g.lastNet ??= 0;
+  g.lastIncome ??= 0;
   g.lastOutgoings ??= 0;
   g.netHistory ??= [];
+  // Rebuilt on the next tick anyway; a save from before it existed just starts
+  // the panel empty rather than undefined.
+  g.ledger ??= { income: [], outgoings: [] };
+  g.ledger.income ??= [];
+  g.ledger.outgoings ??= [];
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.

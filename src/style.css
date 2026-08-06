@@ -79,8 +79,45 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 
 /* policies */
 .policy-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
-.policy-text { font-size: 11px; line-height: 1.35; }
+.policy-text { font-size: 11px; line-height: 1.35; flex: 1; min-width: 0; }
 .policy-text small { color: var(--text-dim); }
+/* What this policy is currently doing to the treasury. Reserved width even when
+   empty, so enacting one doesn't reflow the whole list under the cursor. */
+.policy-effect {
+  flex: 0 0 auto; width: 62px; text-align: right; font-family: var(--mono);
+  font-size: 10px; padding-top: 2px; color: var(--text-dim);
+}
+.policy-effect.eff-good { color: var(--good); }
+.policy-effect.eff-bad { color: var(--bad); }
+
+/* ---------------- treasury ledger ---------------- */
+.ledger { font-size: 11px; margin-bottom: 4px; }
+.ledger-empty { color: var(--text-dim); font-size: 11px; }
+.ledger-side { margin-bottom: 8px; }
+.ledger-head {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-dim); border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 3px; margin-bottom: 4px;
+}
+.ledger-head span:last-child { font-family: var(--mono); letter-spacing: 0; }
+.led-in .ledger-head span:last-child { color: var(--good); }
+.led-out .ledger-head span:last-child { color: var(--bad); }
+.ledger-row { display: flex; justify-content: space-between; gap: 8px; line-height: 1.5; }
+.ledger-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-label small { color: var(--text-dim); font-size: 9px; }
+/* A line that exists because of a policy is marked, so the panel answers
+   "what is this costing me" without cross-referencing the policy list. */
+.ledger-row.from-policy .ledger-label { border-left: 2px solid var(--accent); padding-left: 5px; margin-left: -7px; }
+.ledger-amt { font-family: var(--mono); flex: 0 0 auto; }
+.ledger-amt.neg { color: var(--bad); }
+.ledger-net {
+  display: flex; justify-content: space-between; gap: 8px;
+  border-top: 1px solid var(--panel-border); padding-top: 5px;
+  font-family: var(--mono); font-size: 12px;
+}
+.ledger-net span:last-child { color: var(--good); }
+.ledger-net span:last-child.neg { color: var(--bad); }
 .sys-section { margin-top: 14px; border-top: 1px solid var(--panel-border); padding-top: 10px; }
 
 /* politics summary */
@@ -269,7 +306,7 @@ body.bar-collapsed .inspector { bottom: 62px; }
 }
 .sys-btn:hover { color: #fff; background: #1f293b; }
 .sys-ico { font-size: 12px; line-height: 1; }
-.alert-btn.has-unread { border-color: var(--mid); color: var(--mid); }
+.alert-btn.has-unread, .sys-btn.has-unread { border-color: var(--mid); color: var(--mid); }
 .override-btn { color: #d8a45a; border-color: #4a3a20; }
 .override-btn.degraded { opacity: 0.55; }
 .mute-btn { padding: 6px 8px; }
@@ -541,10 +578,17 @@ body.reduced-motion * { animation: none !important; transition: none !important;
    after the moment has passed is in the Alerts panel. */
 /* Sits clear of the bar, whose height changes when it collapses and when the
    system starts removing controls — so the offset is measured, not guessed. */
+/* Below the modal layer, deliberately.
+   Toasts sat at 55 against the modal's 50, so they rendered *over* a pending
+   decision — and since a toast is clickable, one landing on a choice button
+   ate the tap and left the player with a dialog they could not answer. It
+   never showed on a desktop, where a 300px right-hand column and a centred
+   440px dialog miss each other; on a phone, where a toast spans the width,
+   it is the first thing that happens. */
 .toast-stack {
   position: absolute; bottom: calc(var(--bar-h, 130px) + 10px); right: 10px; width: 300px;
   display: flex; flex-direction: column; align-items: stretch; gap: 5px;
-  z-index: 55; pointer-events: none;
+  z-index: 47; pointer-events: none;
 }
 .toast {
   pointer-events: auto; cursor: pointer;
@@ -865,6 +909,19 @@ body.at-title .guide { padding-bottom: 20px; }
      the line beside it. Letting the console grow pushed them onto a third row
      and cost 44px of map for nothing. */
   .console { flex: 0 0 auto; }
+  /* Alerts and Override moved into the hamburger; what is left is the menu
+     and the fold. */
+  .bar-system .alert-btn, .bar-system .override-btn { display: none; }
+
+  /* Collapsed, the LCD stays stacked rather than lying down.
+     The desktop collapse lays it out along one line, which on a phone made
+     the console 351px of a 390px screen and pushed the hamburger and the fold
+     onto a band of their own — a third row, from a control whose whole job is
+     to remove one. Two short lines keep it narrow enough to share. */
+  .civic-bar.collapsed .console { flex-direction: column; gap: 3px; padding: 3px 6px 4px; }
+  .civic-bar.collapsed .lcd { min-width: 108px; }
+  .civic-bar.collapsed .lcd-readout { flex-direction: column; align-items: center; gap: 1px; }
+  .civic-bar.collapsed .lcd-sub { display: block; font-size: 8px; }
   .bar-system { flex: 1 1 auto; justify-content: flex-end; }
   .transport { gap: 2px; }
   .speed-btn { padding: 3px 6px; }
@@ -903,11 +960,18 @@ body.at-title .guide { padding-bottom: 20px; }
   .guide-foot { padding: 10px 14px 12px; gap: 6px; }
   .guide-skip { margin-right: 0; }
 
+  /* Top centre, one at a time, and clear of the drawers below. An alert on a
+     phone interrupts a small screen, so it says its piece where it cannot be
+     mistaken for part of the console and goes away again. */
+  .toast-stack {
+    top: 8px; bottom: auto; right: auto;
+    left: 50%; transform: translateX(-50%);
+    width: min(94vw, 460px);
+  }
+  .toast { padding: 9px 11px; font-size: 12px; }
   .hover-card { max-width: 74vw; }
   .explain-card { width: min(300px, 92vw); }
   .inspector { left: 8px; right: 8px; width: auto; }
-  .toast-stack { left: 8px; right: 8px; align-items: stretch; }
-  .toast { max-width: none; }
 
   .title-card h1 { font-size: 27px; }
   .title-tag { font-size: 13.5px; }

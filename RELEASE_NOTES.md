@@ -864,6 +864,160 @@ height it already publishes, rather than a constant that was right for exactly o
 
 ---
 
+## Milestone 29 — the rate bar's reference, and a bar a phone can hold — `88efbeb`
+
+> **Fix — the capital rate bar shipped pinned.** A founding town spends about §6 a month
+> and nets about §35, so measured against outgoings the ratio is six to one: the bar sat
+> at full right for fifty months without moving. M27's suite passed every mapping
+> assertion because it drove them with figures the game does not produce — net 50 against
+> outgoings 100 is a ratio the early economy never reaches.
+>
+> The reference is **turnover** now. Full right means keeping essentially all of what
+> comes in; full left means the income has gone and the bills have not; and the positive
+> side is bounded by construction, so it cannot peg. Across a real run: **0.82**
+> comfortable, **0.37** carrying seven policies, **−0.21** as infrastructure wears out.
+> The suite now plays the game and asserts the bar *moves*, not only that the arithmetic
+> is right.
+
+### Mobile
+
+**Toasts are one at a time, top centre.** Four stacked alerts is a corner of a 1280px
+screen and most of a 390px one.
+
+> **Fix.** The toast stack sat at `z-index: 55` against the modal layer's `50`, so a
+> toast rendered *over* a pending decision — and a toast is clickable, so one landing on
+> a choice button ate the tap and left the player holding a dialog they could not answer.
+> It never showed on a desktop, where a right-hand column and a centred dialog miss each
+> other.
+
+**Alerts and Override move into the hamburger** below the breakpoint, freeing the two
+widest controls from the bar. The hamburger carries the unread mark, so nothing is hidden
+by being folded away, and a panel opened from inside it grows out of it — its own button
+is no longer on the bar to grow out of.
+
+> **Fix.** Collapsed now folds to **two bands rather than three**. The desktop collapse
+> lays the LCD out along one line, which on a phone made the console 351px of a 390px
+> screen and pushed the hamburger and the fold onto a row of their own — a third row,
+> produced by the control whose whole job is to remove one. Two short lines keep it
+> narrow enough to share: 187px expanded, **114px collapsed, 17% of the screen**.
+
+> **Fix.** The pause control is `▮▮` rather than `⏸`, which is in a block with emoji
+> presentation by default and arrived in colour beside three monochrome triangles.
+
+### Performance
+
+Compose was 82% of the frame on a phone-sized viewport under 4× CPU throttling, and a
+single opaque number, so it now carries sub-pass stamps of its own. Those located
+**tilt-shift at 21ms of a 40ms frame** — and halving its scratch buffer again changed
+that by *nothing at all*, which is the useful part: the cost is not the blur or the
+composite but `drawImage(this.screen, …)` reading back the canvas being drawn to, and the
+browser reconciling that read. One readback, whatever size the destination.
+
+Interleaved A/B in a single session, medians of ten:
+
+| | tilt-shift on | off | saved |
+|---|---|---|---|
+| phone viewport, 1× | 22.5 ms | 13.4 ms | 40% |
+| phone viewport, 4× | 61.3 ms | 22.4 ms | 63% |
+| desktop viewport, 1× | 52.7 ms | 18.9 ms | 64% |
+
+It is off by default below the breakpoint, where what it buys is a few millimetres of
+soft focus at the top and bottom of the screen — one of which is behind the bar. It is a
+**preference** rather than a rule because that desktop figure is somebody's trade to
+make: Settings carries Auto / On / Off.
+
+> **The usual caveat, and it cuts both ways here.** These are software-rasterisation
+> figures. They overstate fill-rate costs against a GPU — but a canvas readback is a
+> pipeline synchronisation rather than fill, so this one is likelier than most to survive
+> contact with real hardware.
+
+---
+
+## Milestone 31 — what the console tells you — `c93983a`
+
+Three pieces of feedback that were missing rather than wrong.
+
+### Demolish highlights its target
+
+Build has always drawn a coloured footprint before the click lands. Demolish drew
+nothing — which was survivable while demolishing a building opened the inspector, and
+stopped being survivable in M26 when it became immediate.
+
+Three outcomes read differently under the cursor, because they are three different
+things: **red** for a removal, **amber** for clearing rock (a purchase, not a
+demolition), **grey** for a refusal. The refusal matters most: a phase-2 *operationally
+infeasible* is now visible before the click rather than only in the modal after it, and
+so is rock you cannot currently afford. A building's mass above the ground is outlined
+as well as its footprint — a tall block whose base alone is marked reads as though only
+the base is going.
+
+### Speed survives a pause
+
+Space paused, and then resumed at 1×, whatever you had been watching at. Anyone playing
+at ▶▶▶ re-picked it after every glance at an alert.
+
+The bar owns speed now. Every control routes through a single write path that records
+the last running speed, and space restores it. The transport buttons stay explicit —
+clicking a speed means that speed; only space is a suspension that undoes itself. A new
+region starts over at 1× rather than inheriting the last one's.
+
+> **Fix.** Space wrote `g.speed` directly and so bypassed `pauseAllowed` entirely: at
+> phase 4+ the pause *button* got the system's refusal while the keyboard quietly worked.
+> Both go through the same gate now, and say the same words.
+
+### Policy attribution
+
+Ten policies move revenue and four spend. Twenty-seven of twenty-nine move approval.
+Nothing in the interface ever said so — you adopted a policy on its description and
+inferred its effect from a balance that moves for a dozen other reasons.
+
+The simulation now books every figure to a **monthly ledger** as it computes it, in the
+order it applies it. The order is part of the answer: a policy that scales revenue is
+worth whatever it scales, which depends on everything booked before it. Indicators
+carries the breakdown — income and outgoings, largest lines first, policy lines marked —
+and the policy list shows each enacted policy's current net per month beside it.
+
+Automation Tax is the case that makes the point. It earns §6 per active automated
+factory and costs a fifth of what those factories make; both halves are booked
+separately, and the row shows the net. A policy in force that currently moves no money —
+Carbon Tax in a region that burns no coal — shows nothing, which is also worth knowing.
+
+**Investor sentiment is booked too.** Up to a fifth of the month's income, appearing or
+vanishing purely on whether the region grew, landing after income minus expenses and
+therefore never shown anywhere. It is a line now.
+
+Each side's lines sum *exactly* to that side's total, and the two sides reconcile with
+the treasury's actual movement across the tick. The tests assert the sums rather than the
+individual figures: if the arithmetic ever stops closing, the breakdown is lying, and a
+per-figure assertion would not catch it.
+
+### Verification
+
+41 checks in a headless-Chromium harness, all passing. The demolish highlight is measured
+as a colour shift on the **composed canvas** rather than the world buffer, so it is proved
+to survive the whole pipeline — grade, bloom, shafts, tilt-shift, vignette — not merely to
+have been drawn somewhere upstream.
+
+> **Fix — the probe was measuring the wrong tiles.** It assumed `TILE = 24`; the game uses
+> 16. Every hover landed two-thirds of the way to somewhere else. Two cases passed anyway,
+> because the tile they wrongly landed on happened to be the right *kind* of ground — a
+> rock probe that found rock, and an empty-ground probe that found empty ground. The
+> constant comes from the game now.
+
+> **Note — a coin-flip cannot be asserted once.** `pauseAllowed` is deliberately random at
+> phase 4+: pausing *becomes unreliable*, which is the point. A single press proves
+> nothing either way. The check presses across a run of ticks and requires both outcomes
+> to appear, plus observer mode where the refusal is absolute.
+
+> **Note — three probes were passing on the wrong premise.** Automation Tax showed nothing
+> because the region had no automated factories; UBI showed nothing because nobody was
+> unemployed; and the reconciliation showed zero because the region had quietly ended and
+> the simulation had stopped ticking. All three were the test failing to set up the
+> condition it was testing, and all three reported cleanly once the probe said what state
+> it had actually produced.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -872,6 +1026,12 @@ audio. The car jitter passed two different measurements before one was built tha
 could tell motion from progress. The audio recovery test reported a false failure
 because a synthetic click is not a trusted gesture — and that false failure
 exposed a real gap.
+
+M29 added the sharpest one yet: **a test that exercises a function over inputs nobody
+supplies.** Every one of M27's rate-bar assertions was correct about the arithmetic and
+told us nothing, because the ratios it fed in were ratios the game never produces. The
+bar was pinned at full right for fifty months of play with a green suite behind it. The
+repair was not a better assertion but a different *source*: play the game, then look.
 
 M27 added a fourth: a test that fails for a reason that has nothing to do with what it
 is testing. Three assertions went red — a drag laying one tile, a phase change not
@@ -885,6 +1045,19 @@ silently failed to place, and "fourteen starter buildings are active" was true w
 the fifteenth had never existed to be counted. Both read a positive fact and inferred
 completeness from it.
 
+M31 added a fifth, and it is the quietest: **a test that passes because it never set up
+the condition it was testing.** Automation Tax's ledger lines were empty — correctly,
+because the region had no automated factories to tax. UBI's cost was zero — correctly,
+because nobody was out of work. Neither assertion was wrong about the code; both were
+wrong about the world they had built to run it in. The repair was to make each probe
+report the state it had actually produced alongside its result, so an empty answer says
+whether it is empty because the feature is broken or because there was nothing to say.
+M31's `TILE = 24` was the same shape of error from the other side: a probe measuring the
+wrong place, with two of its cases passing anyway because the wrong place happened to
+contain the right kind of thing.
+
 The standing rules that came out of all this: **make the assertion touch real state,
-not a proxy for it**; **count what should be there, not what is**; and when a test
-passes over a symptom the player can still see, the test is the thing that is wrong.
+not a proxy for it**; **count what should be there, not what is**; **feed it what the
+game feeds it**; **make the probe say what it built, not only what it found**; and when
+a test passes over a symptom the player can still see, the test is the thing that is
+wrong.

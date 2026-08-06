@@ -1,4 +1,4 @@
-import type { Building, GameState } from './types';
+import type { Building, GameState, Ledger, LedgerLine, PolicyId } from './types';
 import { BUILDING_DEFS } from './buildings';
 import { POLICY_DEFS } from './policies';
 import { notify, policyActive, record, removeBuilding, rng, tileAt } from './state';
@@ -47,6 +47,46 @@ export function demolishBuilding(g: GameState, id: number): number {
   g.resources.capital += refund;
   removeBuilding(g, id);
   return refund;
+}
+
+// ---------------------------------------------------------------------------
+// The monthly ledger.
+//
+// Policies have always moved money — ten of them move revenue and four spend it
+// — and nothing in the interface ever said so, which left the player adopting
+// them on the description and inferring the effect from a balance that also
+// moves for a dozen other reasons. The simulation already computes every one of
+// these figures; it just used to throw them away the moment it had the total.
+// ---------------------------------------------------------------------------
+
+/** How a building category is named where money is concerned. */
+const LEDGER_CATEGORY: Record<string, string> = {
+  zone: 'Commerce & housing',
+  industry: 'Industry',
+  compute: 'Data centres',
+  power: 'Utilities',
+  civic: 'Civic services',
+  amenity: 'Amenities',
+};
+
+export function emptyLedger(): Ledger {
+  return { income: [], outgoings: [] };
+}
+
+/**
+ * Record a line, unless it is exactly nothing.
+ *
+ * Only exact zeros are dropped, never small figures: each side's lines have to
+ * sum to that side's total or the breakdown is quietly wrong, and a rounding
+ * threshold here would be indistinguishable from a bug in the economy. Hiding
+ * the negligible is the panel's job, where it can be undone by looking.
+ */
+function line(into: LedgerLine[], label: string, amount: number, policy?: PolicyId, rate?: number): void {
+  if (amount === 0 || !Number.isFinite(amount)) return;
+  const l: LedgerLine = { label, amount };
+  if (policy) l.policy = policy;
+  if (rate !== undefined) l.rate = rate;
+  into.push(l);
 }
 
 /** Upkeep multiplier: old infrastructure costs more to keep limping along. */
@@ -118,6 +158,9 @@ export function simTick(g: GameState): void {
   // ---------- Utility capacity & demand ----------
   let powerCap = 0, powerDem = 0, waterCap = 0, waterDem = 0;
   let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0;
+  const ledger = emptyLedger();
+  const upkeepBy: Record<string, number> = {};
+  const earnedBy: Record<string, number> = {};
   const renewableBoost = has('renewable_subsidy') ? 1.3 : 1;
 
   // Scenario climate: desert sun makes solar sing; desert aquifers do not.
@@ -168,7 +211,9 @@ export function simTick(g: GameState): void {
     if (!b.active) continue;
     jobsTotal += def.jobs;
     housing += def.housing;
-    upkeep += def.upkeep * upkeepWear(b);
+    const up = def.upkeep * upkeepWear(b);
+    upkeep += up;
+    upkeepBy[def.category] = (upkeepBy[def.category] ?? 0) + up;
     if (def.compute > 0) computeProduced += def.compute * utilitySat * cond;
   }
   if (has('manual_redundancy')) jobsTotal = Math.round(jobsTotal * 1.15);
@@ -202,6 +247,10 @@ export function simTick(g: GameState): void {
   const computeSat = computeDemand > 0 ? clamp01(computeProduced / computeDemand) : 1;
 
   // ---------- Money ----------
+  // Each figure is booked to the ledger as it is computed, in the order it is
+  // applied. A policy that scales revenue is worth whatever it scales, so the
+  // order is part of the answer, not an implementation detail.
+  let autoTaxDrag = 0, incentiveDrag = 0;
   for (const b of done) {
     if (!b.active) continue;
     const def = BUILDING_DEFS[b.type];
@@ -210,41 +259,103 @@ export function simTick(g: GameState): void {
       // Consumer purchasing power gates industrial revenue: the automation trap.
       const purchasing = clamp01(1 - unemployment * 1.4) * (has('ubi') ? 1.05 : 1);
       inc *= 0.4 + 0.6 * purchasing;
-      if (b.type === 'auto_factory' && has('automation_tax')) inc *= 0.8;
     }
     if (b.type === 'retail') {
       inc *= clamp01(1 - unemployment * 1.6) * (has('ubi') ? 1.1 : 1);
     }
     if (def.category === 'compute') {
       inc *= 0.5 + 0.5 * computeSat;
-      if (has('corporate_incentives')) inc *= 0.7; // we gave away the margin
     }
-    income += inc * buildingCondition(b);
+    // Booked gross, then the two policies that take a share of it — so the
+    // categories read as what the region earned and the policy lines read as
+    // what was given up, rather than the loss vanishing into a smaller total.
+    const gross = inc * buildingCondition(b);
+    earnedBy[def.category] = (earnedBy[def.category] ?? 0) + gross;
+    let net = gross;
+    if (b.type === 'auto_factory' && has('automation_tax')) {
+      const d = net * 0.2;
+      autoTaxDrag -= d;
+      net -= d;
+    }
+    if (def.category === 'compute' && has('corporate_incentives')) {
+      const d = net * 0.3; // we gave away the margin
+      incentiveDrag -= d;
+      net -= d;
+    }
+    income += net;
   }
-  income += g.population * 0.06 * clamp01(1 - unemployment); // income tax
-  // A tight housing market extracts rent — and the rent gets taxed.
-  income += g.population * 0.02 * g.housingShortage;
-  if (has('automation_tax')) {
-    income += [...g.buildings.values()].filter((b) => b.type === 'auto_factory' && b.active).length * 6;
+  for (const [cat, amt] of Object.entries(earnedBy)) {
+    line(ledger.income, LEDGER_CATEGORY[cat] ?? cat, amt);
   }
-  if (has('corporate_incentives')) income += 10; // attracted investment
+  line(ledger.income, 'Automation Tax — reduced factory output', autoTaxDrag, 'automation_tax', -0.2);
+  line(ledger.income, 'Corporate Incentives — margin conceded', incentiveDrag, 'corporate_incentives', -0.3);
 
-  // Output-shaping policies trade revenue for other goods.
-  if (has('reduced_workweek')) income *= 0.95;
-  if (has('human_staffing')) income *= 0.96;
-  if (has('local_procurement')) income *= 0.97;
-  if (has('antitrust_enforcement')) income *= 0.94;
-  if (has('carbon_tax')) income += done.filter((b) => b.type === 'coal_plant' && b.active).length * 5;
+  const incomeTax = g.population * 0.06 * clamp01(1 - unemployment);
+  income += incomeTax;
+  line(ledger.income, 'Income tax', incomeTax);
+  // A tight housing market extracts rent — and the rent gets taxed.
+  const rentTake = g.population * 0.02 * g.housingShortage;
+  income += rentTake;
+  line(ledger.income, 'Rent levy on housing shortage', rentTake);
+  if (has('automation_tax')) {
+    const take = [...g.buildings.values()].filter((b) => b.type === 'auto_factory' && b.active).length * 6;
+    income += take;
+    line(ledger.income, 'Automation Tax — receipts', take, 'automation_tax');
+  }
+  if (has('corporate_incentives')) {
+    income += 10; // attracted investment
+    line(ledger.income, 'Corporate Incentives — attracted investment', 10, 'corporate_incentives');
+  }
+
+  // Output-shaping policies trade revenue for other goods. Each is booked
+  // against the running total, which is exactly what it costs.
+  const scale = (id: PolicyId, m: number, label: string): void => {
+    if (!has(id)) return;
+    const delta = income * m - income;
+    income += delta;
+    line(ledger.income, label, delta, id, m - 1);
+  };
+  scale('reduced_workweek', 0.95, 'Reduced Workweek — shorter hours');
+  scale('human_staffing', 0.96, 'Human Staffing — slower service');
+  scale('local_procurement', 0.97, 'Local Procurement — higher input costs');
+  scale('antitrust_enforcement', 0.94, 'Antitrust Enforcement — broken-up margins');
+  if (has('carbon_tax')) {
+    const take = done.filter((b) => b.type === 'coal_plant' && b.active).length * 5;
+    income += take;
+    line(ledger.income, 'Carbon Tax — receipts', take, 'carbon_tax');
+  }
 
   // Boycotts hit revenue; strikes hit output on top of that.
-  if (g.resistanceStage >= 6) income *= 0.78;
-  else if (g.resistanceStage >= 4) income *= 0.88;
+  const boycott = g.resistanceStage >= 6 ? 0.78 : g.resistanceStage >= 4 ? 0.88 : 1;
+  if (boycott < 1) {
+    const delta = income * boycott - income;
+    income += delta;
+    line(ledger.income, g.resistanceStage >= 6 ? 'Boycott' : 'Organized non-cooperation', delta);
+  }
 
   let expenses = upkeep;
-  for (const p of g.policies) expenses += POLICY_DEFS[p].costPerTick;
-  if (has('ubi')) expenses += g.population * unemployment * 0.22;
-  if (has('public_employment')) expenses += publicHires * 0.3;
-  if (has('citizen_royalties')) expenses += g.population * 0.012;
+  for (const [cat, amt] of Object.entries(upkeepBy)) {
+    line(ledger.outgoings, `${LEDGER_CATEGORY[cat] ?? cat} upkeep`, amt);
+  }
+  for (const p of g.policies) {
+    expenses += POLICY_DEFS[p].costPerTick;
+    line(ledger.outgoings, POLICY_DEFS[p].name, POLICY_DEFS[p].costPerTick, p);
+  }
+  if (has('ubi')) {
+    const cost = g.population * unemployment * 0.22;
+    expenses += cost;
+    line(ledger.outgoings, 'Universal Basic Income — payments', cost, 'ubi');
+  }
+  if (has('public_employment')) {
+    const cost = publicHires * 0.3;
+    expenses += cost;
+    line(ledger.outgoings, 'Public Employment — wages', cost, 'public_employment');
+  }
+  if (has('citizen_royalties')) {
+    const cost = g.population * 0.012;
+    expenses += cost;
+    line(ledger.outgoings, 'Citizen Data Royalties — payments', cost, 'citizen_royalties');
+  }
 
   g.resources.capital += income - expenses;
 
@@ -314,7 +425,15 @@ export function simTick(g: GameState): void {
   // Stagnation is a choice with costs: investment follows growth.
   const growth = (g.population - g.lastPopulation) / Math.max(20, g.lastPopulation);
   g.lastPopulation = g.population;
-  g.resources.capital += income * Math.max(-0.12, Math.min(0.18, growth * 6)); // investor sentiment on top of base income
+  // Investor sentiment, on top of base income. It lands after the subtraction
+  // above, so it has to be booked here rather than with the rest of the
+  // revenue — and it has to be booked, because it is the single largest thing
+  // the player never sees: up to a fifth of the month's income, appearing or
+  // vanishing purely on whether the region grew.
+  const sentiment = income * Math.max(-0.12, Math.min(0.18, growth * 6));
+  g.resources.capital += sentiment;
+  income += sentiment;
+  line(ledger.income, sentiment >= 0 ? 'Investor sentiment — growth' : 'Investor sentiment — stagnation', sentiment);
 
   // ---------- Region reclassification ----------
   const tierNow = tierOf(g.population).name;
@@ -535,30 +654,42 @@ export function simTick(g: GameState): void {
   // moved it — trading, sentiment, an event resolved into this month — is in
   // the figure the player is shown.
   g.lastNet = g.resources.capital - capitalBefore;
+  g.lastIncome = income;
   g.lastOutgoings = expenses;
+  g.ledger = ledger;
   if (!g.netHistory) g.netHistory = [];
   g.netHistory.push(g.lastNet);
   if (g.netHistory.length > NET_WINDOW) g.netHistory.shift();
 }
 
 /**
- * The rate bar's reading: mean recent net, and that net as a fraction of
- * gross outgoings — clamped to ±1, which is a full bar either way.
+ * The rate bar's reading: mean recent net, as a fraction of turnover.
  *
- * Measuring against outgoings rather than against a fixed figure or a rolling
- * maximum is what keeps the bar honest as the region grows. Full right means
- * "netting as much as you spend"; full left means "losing as much as you
- * spend". Both sentences are true at any size, and neither quietly rescales
- * itself out from under a player who has learned to read it.
+ * The reference has to be something that means the same thing at sixty
+ * residents and sixty thousand, which rules out a fixed figure, and something
+ * that does not quietly rescale itself out from under a player who has learned
+ * to read it, which rules out a rolling maximum.
+ *
+ * It was gross *outgoings*, and that was wrong in a way only play could show:
+ * a founding town spends about §6 a month and nets about §35, so the ratio is
+ * six to one and the bar pinned at full right — for fifty months, never
+ * moving, which is exactly no use as an indicator. The tests missed it because
+ * they drove the mapping with figures the game does not produce.
+ *
+ * Turnover is bounded by construction on the side that was pegging: net can
+ * never exceed income by more than the investor-sentiment margin, so a full
+ * right bar means "spending nothing" and is genuinely rare. Full left means
+ * income has collapsed to nothing while the bills continue.
  */
-export function cashflow(g: GameState): { net: number; frac: number; outgoings: number; months: number } {
+export function cashflow(g: GameState): { net: number; frac: number; income: number; outgoings: number; months: number } {
   // Tolerates a state that has never ticked, or one loaded from a save written
   // before any of this existed. A missing window reads as zero, which is both
   // honest and a great deal better than throwing from inside the bar.
   const h = g.netHistory ?? [];
   const net = h.length ? h.reduce((a, b) => a + b, 0) / h.length : 0;
   const outgoings = Math.max(1, g.lastOutgoings || 0);
-  return { net, outgoings, months: h.length, frac: Math.max(-1, Math.min(1, net / outgoings)) };
+  const income = Math.max(1, g.lastIncome || 0);
+  return { net, income, outgoings, months: h.length, frac: Math.max(-1, Math.min(1, net / income)) };
 }
 
 export function computeSatisfaction(g: GameState): number {

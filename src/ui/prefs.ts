@@ -16,6 +16,16 @@ export interface Prefs {
   toasts: boolean;
   /** Suppress animation beyond what the OS setting already suppresses. */
   reducedMotion: boolean;
+  /**
+   * The tilt-shift depth-of-field pass.
+   *
+   * 'auto' is on above the compact breakpoint and off below it, which is
+   * where it was measured to be both invisible and expensive. It is a
+   * preference at all because it is expensive *everywhere* — 64% of render
+   * time on a desktop viewport in the same measurement — and that is a trade
+   * some players will want to make and others will not.
+   */
+  depthOfField: 'auto' | 'on' | 'off';
   /** The diagnostic layer to restore on load. */
   layer: OverlayId | null;
   /**
@@ -35,6 +45,7 @@ export const DEFAULT_PREFS: Prefs = {
   sound: true,
   toasts: true,
   reducedMotion: false,
+  depthOfField: 'auto',
   layer: null,
   xrayKey: 'ctrl',
 };

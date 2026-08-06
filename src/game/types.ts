@@ -289,6 +289,30 @@ export interface FailCounters {
   inactive: number;     // consecutive ticks with most buildings offline
 }
 
+/**
+ * One line of the monthly cashflow breakdown.
+ *
+ * `amount` is signed and lines are recorded in the order the simulation applies
+ * them, which matters: a policy that scales revenue is worth whatever it scales,
+ * and that depends on everything booked before it. The lines of each side sum
+ * exactly to that side's total — if they ever stop doing so, the breakdown is
+ * lying, so the tests check the sum rather than the individual figures.
+ */
+export interface LedgerLine {
+  label: string;
+  amount: number;
+  /** Set when the line exists because a policy is in force. */
+  policy?: PolicyId;
+  /** Set when the line is a policy's proportional effect rather than a charge. */
+  rate?: number;
+}
+
+export interface Ledger {
+  income: LedgerLine[];
+  /** Positive magnitudes: these are what left the treasury. */
+  outgoings: LedgerLine[];
+}
+
 export interface GameState {
   tick: number;            // 1 tick = 1 month
   seed: number;
@@ -336,9 +360,13 @@ export interface GameState {
    * the bar means the same thing at sixty residents and sixty thousand.
    */
   lastNet: number;
+  /** Gross income for the month — the rate bar's full-scale reference. */
+  lastIncome: number;
   lastOutgoings: number;
   /** Recent net figures, newest last. The bar reads their mean, not one tick. */
   netHistory: number[];
+  /** Where last month's money came from and went. Rebuilt every tick. */
+  ledger: Ledger;
   failCounters: FailCounters;
 
   history: HistoryEntry[];
