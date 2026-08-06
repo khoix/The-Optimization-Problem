@@ -18,8 +18,8 @@ export const EXPLAIN: Record<string, Explanation> = {
   // ---- vital signs -------------------------------------------------------
   capital: {
     title: 'Capital',
-    what: 'Treasury balance. Income from active buildings and taxes, less upkeep and policy costs.',
-    drivers: 'Employment drives tax receipts, so unemployment cuts income twice: fewer wages taxed, and less spent in the shops that pay rates.',
+    what: 'Treasury balance, and beneath it the rate it is changing. The bar reads from the centre: right for a surplus, left for a deficit, and full either way means the region is gaining or losing as much each month as it spends.',
+    drivers: 'The rate averages the last six months, so one expensive decision does not swing it. Employment drives tax receipts, so unemployment cuts income twice: fewer wages taxed, and less spent in the shops that pay rates.',
   },
   power: {
     title: 'Power',

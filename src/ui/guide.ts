@@ -74,6 +74,20 @@ const fig_meter = (icon: string, label: string, value: number, text: string, cls
      <span class="fig-note">${note}</span>
    </div>`;
 
+/** The capital rate bar, in the same markup the bar builds it from. */
+const fig_rate = (text: string, frac: number, cls: string, note: string) => {
+  const pct = Math.abs(frac) * 50;
+  return `<div class="fig-vital">
+     <span class="vital-ico">§</span>
+     <span class="vital-body">
+       <span class="vital-num">${text}<span class="vital-label-inline">Capital</span></span>
+       <span class="gauge gauge-rate"><span class="gauge-zero"></span>
+         <span class="gauge-fill ${cls}" style="left:${frac < 0 ? 50 - pct : 50}%;width:${pct}%"></span></span>
+     </span>
+     <span class="fig-note">${note}</span>
+   </div>`;
+};
+
 const PAGES: GuidePage[] = [
   {
     key: 'post',
@@ -120,6 +134,10 @@ const PAGES: GuidePage[] = [
     body: `<p>The bar along the bottom is the whole instrument panel. Capacity gauges read the
       same way round every time — <b>need first, then what you have</b> — so a glance never
       has to work out which number is which.</p>
+      <p><b>Capital reads differently.</b> Its bar is a rate, not a proportion: it grows
+      out of the centre, right when the treasury is gaining and left when it is losing,
+      and a full bar either way means the region is moving as much money each month as it
+      spends. It averages half a year, so one expensive decision does not swing it.</p>
       <p>Hover anything on the bar or in <i>Indicators</i> and it will tell you what it
       measures, what moves it, and at whose expense. Nothing here expects you to already
       know what it means.</p>`,
@@ -128,6 +146,8 @@ const PAGES: GuidePage[] = [
       html: `<div class="fig-hud">
         ${fig_gauge('⚡', '412', '500', 82, 'gauge-ok', 'Comfortable — 82% of capacity in use.')}
         ${fig_gauge('💧', '340', '300', 113, 'gauge-bad', 'Over capacity. Something is about to go dark.')}
+        ${fig_rate('4,180', 0.52, 'gauge-ok', 'Capital, gaining — a surplus of about half what you spend.')}
+        ${fig_rate('1,905', -0.7, 'gauge-bad', 'The same bar, going the other way. This region has months, not years.')}
         ${fig_meter('☺', 'Trust', 61, '61', 'gauge-ok', 'An indicator, same visual language.')}
         ${fig_meter('⚠', 'Unrest', 38, '38', 'gauge-warn', 'Inverted: for this one, low is the good end.')}
       </div>`,

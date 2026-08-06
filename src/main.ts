@@ -211,7 +211,7 @@ function applyCursor(): void {
   hoverWorld = hoverTile ? [wx, wy] : null;
   ui.showHover(hoverTile, cursorX, cursorY);
   if (!dragging && roadPainting && hoverTile && ui.tool.kind === 'build') {
-    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1]);
+    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1], true);
   }
   if (!dragging && demolishDragging && hoverTile && ui.tool.kind === 'demolish') {
     demolishTile(hoverTile[0], hoverTile[1], true);
@@ -264,18 +264,28 @@ function cursorTile(ev: MouseEvent): [number, number] | null {
 
 let roadsBuiltSinceRecord = 0;
 
-function tryBuild(type: keyof typeof BUILDING_DEFS, tx: number, ty: number): void {
+/**
+ * `sweeping` marks a tile reached by a drag rather than by its own click.
+ * It only changes the sound: a refusal is worth hearing once when you meant
+ * it, and worth nothing at all sixty times a second while a drag crosses
+ * ground it has already paved.
+ */
+function tryBuild(type: keyof typeof BUILDING_DEFS, tx: number, ty: number, sweeping = false): void {
   if (g.asi.observer || g.gameOver) return;
   const before = g.resources.capital;
   const placed = placeBuilding(g, type, tx, ty);
   if (placed) {
     record(g, 'build', `Built ${BUILDING_DEFS[type].name}.`);
+    sound.placed();
   } else if (isRoadType(type) && g.resources.capital < before) {
+    sound.paint();
     // Roads return null by design; batch them so painting doesn't flood the log.
     if (++roadsBuiltSinceRecord >= 10) {
       record(g, 'build', 'Extended the road network.');
       roadsBuiltSinceRecord = 0;
     }
+  } else if (!sweeping) {
+    sound.refused();
   }
 }
 
@@ -307,14 +317,19 @@ function demolishTile(tx: number, ty: number, sweeping: boolean): void {
   if (tile.road) {
     tile.road = false;
     g.mapVersion++;
+    if (sweeping) sound.paint(); else sound.demolished();
     return;
   }
   if (tile.terrain === 'rock') {
     if (g.resources.capital < ROCK_CLEAR_COST) {
-      if (!sweeping) ui.flashSystemNote(`Clearing rock costs §${ROCK_CLEAR_COST} a tile.`);
+      if (!sweeping) {
+        sound.refused();
+        ui.flashSystemNote(`Clearing rock costs §${ROCK_CLEAR_COST} a tile.`);
+      }
       return;
     }
     clearRock(g, tx, ty);
+    if (sweeping) sound.paint(); else sound.demolished();
     // Batched like road painting, so sweeping a ridge doesn't flood the log.
     if (++rocksClearedSinceRecord >= 10) {
       record(g, 'build', 'Cleared rock for development.');
@@ -344,6 +359,14 @@ let last = performance.now();
 let endStateSaved = false;
 
 function frame(now: number): void {
+  // Re-arm first, not last.
+  //
+  // This used to sit at the bottom, which meant any exception raised anywhere
+  // in the frame skipped it and the loop simply stopped — rendering, input and
+  // the simulation all dead until a reload, from one bad field in one panel.
+  // Nothing is swallowed: the error still reaches the console. It just no
+  // longer takes the whole game with it.
+  requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
   const mul = SPEED_MUL[g.asi.observer ? 1 : g.speed];
@@ -379,7 +402,5 @@ function frame(now: number): void {
 
   uiAccum += dt;
   if (uiAccum > 0.25) { uiAccum = 0; ui.refresh(); }
-
-  requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

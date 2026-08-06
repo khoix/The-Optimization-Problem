@@ -117,12 +117,21 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .vitals-dock .vital-label-inline { overflow: visible; }
-.gauge-void { background: transparent; }
 .vital-num.bad { color: var(--bad); }
 .vital-cap { color: var(--text-dim); font-size: 10px; }
 .vital-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; }
 .gauge { height: 4px; background: #1a2230; border-radius: 2px; overflow: hidden; display: block; }
 .gauge-fill { display: block; height: 100%; border-radius: 2px; transition: width 0.4s; }
+/* Capital's gauge measures a rate, not a proportion, so it grows out of the
+   centre rather than from the left. Zero carries a tick of its own: without
+   one, a region that is almost exactly breaking even looks identical to a bar
+   that failed to render. */
+.gauge-rate { position: relative; }
+.gauge-rate .gauge-fill { position: absolute; top: 0; transition: width 0.4s, left 0.4s; }
+.gauge-zero {
+  position: absolute; left: 50%; top: -1px; width: 1px; height: calc(100% + 2px);
+  background: #46536b; z-index: 1;
+}
 .gauge-ok { background: var(--good); }
 .gauge-warn { background: var(--mid); }
 .gauge-bad { background: var(--bad); }

@@ -326,6 +326,19 @@ export interface GameState {
   computeBase: number;       // autonomous floor of compute demand, always growing
   peakPopulation: number;
   lastPopulation: number;    // for growth-rate / stagnation effects
+  /**
+   * Cashflow, published for the bar's rate indicator.
+   *
+   * `lastNet` is the treasury's *actual* change across the last tick, not
+   * income minus expenses — investor sentiment lands after that subtraction,
+   * and a readout that disagreed with the balance beside it would be worse
+   * than none. `lastOutgoings` is the gross spend it is measured against, so
+   * the bar means the same thing at sixty residents and sixty thousand.
+   */
+  lastNet: number;
+  lastOutgoings: number;
+  /** Recent net figures, newest last. The bar reads their mean, not one tick. */
+  netHistory: number[];
   failCounters: FailCounters;
 
   history: HistoryEntry[];
