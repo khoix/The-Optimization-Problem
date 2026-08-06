@@ -864,6 +864,75 @@ height it already publishes, rather than a constant that was right for exactly o
 
 ---
 
+## Milestone 29 — the rate bar's reference, and a bar a phone can hold — `88efbeb`
+
+> **Fix — the capital rate bar shipped pinned.** A founding town spends about §6 a month
+> and nets about §35, so measured against outgoings the ratio is six to one: the bar sat
+> at full right for fifty months without moving. M27's suite passed every mapping
+> assertion because it drove them with figures the game does not produce — net 50 against
+> outgoings 100 is a ratio the early economy never reaches.
+>
+> The reference is **turnover** now. Full right means keeping essentially all of what
+> comes in; full left means the income has gone and the bills have not; and the positive
+> side is bounded by construction, so it cannot peg. Across a real run: **0.82**
+> comfortable, **0.37** carrying seven policies, **−0.21** as infrastructure wears out.
+> The suite now plays the game and asserts the bar *moves*, not only that the arithmetic
+> is right.
+
+### Mobile
+
+**Toasts are one at a time, top centre.** Four stacked alerts is a corner of a 1280px
+screen and most of a 390px one.
+
+> **Fix.** The toast stack sat at `z-index: 55` against the modal layer's `50`, so a
+> toast rendered *over* a pending decision — and a toast is clickable, so one landing on
+> a choice button ate the tap and left the player holding a dialog they could not answer.
+> It never showed on a desktop, where a right-hand column and a centred dialog miss each
+> other.
+
+**Alerts and Override move into the hamburger** below the breakpoint, freeing the two
+widest controls from the bar. The hamburger carries the unread mark, so nothing is hidden
+by being folded away, and a panel opened from inside it grows out of it — its own button
+is no longer on the bar to grow out of.
+
+> **Fix.** Collapsed now folds to **two bands rather than three**. The desktop collapse
+> lays the LCD out along one line, which on a phone made the console 351px of a 390px
+> screen and pushed the hamburger and the fold onto a row of their own — a third row,
+> produced by the control whose whole job is to remove one. Two short lines keep it
+> narrow enough to share: 187px expanded, **114px collapsed, 17% of the screen**.
+
+> **Fix.** The pause control is `▮▮` rather than `⏸`, which is in a block with emoji
+> presentation by default and arrived in colour beside three monochrome triangles.
+
+### Performance
+
+Compose was 82% of the frame on a phone-sized viewport under 4× CPU throttling, and a
+single opaque number, so it now carries sub-pass stamps of its own. Those located
+**tilt-shift at 21ms of a 40ms frame** — and halving its scratch buffer again changed
+that by *nothing at all*, which is the useful part: the cost is not the blur or the
+composite but `drawImage(this.screen, …)` reading back the canvas being drawn to, and the
+browser reconciling that read. One readback, whatever size the destination.
+
+Interleaved A/B in a single session, medians of ten:
+
+| | tilt-shift on | off | saved |
+|---|---|---|---|
+| phone viewport, 1× | 22.5 ms | 13.4 ms | 40% |
+| phone viewport, 4× | 61.3 ms | 22.4 ms | 63% |
+| desktop viewport, 1× | 52.7 ms | 18.9 ms | 64% |
+
+It is off by default below the breakpoint, where what it buys is a few millimetres of
+soft focus at the top and bottom of the screen — one of which is behind the bar. It is a
+**preference** rather than a rule because that desktop figure is somebody's trade to
+make: Settings carries Auto / On / Off.
+
+> **The usual caveat, and it cuts both ways here.** These are software-rasterisation
+> figures. They overstate fill-rate costs against a GPU — but a canvas readback is a
+> pipeline synchronisation rather than fill, so this one is likelier than most to survive
+> contact with real hardware.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -872,6 +941,12 @@ audio. The car jitter passed two different measurements before one was built tha
 could tell motion from progress. The audio recovery test reported a false failure
 because a synthetic click is not a trusted gesture — and that false failure
 exposed a real gap.
+
+M29 added the sharpest one yet: **a test that exercises a function over inputs nobody
+supplies.** Every one of M27's rate-bar assertions was correct about the arithmetic and
+told us nothing, because the ratios it fed in were ratios the game never produces. The
+bar was pinned at full right for fifty months of play with a green suite behind it. The
+repair was not a better assertion but a different *source*: play the game, then look.
 
 M27 added a fourth: a test that fails for a reason that has nothing to do with what it
 is testing. Three assertions went red — a drag laying one tile, a phase change not
@@ -886,5 +961,6 @@ the fifteenth had never existed to be counted. Both read a positive fact and inf
 completeness from it.
 
 The standing rules that came out of all this: **make the assertion touch real state,
-not a proxy for it**; **count what should be there, not what is**; and when a test
-passes over a symptom the player can still see, the test is the thing that is wrong.
+not a proxy for it**; **count what should be there, not what is**; **feed it what the
+game feeds it**; and when a test passes over a symptom the player can still see, the
+test is the thing that is wrong.
