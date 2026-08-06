@@ -1,7 +1,8 @@
 import './style.css';
 import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, tileAt, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
-import { Renderer, type UiRenderState } from './render/renderer';
+import { Renderer, type DemolishPreview, type UiRenderState } from './render/renderer';
+import { canDemolish } from './game/asi';
 import { UI, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
@@ -131,6 +132,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 (window as unknown as Record<string, unknown>).__api = {
   canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify,
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
+  demolishPreview, TILE,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
@@ -423,7 +425,9 @@ window.addEventListener('keydown', (ev) => {
     case 'Tab': ev.preventDefault(); ui.toggleCollapse(); break;
     case ' ':
       ev.preventDefault();
-      g.speed = g.speed === 0 ? 1 : 0;
+      // The bar owns speed — it remembers what you were watching at, and it
+      // knows when the system is no longer taking pause requests.
+      ui.toggleSpeed();
       break;
   }
 });
@@ -500,6 +504,38 @@ function demolishTile(tx: number, ty: number, sweeping: boolean): void {
   }
 }
 
+/**
+ * What the demolish tool would do to the hovered tile, for the cursor.
+ *
+ * Deliberately built from the same three branches `demolishTile` takes, in the
+ * same order, so the highlight cannot promise something the click won't do.
+ * The refusals it reports are the ones the player can act on: no authority
+ * (observer, game over), not enough capital for rock, or a structure the system
+ * has decided is load-bearing.
+ */
+function demolishPreview(): DemolishPreview | null {
+  if (ui.tool.kind !== 'demolish' || !hoverTile) return null;
+  const [tx, ty] = hoverTile;
+  const tile = tileAt(g, tx, ty);
+  if (!tile) return null;
+  const noAuthority = g.asi.observer || g.gameOver;
+  if (tile.buildingId !== -1) {
+    const b = g.buildings.get(tile.buildingId);
+    if (!b) return null;
+    const def = BUILDING_DEFS[b.type];
+    const ok = !noAuthority && canDemolish(g, tile.buildingId).ok;
+    return { x: b.x, y: b.y, w: def.w, h: def.h, kind: ok ? 'remove' : 'blocked', buildingId: b.id };
+  }
+  if (tile.road) {
+    return { x: tx, y: ty, w: 1, h: 1, kind: noAuthority ? 'blocked' : 'remove', buildingId: null };
+  }
+  if (tile.terrain === 'rock') {
+    const affordable = !noAuthority && g.resources.capital >= ROCK_CLEAR_COST;
+    return { x: tx, y: ty, w: 1, h: 1, kind: affordable ? 'clear' : 'blocked', buildingId: null };
+  }
+  return null;
+}
+
 function selectTile(t: [number, number] | null): void {
   if (!t) return;
   const tile = tileAt(g, t[0], t[1]);
@@ -548,6 +584,7 @@ function frame(now: number): void {
     hoverTile,
     buildType: ui.tool.kind === 'build' ? ui.tool.type : null,
     canPlaceHere: hoverTile && ui.tool.kind === 'build' ? canPlace(g, ui.tool.type, hoverTile[0], hoverTile[1]) : false,
+    demolish: demolishPreview(),
     selectedBuildingId: ui.selectedBuildingId,
     overlay: ui.overlay,
     cursorWorld: hoverWorld,

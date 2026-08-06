@@ -19,6 +19,24 @@ export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
 /** Which modifier opens the x-ray window while it is held. */
 export type XrayKey = 'ctrl' | 'alt' | 'shift';
 
+/**
+ * What the demolish tool would do to the tile under the cursor.
+ *
+ * Build has always drawn a coloured footprint before the click lands; demolish
+ * drew nothing, which stopped being survivable once demolition of a building
+ * became immediate rather than a trip through the inspector. Three outcomes are
+ * worth telling apart, so they get three colours: a removal, a paid clearance,
+ * and a refusal — and the refusal is worth seeing *before* the click, not only
+ * in the modal that follows it.
+ */
+export interface DemolishPreview {
+  /** Footprint in tiles: a building's whole extent, or the single tile. */
+  x: number; y: number; w: number; h: number;
+  kind: 'remove' | 'clear' | 'blocked';
+  /** Set for a building, so the mass above the ground can be outlined too. */
+  buildingId: number | null;
+}
+
 export interface UiRenderState {
   hoverTile: [number, number] | null;
   /** Cursor in world pixels, for the x-ray. Null when off the map. */
@@ -27,9 +45,18 @@ export interface UiRenderState {
   xrayRadial: boolean;
   buildType: BuildingType | null;
   canPlaceHere: boolean;
+  /** Null unless the demolish tool is in hand over something it can address. */
+  demolish: DemolishPreview | null;
   selectedBuildingId: number | null;
   overlay: OverlayId | null;
 }
+
+/** Fill, stroke and hatch for each demolition outcome. */
+const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
+  remove: ['rgba(220,80,80,0.34)', '#dc5050'],
+  clear: ['rgba(224,170,72,0.30)', '#e0aa48'],
+  blocked: ['rgba(140,146,164,0.28)', '#8c92a4'],
+};
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
@@ -659,6 +686,48 @@ export class Renderer {
       w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
       w.strokeStyle = ui.canPlaceHere ? '#6edc82' : '#dc5050';
       w.strokeRect(dx + 0.5, dy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+    }
+    // --------------------------------------------------------- demolish cursor
+    if (ui.demolish) {
+      const d = ui.demolish;
+      const [fill, line] = DEMOLISH_COLORS[d.kind];
+      const dx = d.x * TILE - camX, dy = d.y * TILE - camY;
+      const dw = d.w * TILE, dh = d.h * TILE;
+      w.fillStyle = fill;
+      w.fillRect(dx, dy, dw, dh);
+      // Diagonal hatch. A flat wash reads as selection; strike-through reads as
+      // "this is going away", and it survives being drawn over grass, road and
+      // rock alike, all of which are already busy.
+      w.save();
+      w.beginPath();
+      w.rect(dx, dy, dw, dh);
+      w.clip();
+      w.strokeStyle = line;
+      w.globalAlpha = 0.55;
+      w.lineWidth = 1;
+      for (let i = -dh; i < dw; i += 6) {
+        w.beginPath();
+        w.moveTo(dx + i, dy);
+        w.lineTo(dx + i + dh, dy + dh);
+        w.stroke();
+      }
+      w.restore();
+      w.strokeStyle = line;
+      w.strokeRect(dx + 0.5, dy + 0.5, dw - 1, dh - 1);
+      // A building is mostly not on the tile you clicked — outline the mass too,
+      // or a tall block reads as though only its base is being taken.
+      if (d.buildingId != null) {
+        const db = g.buildings.get(d.buildingId);
+        if (db) {
+          const mh = heightOf(db.type);
+          if (mh > 0) {
+            const [mpx, mpy] = parallaxShift(dx, dy, mh, W, H);
+            w.globalAlpha = 0.5;
+            w.strokeRect(dx + mpx + 0.5, dy - mh + mpy + 0.5, dw - 1, dh - 1);
+            w.globalAlpha = 1;
+          }
+        }
+      }
     }
     if (ui.selectedBuildingId != null) {
       const b = g.buildings.get(ui.selectedBuildingId);

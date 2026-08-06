@@ -67,6 +67,11 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.lastIncome ??= 0;
   g.lastOutgoings ??= 0;
   g.netHistory ??= [];
+  // Rebuilt on the next tick anyway; a save from before it existed just starts
+  // the panel empty rather than undefined.
+  g.ledger ??= { income: [], outgoings: [] };
+  g.ledger.income ??= [];
+  g.ledger.outgoings ??= [];
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.

@@ -116,6 +116,20 @@ export const COMPACT_WIDTH = 820;
 /** Above this build cost, demolition asks before it happens. */
 const CONFIRM_DEMOLITION_ABOVE = 150;
 
+/** What the system says when it declines to stop. Same words from every control. */
+const PAUSE_REFUSED = 'Pause request received. Simulation continuity has been prioritized.';
+
+/**
+ * Ledger figures, to one decimal.
+ *
+ * The rest of the interface rounds money to whole §, which is right for a
+ * balance and wrong for a breakdown: half the lines on a young region are worth
+ * under a §, and a column of zeroes that visibly fails to add up would read as
+ * a broken panel rather than a small one.
+ */
+const money = (v: number): string => (Math.abs(v) < 0.05 ? '0.0' : v.toFixed(1));
+const signedMoney = (v: number): string => `${v < 0 ? '−' : '+'}§${money(Math.abs(v))}`;
+
 /** How long a toast lingers, in real milliseconds — louder alerts stay longer. */
 const TOAST_MS: Record<Severity, number> = { low: 5500, medium: 9000, high: 15000 };
 const SEV_RANK: Record<Severity, number> = { low: 0, medium: 1, high: 2 };
@@ -213,6 +227,14 @@ export class UI {
   private lastBuildMenuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
+  /**
+   * The speed the player last chose to run at. A pause is a suspension, not a
+   * decision to slow down: someone watching at ▶▶▶ who taps space to read an
+   * alert means to come back to ▶▶▶, and dropping them to 1× made them re-pick
+   * it every time. Every speed change in the bar routes through setSpeed so
+   * this stays true regardless of which control moved it.
+   */
+  private runSpeed: 1 | 2 | 3 = 1;
   private unreadAlerts = 0;
   private prefs: Prefs = loadPrefs();
   /** The walkthrough. Built on first use — it carries a renderer of its own. */
@@ -272,10 +294,10 @@ export class UI {
       b.title = ['Pause', 'Normal speed', 'Fast', 'Fastest'][sp];
       b.onclick = () => {
         if (sp === 0 && !pauseAllowed(this.g)) {
-          this.flashSystemNote('Pause request received. Simulation continuity has been prioritized.');
+          this.flashSystemNote(PAUSE_REFUSED);
           return;
         }
-        this.onSpeed(sp);
+        this.setSpeed(sp);
       };
       spd.append(b);
     });
@@ -414,6 +436,7 @@ export class UI {
     this.selectedBuildingId = null;
     this.overlay = null;
     this.resumeSpeed = null;
+    this.runSpeed = 1;
     this.allocDragging = false;
 
     this.titleScreen.classList.add('hidden');
@@ -1378,8 +1401,11 @@ export class UI {
         const btn = el('button', 'policy-toggle');
         btn.dataset.policy = id;
         btn.onclick = () => this.togglePolicy(id, btn);
-        const text = el('div', 'policy-text', `<b>${def.name}</b><br><small>${def.desc}</small>`);
-        row.append(btn, text);
+        const text = el('div', 'policy-text',
+          `<b>${def.name}</b><br><small>${def.desc}</small>`);
+        // Filled from the ledger once a month has closed under this policy.
+        const eff = el('span', 'policy-effect');
+        row.append(btn, text, eff);
         pol.append(row);
       }
     }
@@ -1450,9 +1476,64 @@ export class UI {
   private syncPolicyButtons(): void {
     for (const btn of this.panelBodies.policies.querySelectorAll<HTMLElement>('.policy-toggle')) {
       const id = btn.dataset.policy as PolicyId;
-      btn.classList.toggle('on', this.g.policies.has(id));
-      btn.textContent = this.g.policies.has(id) ? 'ON' : 'OFF';
+      const on = this.g.policies.has(id);
+      btn.classList.toggle('on', on);
+      btn.textContent = on ? 'ON' : 'OFF';
+      // What this policy is doing to the treasury right now. Only for the ones
+      // that are on and that actually touch money — a blank row says "this one
+      // buys you something other than capital", which is also worth knowing.
+      const eff = btn.parentElement?.querySelector<HTMLElement>('.policy-effect');
+      if (!eff) continue;
+      const net = on ? this.policyCashflow(id) : null;
+      if (net === null || Math.abs(net) < 0.05) {
+        eff.textContent = '';
+        eff.className = 'policy-effect';
+      } else {
+        eff.textContent = `${signedMoney(net)}/mo`;
+        eff.className = `policy-effect ${net < 0 ? 'eff-bad' : 'eff-good'}`;
+      }
     }
+  }
+
+  /** This policy's net effect on last month's treasury, per the ledger. */
+  private policyCashflow(id: PolicyId): number {
+    const led = this.g.ledger;
+    if (!led) return 0;
+    let net = 0;
+    for (const l of led.income) if (l.policy === id) net += l.amount;
+    for (const l of led.outgoings) if (l.policy === id) net -= l.amount;
+    return net;
+  }
+
+  /**
+   * Last month's cashflow, line by line.
+   *
+   * Rebuilt as a string rather than diffed row by row: it is a dozen rows that
+   * all change together once a month, behind a panel that is usually closed.
+   */
+  private ledgerHtml(): string {
+    const g = this.g;
+    const led = g.ledger ?? { income: [], outgoings: [] };
+    if (led.income.length === 0 && led.outgoings.length === 0) {
+      return '<div class="ledger-empty">No month has closed yet.</div>';
+    }
+    const side = (title: string, lines: typeof led.income, total: number, cls: string): string => {
+      // Biggest first: the answer to "where did it go" is nearly always the
+      // top line, and a fixed simulation order buries it under small change.
+      const sorted = [...lines].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+      const rows = sorted.map((l) => {
+        const neg = l.amount < 0;
+        return `<div class="ledger-row${l.policy ? ' from-policy' : ''}">` +
+          `<span class="ledger-label">${l.label}${l.rate !== undefined ? ` <small>${l.rate > 0 ? '+' : '−'}${Math.round(Math.abs(l.rate) * 100)}%</small>` : ''}</span>` +
+          `<span class="ledger-amt${neg ? ' neg' : ''}">${neg ? '−' : ''}§${money(Math.abs(l.amount))}</span></div>`;
+      }).join('');
+      return `<div class="ledger-side ${cls}">` +
+        `<div class="ledger-head"><span>${title}</span><span>§${money(total)}</span></div>${rows}</div>`;
+    };
+    const net = g.lastIncome - g.lastOutgoings;
+    return side('Income', led.income, g.lastIncome, 'led-in') +
+      side('Outgoings', led.outgoings, g.lastOutgoings, 'led-out') +
+      `<div class="ledger-net"><span>Net</span><span class="${net < 0 ? 'neg' : ''}">${signedMoney(net)}</span></div>`;
   }
 
   // ------------------------------------------------------------ inspector
@@ -1627,7 +1708,7 @@ export class UI {
     if (!this.prefs.autoPauseOnDecision) { this.resumeSpeed = null; return; }
     if (g.speed > 0 && pauseAllowed(g)) {
       this.resumeSpeed = g.speed;
-      this.onSpeed(0);
+      this.setSpeed(0);
     } else {
       this.resumeSpeed = null;
     }
@@ -1635,9 +1716,38 @@ export class UI {
 
   private autoResume(): void {
     if (this.resumeSpeed != null && this.g.speed === 0 && !this.g.asi.observer && !this.g.gameOver) {
-      this.onSpeed(this.resumeSpeed);
+      this.setSpeed(this.resumeSpeed);
     }
     this.resumeSpeed = null;
+  }
+
+  /**
+   * The single write path for speed. Anything that runs the clock records the
+   * speed it ran at, so a later resume has something to return to.
+   */
+  private setSpeed(s: 0 | 1 | 2 | 3): void {
+    if (s !== 0) this.runSpeed = s;
+    this.onSpeed(s);
+  }
+
+  /**
+   * Space. Not the same as clicking a transport button: the buttons are
+   * explicit ("run at 2×"), this is a suspension that undoes itself. Pause
+   * still has to ask — at phase 4+ the system may decline — and resuming goes
+   * back to the speed the player was actually watching at.
+   */
+  toggleSpeed(): void {
+    const g = this.g;
+    if (g.speed === 0) {
+      if (g.asi.observer || g.gameOver) return;
+      this.setSpeed(this.runSpeed);
+      return;
+    }
+    if (!pauseAllowed(g)) {
+      this.flashSystemNote(PAUSE_REFUSED);
+      return;
+    }
+    this.setSpeed(0);
   }
 
   /**
@@ -1932,6 +2042,18 @@ export class UI {
           reading: opts?.reading, extraClass: opts?.extraClass,
         });
       };
+
+      // Treasury first. Every other panel on this list explains a number the
+      // bar already shows; until now the one number the player watches most
+      // closely — the balance — was the only one with nothing behind it.
+      items.push({
+        kind: 'block', key: 'h.treasury', className: 'cat-label', html: 'Treasury',
+        explain: 'capital',
+        reading: `Last month: §${money(g.lastIncome)} in, §${money(g.lastOutgoings)} out`,
+      });
+      items.push({
+        kind: 'block', key: 'treasury.ledger', className: 'ledger', html: this.ledgerHtml(),
+      });
 
       header('h.qol', 'Quality of Life');
       const rows: Array<[string, string, number]> = [

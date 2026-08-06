@@ -342,6 +342,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     lastIncome: 0,
     lastOutgoings: 0,
     netHistory: [],
+    ledger: { income: [], outgoings: [] },
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
     history: [],
     tutorialDone: [],
