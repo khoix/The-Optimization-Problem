@@ -750,6 +750,61 @@ either end and meet in the middle.
 
 ---
 
+## Milestone 27 — the console answers back — `55b2d9d`
+
+### The capital rate bar
+
+Capital's bar was a transparent 4px track that existed only to keep the figure
+aligned with the four gauges beside it. It read as a progress bar that never moved.
+It is now a **rate indicator**: zero at the centre, a surplus growing right in green,
+a deficit growing left in red — same slot, same height, so M21's two-row alignment is
+untouched.
+
+Nothing published cashflow before this, so the sim had to. It records the treasury's
+**actual change across the tick** rather than income minus expenses, because investor
+sentiment lands after that subtraction and a readout that disagreed with the balance
+beside it would be worse than none.
+
+**Length is measured against gross monthly outgoings.** The two obvious alternatives
+are both wrong. A rolling maximum self-calibrates and so quietly rescales its own
+meaning — a player learns "half right is healthy", the region grows tenfold, and half
+right now means something else. A fixed absolute reference is the whole world in Year 1
+and invisible by Megaregion. Against outgoings, full right means *netting as much as
+you spend* and full left means *losing as much as you spend*, and both sentences are
+true at any size.
+
+- It averages **six months**, so one expensive decision moves the bar without pegging
+  it: five good months and one that costs a year's surplus reads as a seventh of a bar,
+  where that month alone would read as a full one.
+- **Zero carries a tick of its own.** A region almost exactly breaking even must not
+  look like a bar that failed to render.
+- The red half **goes calm at phase 4** with every other gauge. A deficit still
+  shouting while the rest of the console had gone quiet would leave one honest
+  instrument on the bar.
+
+### Interaction audio
+
+The console had two sounds in it — a decision chime and a system tone — and everything
+else the player did was silent, including a refused placement, which showed a red
+footprint for one frame and said nothing.
+
+There is now a small vocabulary on the existing `tone()` primitive: placement, road
+painting, demolition, refusal, drawer. Deliberately quiet, sitting under the ambient
+bed, with acceptance and refusal unmistakably different from each other. Painting is
+rate limited so a drag cannot machine-gun, refusals are suppressed for tiles a drag
+merely crossed, and the whole set thins with the phases and stops entirely at lockout —
+the interface that no longer wants your opinion stops making a noise about it.
+
+> **Fix, found because the tests kept failing for the wrong reason.** The frame loop
+> re-armed itself on its *last* line, so any exception raised anywhere in a frame
+> skipped `requestAnimationFrame` and the loop stopped **for good** — rendering, input
+> and the simulation all dead until a reload, from one bad field in one panel. It
+> re-arms first now. Nothing is swallowed: the error still reaches the console, it just
+> no longer takes the game with it. `cashflow()` also tolerates a missing window, and
+> the sim repairs one.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -759,8 +814,14 @@ could tell motion from progress. The audio recovery test reported a false failur
 because a synthetic click is not a trusted gesture — and that false failure
 exposed a real gap.
 
-M25 added a third failure mode to the collection: assertions that pass over an
-*absence*. "The scene rendered a region" was true while four of its buildings had
+M27 added a fourth: a test that fails for a reason that has nothing to do with what it
+is testing. Three assertions went red — a drag laying one tile, a phase change not
+taking effect, a hover reading nothing — and all three had the same cause, which was
+neither the rate bar nor the audio but a dead frame loop upstream of both. The
+temptation is to adjust the assertions until they pass; the value was in asking why
+three unrelated things broke at once.
+
+M25 added a third failure mode: assertions that pass over an *absence*. "The scene rendered a region" was true while four of its buildings had
 silently failed to place, and "fourteen starter buildings are active" was true while
 the fifteenth had never existed to be counted. Both read a positive fact and inferred
 completeness from it.

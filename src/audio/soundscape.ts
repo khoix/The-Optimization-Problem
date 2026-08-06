@@ -98,6 +98,7 @@ export class Soundscape {
     const t = ctx.currentTime;
     const e = g.asi.emergence / 100;
     const observer = g.asi.observer;
+    this.phase = g.asi.phase;
     const hush = observer ? 0.4 : 1; // the optimized world is a quiet world
 
     // wind: stronger in storms and winter, softer at night
@@ -163,6 +164,77 @@ export class Soundscape {
   /** A single cold glassy tone for system (ASI) notices. */
   systemTone(): void {
     this.tone(1174, 0.5, 0.022, 0, 'sine');
+  }
+
+  // ------------------------------------------------------------ interaction
+  //
+  // The console had two sounds in it — a decision chime and a system tone —
+  // and every other action the player took was silent, including the ones with
+  // no other confirmation at all. A refused placement in particular showed a
+  // red footprint for one frame and said nothing.
+  //
+  // The vocabulary is deliberately small and quiet. It sits under the ambient
+  // bed rather than over it, acceptance and refusal are unmistakably different
+  // from each other, and the whole set thins as the interface takes over:
+  // clicks the system has stopped needing your opinion on stop making a noise.
+
+  /** Tracked in update(), which already sees the state every frame. */
+  private phase = 0;
+  /** 1 early, fading to nothing as the console stops wanting to be operated. */
+  private get uiLevel(): number {
+    return this.phase >= 6 ? 0 : Math.max(0, 1 - this.phase * 0.16);
+  }
+
+  /**
+   * Rate limit for the sounds a drag can emit.
+   *
+   * Painting a road fires one placement per frame at 60Hz. Sixty overlapping
+   * clicks a second is not feedback, it is a buzz — so a repeat inside the
+   * window is dropped rather than queued.
+   */
+  private lastPaint = 0;
+  private throttled(minGap: number): boolean {
+    // At lockout the console has stopped wanting to be operated, so it stops
+    // answering. Checked here rather than by passing a zero volume, because a
+    // zero-volume tone still builds and starts an oscillator — inaudible, but
+    // not actually silent in any sense that matters.
+    if (this.uiLevel <= 0) return true;
+    const now = this.ctx?.currentTime ?? 0;
+    if (now - this.lastPaint < minGap) return true;
+    this.lastPaint = now;
+    return false;
+  }
+
+  /** A building went down. Short, soft, and unmistakably an affirmative. */
+  placed(): void {
+    if (this.throttled(0.05)) return;
+    this.tone(760, 0.055, 0.026 * this.uiLevel, 0, 'triangle');
+    this.tone(1140, 0.05, 0.014 * this.uiLevel, 0.03, 'sine');
+  }
+
+  /** A tile of road or rock under a drag: quieter, and rate limited harder. */
+  paint(): void {
+    if (this.throttled(0.075)) return;
+    this.tone(520 + Math.random() * 60, 0.035, 0.011 * this.uiLevel, 0, 'triangle');
+  }
+
+  /** Something was removed. A downward pair — the inverse of `placed`. */
+  demolished(): void {
+    if (this.throttled(0.05)) return;
+    this.tone(320, 0.09, 0.028 * this.uiLevel, 0, 'triangle');
+    this.tone(190, 0.13, 0.02 * this.uiLevel, 0.05, 'triangle');
+  }
+
+  /** The action was refused. Flat, low, and nothing like the others. */
+  refused(): void {
+    if (this.throttled(0.12)) return;
+    this.tone(150, 0.11, 0.03 * this.uiLevel, 0, 'square');
+  }
+
+  /** A drawer opened, or a tool was picked up. Barely there on purpose. */
+  uiTick(): void {
+    if (this.uiLevel <= 0) return;
+    this.tone(880, 0.03, 0.012 * this.uiLevel, 0, 'sine');
   }
 
   private tone(freq: number, dur: number, vol: number, delay: number, type: OscillatorType = 'triangle'): void {

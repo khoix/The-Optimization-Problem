@@ -61,6 +61,11 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.pendingReport ??= null;
   g.lastEventTick ??= 0;
   g.labourForce ??= Math.floor(g.population * 0.55);
+  // Saves predating the rate bar start it blank rather than wrong: an empty
+  // window reads as zero, which is honest, and fills again within six months.
+  g.lastNet ??= 0;
+  g.lastOutgoings ??= 0;
+  g.netHistory ??= [];
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.

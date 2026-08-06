@@ -76,9 +76,20 @@ export function tierOf(pop: number): (typeof TIERS)[number] {
   return t;
 }
 
+/**
+ * How many months the rate bar averages over.
+ *
+ * A single tick's net is noise: one event or one construction slams it to a
+ * rail and back. Half a year of mean is still responsive to a real change in
+ * the region's finances and stops the bar flickering at something the player
+ * cannot act on.
+ */
+export const NET_WINDOW = 6;
+
 export function simTick(g: GameState): void {
   if (g.gameOver && !g.asi.observer) return;
   g.tick++;
+  const capitalBefore = g.resources.capital;
   const r = rng(g.seed + g.tick * 31);
   const has = (p: Parameters<GameState['policies']['has']>[0]) => policyActive(g, p);
 
@@ -518,6 +529,36 @@ export function simTick(g: GameState): void {
   // ---------- ASI & events ----------
   updateAsi(g, { computeProduced, computeSat, automationShare, utilitySat });
   if (!g.pendingEvent && g.asi.phase < 6) maybeFireEvent(g, r);
+
+  // ---------- Cashflow, for the bar ----------
+  // Measured as the treasury's real change across the whole tick, so whatever
+  // moved it — trading, sentiment, an event resolved into this month — is in
+  // the figure the player is shown.
+  g.lastNet = g.resources.capital - capitalBefore;
+  g.lastOutgoings = expenses;
+  if (!g.netHistory) g.netHistory = [];
+  g.netHistory.push(g.lastNet);
+  if (g.netHistory.length > NET_WINDOW) g.netHistory.shift();
+}
+
+/**
+ * The rate bar's reading: mean recent net, and that net as a fraction of
+ * gross outgoings — clamped to ±1, which is a full bar either way.
+ *
+ * Measuring against outgoings rather than against a fixed figure or a rolling
+ * maximum is what keeps the bar honest as the region grows. Full right means
+ * "netting as much as you spend"; full left means "losing as much as you
+ * spend". Both sentences are true at any size, and neither quietly rescales
+ * itself out from under a player who has learned to read it.
+ */
+export function cashflow(g: GameState): { net: number; frac: number; outgoings: number; months: number } {
+  // Tolerates a state that has never ticked, or one loaded from a save written
+  // before any of this existed. A missing window reads as zero, which is both
+  // honest and a great deal better than throwing from inside the bar.
+  const h = g.netHistory ?? [];
+  const net = h.length ? h.reduce((a, b) => a + b, 0) / h.length : 0;
+  const outgoings = Math.max(1, g.lastOutgoings || 0);
+  return { net, outgoings, months: h.length, frac: Math.max(-1, Math.min(1, net / outgoings)) };
 }
 
 export function computeSatisfaction(g: GameState): number {

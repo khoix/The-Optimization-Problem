@@ -10,7 +10,7 @@ import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterP
 import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, MANUAL_SLOT, peek, saveTo } from '../game/save';
-import { tierOf, tierProgress, buildingCondition, demolishBuilding, demolitionRefund } from '../game/sim';
+import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, NET_WINDOW } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
@@ -624,9 +624,11 @@ export class UI {
       btn.dataset.type = t;
       btn.onclick = () => {
         if (locked) {
+          this.sound?.refused();
           this.flashSystemNote(`${def.name} requires region class: ${TIER_NAMES[def.unlockTier!]}.`);
           return;
         }
+        this.sound?.uiTick();
         this.selectedBuildingId = null;
         this.inspector.classList.add('hidden');
         const rearmed = this.tool.kind === 'build' && this.tool.type === t;
@@ -657,6 +659,7 @@ export class UI {
 
   private togglePanel(id: string): void {
     if (this.openPanel === id) { this.closePanel(); return; }
+    this.sound?.uiTick();
     this.openPanel = id;
     this.flyout.classList.remove('hidden');
     const buildCat = this.hudCategories().find((c) => c.id === id);
@@ -1421,12 +1424,14 @@ export class UI {
     const def = BUILDING_DEFS[b.type];
     const check = canDemolish(g, buildingId);
     if (!check.ok) {
+      this.sound?.refused();
       this.showModal('Action Unavailable', check.reason ?? '', [{ label: 'Acknowledge', action: () => {} }]);
       return;
     }
     const refund = demolitionRefund(b);
     const finish = () => {
       demolishBuilding(g, buildingId);
+      this.sound?.demolished();
       record(g, 'demolish', `Demolished ${def.name}.`);
       this.flashSystemNote(`${def.name} demolished. §${refund} recovered.`);
       this.selectedBuildingId = null;
@@ -1735,10 +1740,29 @@ export class UI {
       .reduce((sum, b) => sum + BUILDING_DEFS[b.type].housing, 0);
     const capitalCls = r.capital < 0 ? 'bad' : '';
 
+    // The rate bar. Zero is the middle; a surplus fills right, a deficit fills
+    // left, and the length is the rate as a fraction of what the region spends
+    // — so the reading means the same thing at sixty residents and sixty
+    // thousand. The slot used to be an empty transparent track that existed
+    // only to keep capital aligned with the four gauges beside it, which read
+    // as a progress bar that never moved.
+    const flow = cashflow(g);
+    const pct = Math.abs(flow.frac) * 50;
+    const rateCls = hideNegatives ? 'gauge-calm' : flow.net < 0 ? 'gauge-bad' : 'gauge-ok';
+    const sign = flow.net > 0 ? '+' : flow.net < 0 ? '−' : '';
+    const rateReading = flow.months === 0
+      ? 'No month has closed yet.'
+      : `${sign}§${Math.abs(Math.round(flow.net)).toLocaleString()} a month over the last ` +
+        `${flow.months} of ${NET_WINDOW} — ` +
+        (Math.abs(flow.frac) < 0.02 ? 'about breaking even'
+          : flow.net > 0 ? `a surplus of ${Math.round(flow.frac * 100)}% of outgoings`
+          : `a deficit of ${Math.round(-flow.frac * 100)}% of outgoings`) +
+        `. Spending §${Math.round(flow.outgoings).toLocaleString()} a month.`;
     vital(primary, 'capital', '§',
       `<span class="vital-num ${capitalCls}">${Math.round(r.capital).toLocaleString()}<span class="vital-label-inline">Capital</span></span>` +
-      `<span class="gauge gauge-void"></span>`,
-      `§${Math.round(r.capital).toLocaleString()} in the treasury`);
+      `<span class="gauge gauge-rate"><span class="gauge-zero"></span>` +
+      `<span class="gauge-fill ${rateCls}" style="left:${flow.net < 0 ? 50 - pct : 50}%;width:${pct}%"></span></span>`,
+      `§${Math.round(r.capital).toLocaleString()} in the treasury. ${rateReading}`);
     gauge(primary, '⚡', 'power', r.powerDemand, r.powerCapacity, 'MW');
     gauge(primary, '💧', 'water', r.waterDemand, r.waterCapacity, 'ML');
     gauge(primary, '▣', 'compute', r.computeDemand, r.compute, 'PF');
