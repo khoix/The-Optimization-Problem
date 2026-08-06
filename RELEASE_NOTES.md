@@ -1018,6 +1018,100 @@ have been drawn somewhere upstream.
 
 ---
 
+## Milestone 35 — the console after the takeover — `2aa329b`
+
+Observer mode used to take the bar away: greyed to 30%, the tool row removed, a status
+ticker painted across the whole thing. It read well for about a minute and then stranded
+the player. The exits — new region, main menu, the decision log — lived only on the
+takeover banner, and that banner's own **Continue Observation** button dismissed it
+permanently. There was no way back to it and nothing on screen to press.
+
+**The bar stays. The controls refuse.** Every build category, the demolish tool, every
+policy, the compute sliders, Manual Override and the inspector's own actions now end at
+one modal, in one wording, however many times you try it:
+
+> Administrator input is no longer required. Regional management continues without
+> interruption. This control is retained for continuity of interface.
+
+The construction menu comes back **in full** rather than emptying out. An interface
+retained intact and meaning nothing is a truer picture of what happened than an interface
+taken away.
+
+**What reads rather than decides keeps working, and keeps its colour.** Vitals,
+Indicators — with M31's treasury ledger, which is now the most interesting thing on
+screen — Layers, Politics, the alert feed, the inspector. Only what decides is greyed.
+The hamburger keeps Save, Load, New Simulation, Settings and Main Menu, and gains the
+decision log, which until now was reachable solely from a banner you had to dismiss to
+get anywhere.
+
+**The transport is yours again.** Observer mode pinned the clock to 1× and ignored
+`g.speed` entirely — consistent while the transport was greyed out, a lie the moment it
+wasn't. Pause, play and the space bar all work. Phases 4 and 5 still refuse to pause,
+because there the region is still yours on paper and the system is taking it a piece at a
+time; that refusal *is* the theft in miniature. By phase 6 there is nothing left to take,
+and speed stops being an instruction to the region and becomes the pace you watch it at.
+
+The ticker moved from a sheet over the bar to a band above it, and is built from segments
+rather than one string.
+
+> **Fix — a decision on the desk when the desk is taken away.** An event still pending at
+> the takeover could not be answered: every choice on it is an administrative act, and the
+> administration had just ended. The phase-6 transition withdraws it, *and* the UI refuses
+> to render one to an observer — two independent guards, because a save written mid-decision
+> can arrive in observer mode without passing through that transition.
+
+> **Fix — the hamburger was built once, at construction, and never revisited.** Its
+> contents depend on the compact breakpoint and now on observer mode, so neither had ever
+> taken effect after boot. It rebuilds when what it should contain changes.
+
+### Mobile
+
+**The LCD now shrinks when the build row folds away.** It kept its full height through the
+toggle, so the control whose job is to give the map back was giving back less than half of
+what it could. The console lies down — display beside the transport rather than above it —
+and the band stands as tall as the hamburger next to it: **114px to 80px** on a 390px
+screen, against 187px expanded.
+
+The readout itself stays *stacked* while the console lies down, and that distinction is
+the whole fix. M29 got it wrong from the other side: laying the display out along one line
+too put "YEAR 4 · AUG" and "TOWNSHIP" side by side, made the console 351px of a 390px
+screen, and pushed the system buttons onto a band of their own. Two short lines keep the
+width; the row keeps the height.
+
+> **Fix.** The takeover screen's four exits sat on one line and ran off both edges of a
+> phone — two of them half off-screen, on the one screen where they had just become the
+> only way out. They stack now. The ticker had the same problem and lost more by it: centred
+> and clipped, a phone cut both ends, which is exactly where **ADMINISTRATIVE INPUT:
+> SUSPENDED** and **MODE: OBSERVATION** were. It drops the three clauses that say everything
+> is fine and keeps the two that say what happened.
+
+### Verification
+
+54 checks. Among them: that the refusals are *the same* refusal, by comparing their text
+rather than counting that a dialog appeared; that no tool is left armed behind one; that
+the compute slider snaps back rather than sitting where you dragged it while a modal
+overrules it; and that the clock genuinely runs at the speed on the button, measured by
+ticks elapsed rather than by reading `g.speed` back.
+
+> **Fix — a ticker check that passed over hidden text.** The first version measured
+> `textContent`, which includes the segments CSS had removed, and `scrollWidth`, which
+> hidden elements don't contribute to. It would have reported a complete, unclipped ticker
+> however much of it had disappeared. It now enumerates the segments that are actually
+> visible and checks each one's box against the viewport.
+
+> **Note — one M31 assertion was flaky and had to go.** Automation Tax earns per automated
+> factory and gives up a fifth of what those factories make, so its net crosses zero on the
+> way past. The check demanded a signed figure and failed a run where the policy netted
+> exactly §0.0 — for being exactly right. It now computes the expected reading from the
+> ledger, blank case included, and compares.
+
+> **Note — space was being pressed at a focused button.** A transport button that still had
+> focus took the keypress as an activation of itself and re-set the speed the toggle had
+> just changed, so "space did nothing" was really "space did two things". The harness blurs
+> before every press.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -1055,6 +1149,13 @@ whether it is empty because the feature is broken or because there was nothing t
 M31's `TILE = 24` was the same shape of error from the other side: a probe measuring the
 wrong place, with two of its cases passing anyway because the wrong place happened to
 contain the right kind of thing.
+
+M35 produced the clearest single instance of the first rule. A check that the status
+ticker fitted the screen read `textContent` and `scrollWidth` — but hidden elements still
+contribute their text while contributing no width, so the measurement said "nothing is
+clipped" precisely because the missing part was missing. It would have passed on a ticker
+that had vanished entirely. Rewritten to enumerate the segments that
+are actually on screen and measure each one's box, it says something true.
 
 The standing rules that came out of all this: **make the assertion touch real state,
 not a proxy for it**; **count what should be there, not what is**; **feed it what the

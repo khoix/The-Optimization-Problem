@@ -746,20 +746,33 @@ body.phase5 .policy-toggle { pointer-events: auto; opacity: 0.55; }
 }
 .observer-actions button:hover { background: rgba(30, 55, 68, 0.9); }
 
-body.observer .bar-vitals, body.observer .bar-row-tools, body.observer .bar-system,
-body.observer .transport, body.observer .inspector, body.observer .flyout {
-  opacity: 0.3; pointer-events: none; filter: saturate(0.3);
+/* Stage 7: the console becomes a monitor — a monitor, not a blank.
+   It used to be greyed to 30% with pointer-events off and a status ticker
+   painted over the whole bar, which read as loss for about a minute and then
+   stranded the player with no route to the menu, a new region, or the exit.
+   The controls stay reachable and refuse instead; what changes is the colour
+   they refuse in. */
+/* Grey what decides, not what reads. Indicators, Layers, Politics and the
+   alert feed are the reason the bar is still here, so they stay at full
+   strength; the construction menu, the two administrative panels, Override and
+   the inspector's actions go quiet, and answer when pressed. */
+body.observer .build-cat, body.observer .demolish,
+body.observer [data-panel="compute_alloc"], body.observer [data-panel="policies"],
+body.observer .build-card, body.observer .policy-toggle,
+body.observer .alloc-row input[type=range], body.observer .override-btn,
+body.observer .inspector .small-btn {
+  filter: saturate(0.25); opacity: 0.62;
 }
-body.observer .bar-row-tools { display: none; }
-/* Stage 7: the console becomes a monitor. */
-body.observer .civic-bar::after {
-  content: 'CONTINUITY: STABLE     EFFICIENCY: OPTIMAL     COMPLAINTS: MINIMAL     ADMINISTRATIVE INPUT: SUSPENDED     MODE: OBSERVATION';
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+.observer-ticker {
+  align-items: center; justify-content: center; gap: 22px; padding: 3px 8px;
   font-family: var(--mono); font-size: 11px; letter-spacing: 2px; color: #7fb4c4;
-  background: rgba(8,14,20,0.96); pointer-events: none;
+  background: rgba(8, 14, 20, 0.96); border-bottom: 1px solid #24303f;
+  white-space: nowrap; overflow: hidden;
 }
+.tick-seg { flex: 0 0 auto; }
 body.observer .feed, body.observer .toast { opacity: 0.8; }
 body.observer #game { cursor: default; }
+.observer-note { font-size: 12px; opacity: 0.7; margin-top: 8px; }
 
 /* scrollbars */
 ::-webkit-scrollbar { width: 8px; }
@@ -913,15 +926,24 @@ body.at-title .guide { padding-bottom: 20px; }
      and the fold. */
   .bar-system .alert-btn, .bar-system .override-btn { display: none; }
 
-  /* Collapsed, the LCD stays stacked rather than lying down.
-     The desktop collapse lays it out along one line, which on a phone made
-     the console 351px of a 390px screen and pushed the hamburger and the fold
-     onto a band of their own — a third row, from a control whose whole job is
-     to remove one. Two short lines keep it narrow enough to share. */
-  .civic-bar.collapsed .console { flex-direction: column; gap: 3px; padding: 3px 6px 4px; }
-  .civic-bar.collapsed .lcd { min-width: 108px; }
-  .civic-bar.collapsed .lcd-readout { flex-direction: column; align-items: center; gap: 1px; }
-  .civic-bar.collapsed .lcd-sub { display: block; font-size: 8px; }
+  /* Collapsed, the console lies down — LCD beside the transport, not above it.
+     The band then stands as tall as the hamburger next to it instead of twice
+     that, which is the whole point of folding the bar.
+
+     The readout itself stays *stacked* while the console lies down, and that is
+     the part M29 got wrong in the other direction. Laying both out along one
+     line put "YEAR 4 · AUG" and "TOWNSHIP" side by side, made the console 351px
+     of a 390px screen, and pushed the system buttons onto a band of their own —
+     a third row, from a control whose job is to remove one. Two short lines in a
+     narrow display keep the width; the row keeps the height. */
+  .civic-bar.collapsed .console { flex-direction: row; align-items: center; gap: 6px; padding: 2px 6px 3px; }
+  .civic-bar.collapsed .lcd { min-width: 96px; padding: 2px 6px 3px; }
+  .civic-bar.collapsed .lcd-readout { flex-direction: column; align-items: center; gap: 0; }
+  .civic-bar.collapsed .lcd-main { font-size: 10px; letter-spacing: 0.8px; }
+  .civic-bar.collapsed .lcd-sub { display: block; font-size: 7px; letter-spacing: 1px; }
+  /* The transport gives up its padding rather than the map giving up a row. */
+  .civic-bar.collapsed .transport { gap: 2px; }
+  .civic-bar.collapsed .speed-btn { padding: 3px 5px; font-size: 10px; }
   .bar-system { flex: 1 1 auto; justify-content: flex-end; }
   .transport { gap: 2px; }
   .speed-btn { padding: 3px 6px; }
@@ -947,6 +969,18 @@ body.at-title .guide { padding-bottom: 20px; }
   .lcd-main { font-size: 11px; letter-spacing: 1px; }
   .lcd-sub { font-size: 8px; letter-spacing: 1.4px; }
   .console { padding: 3px 6px 4px; }
+
+  /* The ticker keeps the two clauses that say what happened and drops the
+     three that say everything is fine. Centred and clipped, a phone loses the
+     ends of the line — which is exactly where those two clauses were. */
+  .observer-ticker { font-size: 9px; letter-spacing: 1px; gap: 12px; }
+  .tick-pad { display: none; }
+  /* Four exits do not fit on one line at 390px, and half of each end button
+     was off the screen — on the one screen where the bar had just become the
+     only other way out. */
+  .observer-banner { padding: 0 16px; }
+  .observer-actions { flex-direction: column; align-items: stretch; gap: 8px; }
+  .observer-actions button { padding: 12px 14px; }
 
   .modal-box { padding: 15px; }
   .modal-body { font-size: 12.5px; max-height: 50vh; }

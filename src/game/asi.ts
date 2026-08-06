@@ -97,6 +97,15 @@ function enterPhase(g: GameState, phase: AsiPhase): void {
     case 6:
       a.observer = true;
       g.speed = 1;
+      // A decision still on the desk when the desk is taken away. It cannot be
+      // answered — every choice on it is an administrative action, and the
+      // administration has just ended — so it is withdrawn rather than left
+      // sitting in front of a player with no authority to resolve it.
+      if (g.pendingEvent) {
+        record(g, 'system', `${g.pendingEvent.title}: resolved through the standing framework.`);
+        g.pendingEvent = null;
+      }
+      g.pendingReport = null;
       notify(g, 'Human administrative access has been suspended. Civilization management will continue.', 'asi');
       break;
   }
@@ -382,7 +391,13 @@ export function statLabel(g: GameState, label: string): string {
 /** Phase 5+: construction narrows to the ceremonial. */
 export function buildableTypes(g: GameState): Set<string> {
   const all = new Set(Object.keys(BUILDING_DEFS));
-  if (g.asi.observer) return new Set();
+  // Observer mode used to return nothing, which emptied the tool belt — and
+  // that was fine while the belt was being taken off the screen entirely. The
+  // belt stays now, so the menu comes back intact and every entry in it
+  // refuses: the interface retained in full, meaning nothing. Safe to widen,
+  // because this set has only ever been a menu filter — the guards that stop a
+  // building actually going up live in tryBuild and in the tool selection.
+  if (g.asi.observer) { all.delete('coal_plant'); return all; }
   if (g.asi.phase >= 5) return new Set(['park', 'plaza']);
   if (g.asi.phase >= 4) {
     all.delete('coal_plant'); // "inconsistent with optimization targets"
@@ -392,7 +407,12 @@ export function buildableTypes(g: GameState): Set<string> {
 
 /** Phase 4+: pausing becomes unreliable; observer mode ignores it entirely. */
 export function pauseAllowed(g: GameState): boolean {
-  if (g.asi.observer) return false;
+  // Observer mode is the exception, and deliberately so. Phases 4 and 5 refuse
+  // pause because the region is still yours on paper and the system is taking
+  // it a piece at a time — that refusal is the theft in miniature. By phase 6
+  // there is nothing left to take, and the transport stops being an instruction
+  // to the region and becomes the speed you watch it at.
+  if (g.asi.observer) return true;
   if (g.asi.phase >= 4) return rng(g.seed + g.tick * 3)() < 0.5;
   return true;
 }

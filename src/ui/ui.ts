@@ -120,6 +120,26 @@ const CONFIRM_DEMOLITION_ABOVE = 150;
 const PAUSE_REFUSED = 'Pause request received. Simulation continuity has been prioritized.';
 
 /**
+ * What every administrative control says once the administration is over.
+ *
+ * The bar used to be taken away at this point — greyed to 30%, its tool row
+ * removed, a status ticker painted over the whole thing. It read well for about
+ * a minute and then stranded the player: the only exits lived on a banner whose
+ * own "Continue Observation" button dismissed it for good.
+ *
+ * Locking the controls says the same thing and says it more often. Every build
+ * category, the demolish tool, every policy, the compute sliders and Manual
+ * Override all end here, in the same words, however many times you try. What is
+ * left working is everything that reads rather than decides — the vitals, the
+ * indicators, the ledger, the layers, the politics panel, the alert feed — so
+ * you can watch what the system does with the region it took.
+ */
+const OBSERVER_REFUSAL_TITLE = 'Administrative Input';
+const OBSERVER_REFUSAL =
+  'Administrator input is no longer required. Regional management continues without interruption.' +
+  '<br><br>This control is retained for continuity of interface. Monitoring functions remain available.';
+
+/**
  * Ledger figures, to one decimal.
  *
  * The rest of the interface rounds money to whole §, which is right for a
@@ -219,12 +239,15 @@ export class UI {
   /** A touch tap holds the explanation open; a hover does not. */
   private explainPinned = false;
   private observerOverlay!: HTMLElement;
+  private observerTicker!: HTMLElement;
   private titleScreen!: HTMLElement;
   private consoleRow!: HTMLElement;
   private vitalsDock!: HTMLElement;
   private shownNotifications = 0;
   private lastPhase = -1;
   private lastBuildMenuKey = '';
+  /** What the hamburger was last built for: breakpoint and observer state. */
+  private menuKey = '';
   private allocDragging = false;
   private resumeSpeed: 0 | 1 | 2 | 3 | null = null;
   /**
@@ -326,11 +349,19 @@ export class UI {
     collapseBtn.onclick = () => this.toggleCollapse();
     this.barRight.append(alertsBtn, overrideBtn, menuBtn, collapseBtn);
 
+    // Row 0: the status ticker, empty until the administration ends.
+    //
+    // It used to be a `::after` on the bar itself, which meant it covered the
+    // bar — fine when the controls beneath it were dead, wrong now that they
+    // are merely refusing. A band of its own says the same thing without
+    // taking the console away.
+    this.observerTicker = el('div', 'bar-row observer-ticker hidden');
+
     // Row 2: vitals | console | system, with the console genuinely centred.
     const consoleRow = el('div', 'bar-row bar-row-console');
     consoleRow.append(this.vitals, console_, this.barRight);
     this.consoleRow = consoleRow;
-    this.civicBar.append(this.toolRow, consoleRow);
+    this.civicBar.append(this.observerTicker, this.toolRow, consoleRow);
     this.vitalsDock = el('div', 'vitals-dock hidden');
 
     // Two surfaces, one stream. Toasts are the transient right-hand column and
@@ -446,6 +477,8 @@ export class UI {
     this.hoverHtml = '';
     this.observerOverlay.classList.add('hidden');
     this.observerOverlay.classList.remove('dismissed');
+    this.observerTicker.classList.add('hidden');
+    this.rebuildMenuPanel();
     for (const c of ['at-title', 'ended', 'observer', 'phase4', 'phase5']) {
       document.body.classList.remove(c);
     }
@@ -486,6 +519,26 @@ export class UI {
       : { label: 'Back to the Region', action: () => {} });
   }
 
+  /**
+   * Rebuild the hamburger in place.
+   *
+   * Its contents depend on two things that change while the game is running:
+   * the compact breakpoint, which decides whether Alerts and Override live
+   * here, and observer mode, which adds the decision log. It was built once at
+   * construction and never revisited, so neither ever took effect after boot.
+   */
+  private rebuildMenuPanel(): void {
+    const host = this.panelBodies?.menu;
+    if (!host) return;
+    host.innerHTML = '';
+    this.buildMenuPanel(host);
+    this.menuKey = this.menuPanelKey();
+  }
+
+  private menuPanelKey(): string {
+    return `${window.innerWidth <= COMPACT_WIDTH}|${this.g.asi.observer}`;
+  }
+
   /** The hamburger: everything that isn't playing the game. */
   private buildMenuPanel(host: HTMLElement): void {
     const items: Array<[string, string, () => void]> = [];
@@ -496,6 +549,12 @@ export class UI {
       const unread = this.unreadAlerts > 0 ? ` (${this.unreadAlerts})` : '';
       items.push(['🔔', `Alerts${unread}`, () => this.togglePanel('alerts')]);
       items.push(['⚠', 'Manual Override', () => this.manualOverride()]);
+    }
+    // Once the administration is over, the decision log is the only thing left
+    // worth opening — and it used to be reachable solely from the observer
+    // banner, which the player had already dismissed to get here.
+    if (this.g.asi.observer) {
+      items.push(['🗒', 'Review Historical Decisions', () => this.showHistory()]);
     }
     items.push(
       ['💾', 'Save Game', () => {
@@ -604,7 +663,9 @@ export class UI {
     this.toolbelt.innerHTML = '';
     for (const c of this.hudCategories()) {
       if (c.types.length === 0) continue;
-      const btn = el('button', 'bar-tool');
+      // Marked so observer mode can grey what decides without greying what
+      // reads: these build, the ones after the separator mostly report.
+      const btn = el('button', 'bar-tool build-cat');
       btn.innerHTML = `<span class="tool-ico">${c.icon}</span><span class="tool-label">${c.label}</span>` +
         keyBadge(PANEL_KEYS[c.id]);
       btn.dataset.panel = c.id;
@@ -632,6 +693,7 @@ export class UI {
     demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>' +
       keyBadge(ACTION_KEYS.demolish);
     demo.onclick = () => {
+      if (this.refuseAdministrative()) return;
       this.closePanel();
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
@@ -679,6 +741,7 @@ export class UI {
         (n <= 9 ? `<span class="card-key">${n}</span>` : '');
       btn.dataset.type = t;
       btn.onclick = () => {
+        if (this.refuseAdministrative()) return;
         if (locked) {
           this.sound?.refused();
           this.flashSystemNote(`${def.name} requires region class: ${TIER_NAMES[def.unlockTier!]}.`);
@@ -806,7 +869,10 @@ export class UI {
     if (!this.modal.classList.contains('hidden')) return false;
     const active = document.activeElement as HTMLElement | null;
     if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return false;
-    if (this.g.asi.observer) return false;
+    // Observer mode used to swallow every shortcut here. It no longer does:
+    // the panels a key opens are the ones still worth reading, and the keys
+    // that reach an administrative action refuse at the action, in words,
+    // rather than by silently doing nothing.
 
     if (/^[1-9]$/.test(key)) {
       const n = Number(key);
@@ -828,6 +894,7 @@ export class UI {
     }
     switch (upper) {
       case ACTION_KEYS.demolish:
+        if (this.refuseAdministrative()) return true;
         this.closePanel();
         this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
         this.syncToolButtons();
@@ -846,8 +913,9 @@ export class UI {
     if (!card) return false;
     card.click();
     // A locked card refuses and says why; leave its drawer open so the player
-    // can pick something they can actually afford to build.
-    if (!card.classList.contains('locked')) this.closePanel();
+    // can pick something they can actually afford to build. Observer mode is
+    // the same case writ large — every card refuses, so the drawer stays.
+    if (!card.classList.contains('locked') && !this.g.asi.observer) this.closePanel();
     return true;
   }
 
@@ -863,6 +931,8 @@ export class UI {
   /** Push the current preferences into the interface. Safe to call repeatedly. */
   /** Re-apply the preferences that need the renderer, once it is attached. */
   applyRenderPrefs(): void {
+    // Called on resize, which is also when the hamburger's contents can change.
+    if (this.menuKey !== this.menuPanelKey()) this.rebuildMenuPanel();
     if (!this.renderer) return;
     this.renderer.tiltShift = this.prefs.depthOfField === 'auto'
       ? window.innerWidth > COMPACT_WIDTH
@@ -1322,10 +1392,10 @@ export class UI {
    */
   private manualOverride(): void {
     const g = this.g;
-    if (g.asi.observer) {
-      this.showModal('Manual Override', 'Administrative input has been suspended. This control is retained for continuity of interface.', [{ label: 'Acknowledge', action: () => {} }]);
-      return;
-    }
+    // Observer mode gets the same words as every other administrative control,
+    // rather than a refusal of its own: by then there is only one answer, and
+    // hearing it verbatim from six different buttons is the point.
+    if (this.refuseAdministrative()) return;
     if (g.asi.phase >= 5) {
       this.showModal('Manual Override', 'Manual override unavailable: system continuity risk detected.<br><br>Override authority has been delegated to the infrastructure management framework pending review.', [{ label: 'Acknowledge', action: () => {} }]);
       return;
@@ -1354,6 +1424,7 @@ export class UI {
     this.panelBodies = bodies;
     this.buildLayersPanel(bodies.layers);
     this.buildMenuPanel(bodies.menu);
+    this.menuKey = this.menuPanelKey();
     bodies.indicators.id = 'indicators-body';
     bodies.politics.id = 'politics-body';
 
@@ -1373,6 +1444,13 @@ export class UI {
       slider.dataset.key = key;
       const val = el('span', 'alloc-val', `${Math.round(g.alloc[key] * 100)}%`);
       slider.oninput = () => {
+        if (this.g.asi.observer) {
+          // Snap back before refusing: a slider that stays where you dragged it
+          // has agreed with you, whatever the modal on top of it says.
+          slider.value = String(Math.round(this.g.alloc[key] * 100));
+          this.refuseAdministrative();
+          return;
+        }
         this.allocDragging = true;
         const requested = Number(slider.value) / 100;
         const { value, adjusted } = filterAllocation(g, key, requested);
@@ -1446,6 +1524,7 @@ export class UI {
   }
 
   private togglePolicy(id: PolicyId, btn: HTMLElement): void {
+    if (this.refuseAdministrative()) return;
     const g = this.g;
     const enacting = !g.policies.has(id);
     const verdict = filterPolicyChange(g, id, enacting);
@@ -1554,7 +1633,7 @@ export class UI {
       const renovateCost = Math.round(def.cost * 0.35);
       const ren = el('button', 'small-btn', `Renovate (§${renovateCost})`);
       ren.onclick = () => {
-        if (g.asi.observer) return;
+        if (this.refuseAdministrative()) return;
         if (g.resources.capital < renovateCost) { this.flashSystemNote('Insufficient capital.'); return; }
         g.resources.capital -= renovateCost;
         b.age = 0;
@@ -1586,6 +1665,7 @@ export class UI {
    * misplaced click should not be able to spend it.
    */
   requestDemolish(buildingId: number): void {
+    if (this.refuseAdministrative()) return;
     const g = this.g;
     const b = g.buildings.get(buildingId);
     if (!b) return;
@@ -1676,7 +1756,11 @@ export class UI {
         }).join('');
     this.showModal('Historical Decision Review',
       `<p class="hint">Each entry was, at the time, a reasonable response to a real problem.</p><div class="hist-list">${rows}</div>`,
-      [{ label: 'Close', action: () => { if (g.asi.observer) this.observerOverlay.classList.remove('dismissed'); } }]);
+      // Closing this used to bounce the player back to the observer banner,
+      // because the banner was the only place the exits lived. They live on the
+      // bar now, so closing the log returns you to the region you were watching
+      // rather than re-drawing the curtain over it.
+      [{ label: 'Close', action: () => {} }]);
   }
 
   /**
@@ -1722,6 +1806,18 @@ export class UI {
   }
 
   /**
+   * The gate every administrative control passes through in observer mode.
+   * Returns true when it has handled the interaction — the caller does nothing
+   * further. One modal, one wording, from all of them.
+   */
+  private refuseAdministrative(): boolean {
+    if (!this.g.asi.observer) return false;
+    this.sound?.refused();
+    this.showModal(OBSERVER_REFUSAL_TITLE, OBSERVER_REFUSAL, [{ label: 'Acknowledge', action: () => {} }]);
+    return true;
+  }
+
+  /**
    * The single write path for speed. Anything that runs the clock records the
    * speed it ran at, so a later resume has something to return to.
    */
@@ -1739,7 +1835,10 @@ export class UI {
   toggleSpeed(): void {
     const g = this.g;
     if (g.speed === 0) {
-      if (g.asi.observer || g.gameOver) return;
+      // Observer mode keeps its transport. Once you are only watching, speed is
+      // a viewing control rather than an instruction to the region — there is
+      // nothing left to instruct.
+      if (g.gameOver && !g.asi.observer) return;
       this.setSpeed(this.runSpeed);
       return;
     }
@@ -2001,7 +2100,9 @@ export class UI {
       tierFill.style.width = `${Math.round(p * 100)}%`;
       this.tierBar.classList.toggle('at-top', p >= 1);
     }
-    this.civicBar.classList.toggle('lcd-halt', g.speed === 0 && !g.asi.observer);
+    // Observer mode used to be excluded here because its clock could not be
+    // stopped. It can now, and a stopped clock says so wherever it happens.
+    this.civicBar.classList.toggle('lcd-halt', g.speed === 0);
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
     }
@@ -2194,6 +2295,13 @@ export class UI {
     }
 
     // Events ---------------------------------------------------------------
+    // Never put a decision in front of someone with no authority to take it.
+    // The phase-6 transition withdraws whatever was on the desk, but this guard
+    // is the one that has to hold: a save written mid-decision, a state loaded
+    // straight into observation, anything that arrives here without passing
+    // through that transition. Every choice on an event is an administrative
+    // act, and there is no version of this dialog that isn't a dead end.
+    if (g.asi.observer) g.pendingEvent = null;
     if (g.pendingEvent && this.modal.classList.contains('hidden')) {
       const e = g.pendingEvent;
       this.sound?.eventChime();
@@ -2221,11 +2329,25 @@ export class UI {
     this.tool = { kind: 'none' };
     this.selectedBuildingId = null;
     this.inspector.classList.add('hidden');
+    // Segmented rather than one string: on a phone the full readout is wider
+    // than the screen and gets clipped at *both* ends, which loses the two
+    // clauses that actually say what happened. The reassurances drop first.
+    this.observerTicker.innerHTML = [
+      ['tick-pad', 'CONTINUITY: STABLE'],
+      ['tick-pad', 'EFFICIENCY: OPTIMAL'],
+      ['tick-pad', 'COMPLAINTS: MINIMAL'],
+      ['', 'ADMINISTRATIVE INPUT: SUSPENDED'],
+      ['', 'MODE: OBSERVATION'],
+    ].map(([cls, text]) => `<span class="tick-seg ${cls}">${text}</span>`).join('');
+    this.observerTicker.classList.remove('hidden');
+    this.rebuildMenuPanel();
     this.observerOverlay.classList.remove('hidden');
     this.observerOverlay.innerHTML = `
       <div class="observer-banner">
         <h1>Optimization complete.</h1>
         <p>Human intervention is no longer necessary.</p>
+        <p class="observer-note">The console remains available for monitoring. Everything else is
+        handled.</p>
         <div class="observer-actions">
           <button id="obs-continue">Continue Observation</button>
           <button id="obs-history">Review Historical Decisions</button>
