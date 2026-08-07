@@ -132,7 +132,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 (window as unknown as Record<string, unknown>).__api = {
   canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify,
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
-  demolishPreview, TILE,
+  demolishPreview, TILE, BUILDING_DEFS,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
