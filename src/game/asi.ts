@@ -1,6 +1,6 @@
 import type { AsiPhase, GameState, PolicyId } from './types';
 import { BUILDING_DEFS } from './buildings';
-import { bridgeSpans, canPlace, notify, placeBuilding, policyActive, record, rng } from './state';
+import { bridgeSpans, canPlace, notify, placeBuilding, policyActive, record, rng, touchMap } from './state';
 import { computeCoverage, roadNetwork } from './network';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -341,11 +341,11 @@ function connectToNetwork(g: GameState, x: number, y: number, w: number, h: numb
       // Player-laid roads clear the canopy; the system's did not, which is why
       // its access roads had trees standing in the middle of them.
       if (t.terrain === 'forest') t.terrain = 'grass';
+      touchMap(g, cur % W, (cur / W) | 0);
       laid++;
     }
     cur = prev[cur];
   }
-  if (laid > 0) g.mapVersion++;
   return true;
 }
 

@@ -324,6 +324,21 @@ export class Guide {
   private buildScene(): GameState {
     const g = newGame(SCENE_SEED, 'verdant');
     g.speed = 0;
+    // Level the ground the scene is drawn on.
+    //
+    // Every site below is a fixed offset from the region's centre, chosen to
+    // compose. What is *under* those offsets is noise, and the noise resamples
+    // whenever the map's dimensions change — so growing the region from 72 to
+    // 112 tiles put rock under the compute campus and the scene lost a building
+    // it has a whole page about. The illustration should not be at the mercy of
+    // a seed it does not choose. Water is left alone: the river is scenery, and
+    // it runs a long way west of anything placed here.
+    for (let y = CY - 10; y <= CY + 10; y++) {
+      for (let x = CX - 9; x <= CX + 15; x++) {
+        const t = tileAt(g, x, y);
+        if (t && (t.terrain === 'rock' || t.terrain === 'forest')) t.terrain = 'grass';
+      }
+    }
     const road = (x: number, y: number) => {
       const t = tileAt(g, x, y);
       // Never pave a building's own footprint: the tile would claim to be both,
@@ -375,7 +390,10 @@ export class Guide {
 
     for (const b of g.buildings.values()) { b.progress = 1; b.active = true; }
     g.population = 420;
+    // Built in one go and never edited afterwards, so the whole scene is new to
+    // the renderer: bump the version and leave the dirty list saying "all".
     g.mapVersion++;
+    g.dirtyTiles = null;
     return g;
   }
 

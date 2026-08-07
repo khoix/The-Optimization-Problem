@@ -11,6 +11,7 @@
 
 import type { Building, GameState } from './types';
 import { BUILDING_DEFS } from './buildings';
+import { touchMap } from './state';
 
 export const ROAD_DEFS = [
   { type: 'dirt_road', name: 'Dirt Track', capacity: 4 },
@@ -229,11 +230,11 @@ export function connectOrphans(g: GameState): number {
       const t = g.map[y * g.mapW + x];
       if (t.buildingId !== -1 || t.terrain === 'water' || t.road) return;
       t.road = true; t.roadType = 1; laid++;
+      touchMap(g, x, y);
     };
     const stepY = Math.sign(ty - cy), stepX = Math.sign(tx - cx);
     for (let y = cy; y !== ty + stepY && stepY !== 0; y += stepY) layAt(cx, y);
     for (let x = cx; x !== tx + stepX && stepX !== 0; x += stepX) layAt(x, ty);
   }
-  if (laid > 0) g.mapVersion++;
   return laid;
 }
