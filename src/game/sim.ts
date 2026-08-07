@@ -89,6 +89,16 @@ function line(into: LedgerLine[], label: string, amount: number, policy?: Policy
   into.push(l);
 }
 
+/**
+ * What an offline building costs, as a fraction of its running upkeep.
+ *
+ * Maintained but not operated. High enough that a stranded facility is a bill
+ * the player can see on the ledger and act on; low enough that a temporary
+ * outage — a blackout, a road dug up — is not a second punishment on top of
+ * losing the output.
+ */
+export const IDLE_UPKEEP = 0.4;
+
 /** Upkeep multiplier: old infrastructure costs more to keep limping along. */
 function upkeepWear(b: Building): number {
   return 1 + Math.max(0, b.age - 60) / 400;
@@ -160,6 +170,7 @@ export function simTick(g: GameState): void {
   let computeProduced = 0, jobsTotal = 0, housing = 0, income = 0, upkeep = 0;
   const ledger = emptyLedger();
   const upkeepBy: Record<string, number> = {};
+  let idleUpkeep = 0;
   const earnedBy: Record<string, number> = {};
   const renewableBoost = has('renewable_subsidy') ? 1.3 : 1;
 
@@ -208,7 +219,19 @@ export function simTick(g: GameState): void {
     else if (needsWater && !covered(g, b, cov.water)) b.offlineReason = 'water';
     else if ((needsPower || needsWater) && utilitySat <= 0.35) b.offlineReason = 'utility';
     b.active = b.offlineReason === undefined;
-    if (!b.active) continue;
+    if (!b.active) {
+      // An idle building is not a free building.
+      //
+      // Upkeep used to be skipped entirely for anything offline, which made a
+      // stranded nuclear plant cost nothing at all — so the cheapest thing to
+      // do with a misplaced facility was leave it standing forever, and the
+      // demolish tool had no economic argument behind it. It still costs less
+      // than a running one: a mothballed plant is maintained, not operated.
+      const idle = def.upkeep * upkeepWear(b) * IDLE_UPKEEP;
+      upkeep += idle;
+      idleUpkeep += idle;
+      continue;
+    }
     jobsTotal += def.jobs;
     housing += def.housing;
     const up = def.upkeep * upkeepWear(b);
@@ -337,6 +360,9 @@ export function simTick(g: GameState): void {
   for (const [cat, amt] of Object.entries(upkeepBy)) {
     line(ledger.outgoings, `${LEDGER_CATEGORY[cat] ?? cat} upkeep`, amt);
   }
+  // Its own line, because it is the one bill on this list with an obvious
+  // remedy: something is standing there doing nothing, and you can see it.
+  line(ledger.outgoings, 'Idle infrastructure', idleUpkeep);
   for (const p of g.policies) {
     expenses += POLICY_DEFS[p].costPerTick;
     line(ledger.outgoings, POLICY_DEFS[p].name, POLICY_DEFS[p].costPerTick, p);
@@ -697,7 +723,39 @@ export function computeSatisfaction(g: GameState): number {
   return d > 0 ? Math.min(1, g.resources.compute / d) : 1;
 }
 
+/**
+ * Recovery rates, per month, as a multiplier on what is already in the ground.
+ *
+ * Ground that is *still being polluted* barely recovers — that is what having a
+ * coal plant next door means. Ground whose source has stopped recovers quickly
+ * enough to see, which is the whole point: demolishing the plant used to change
+ * nothing perceptible for a decade, so the most expensive corrective action in
+ * the game had no visible consequence. One rate for both cases could not
+ * express that, and the flat 1.5% it used was the rate for the *first* case
+ * applied to every tile on the map.
+ *
+ * From a saturated 0.6: about a year to drop below the threshold where the
+ * canopy survives, under three to be visually clean. While the source is
+ * running, it stays where it is.
+ */
+const DECAY_ACTIVE = 0.985;
+const DECAY_CLEARED = 0.92;
+/** The last of it. Exponential decay alone leaves a haze that never quite goes. */
+const FLOOR_ACTIVE = 0.0004;
+const FLOOR_CLEARED = 0.002;
+/** Standing timber does some of the work. Keeping the green belt should pay. */
+const FOREST_BONUS = 0.02;
+
+/** Deposits this tick, reused between ticks — one per tile, not one per frame. */
+let depositScratch: Float32Array | null = null;
+
 function diffusePollution(g: GameState): void {
+  if (!depositScratch || depositScratch.length !== g.map.length) {
+    depositScratch = new Float32Array(g.map.length);
+  }
+  const deposit = depositScratch;
+  deposit.fill(0);
+
   // Deposit pollution around emitting buildings, then decay + average.
   for (const b of g.buildings.values()) {
     if (b.progress < 1 || !b.active) continue;
@@ -717,17 +775,27 @@ function diffusePollution(g: GameState): void {
         const dist = Math.hypot(dx, dy);
         if (dist > radius) continue;
         const falloff = (1 - dist / radius) * 0.012;
-        t.pollution = Math.max(0, Math.min(1, t.pollution + def.pollution * wear * falloff));
+        const amount = def.pollution * wear * falloff;
+        // Only emission counts as "still being polluted". A park's absorption is
+        // negative and belongs on the recovery side of the ledger, not against it.
+        const i = Math.floor(cy + dy) * g.mapW + Math.floor(cx + dx);
+        if (amount > 0) deposit[i] += amount;
+        t.pollution = Math.max(0, Math.min(1, t.pollution + amount));
       }
     }
   }
   let sum = 0;
-  const decay = 0.985
-    - (g.policies.has('green_belt') ? 0.004 : 0)
-    - (g.policies.has('ewaste_program') ? 0.002 : 0)
-    - (g.policies.has('free_transit') ? 0.002 : 0);
-  for (const t of g.map) {
-    t.pollution = Math.max(0, t.pollution * decay - 0.0004);
+  const policyHelp = (g.policies.has('green_belt') ? 0.004 : 0)
+    + (g.policies.has('ewaste_program') ? 0.002 : 0)
+    + (g.policies.has('free_transit') ? 0.002 : 0);
+  for (let i = 0; i < g.map.length; i++) {
+    const t = g.map[i];
+    // Below this a deposit is a rounding error at the edge of a radius, not a
+    // source: the tile is effectively clear and recovers like it.
+    const receiving = deposit[i] > 0.0008;
+    const base = receiving ? DECAY_ACTIVE : DECAY_CLEARED - (t.terrain === 'forest' ? FOREST_BONUS : 0);
+    const floor = receiving ? FLOOR_ACTIVE : FLOOR_CLEARED;
+    t.pollution = Math.max(0, t.pollution * Math.max(0, base - policyHelp) - floor);
     sum += t.pollution;
   }
   g.pollutionAvg = sum / g.map.length;
