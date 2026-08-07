@@ -9,7 +9,8 @@ import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, MANUAL_SLOT, peek, saveTo } from '../game/save';
+import { AUTO_SLOT, MANUAL_SLOT, deleteSlot, peek, saveTo, type SaveEnvelope } from '../game/save';
+import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
 import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, NET_WINDOW } from '../game/sim';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
@@ -419,6 +420,7 @@ export class UI {
     // Continue is the autosave; Load reaches every slot, including a manual
     // save made before an autosave overwrote the run the player wanted back.
     const hasSaves = [MANUAL_SLOT, AUTO_SLOT].some((sl) => peek(sl) !== null);
+    const past = readArchive();
     this.titleScreen.classList.remove('hidden');
     document.body.classList.add('at-title');
     this.titleScreen.innerHTML = `
@@ -430,11 +432,12 @@ export class UI {
         <div class="title-actions">
           ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
           ${hasSaves ? '<button id="t-load" class="title-btn">Load Save</button>' : ''}
+          ${past.length ? `<button id="t-past" class="title-btn">Past Administrations (${past.length})</button>` : ''}
           <button id="t-new" class="title-btn${resumeLabel ? '' : ' primary'}">Begin New Simulation</button>
           <button id="t-how" class="title-btn">How to Play</button>
           <button id="t-settings" class="title-btn">Settings</button>
         </div>
-        ${resumeLabel || hasSaves ? '' :
+        ${resumeLabel || hasSaves || past.length ? '' :
           '<p class="title-hint">New here? <b>How to Play</b> is a short walk through the region before you take it on.</p>'}
         ${auto?.locked ? '<p class="title-note">The saved administration ended in observer mode. It can be watched, but not resumed.</p>' : ''}
         ${auto?.ended ? '<p class="title-note">The saved administration was terminated. It can be reviewed, but not continued.</p>' : ''}
@@ -445,6 +448,7 @@ export class UI {
     };
     on('#t-continue', () => this.onSession({ kind: 'load', slot: AUTO_SLOT }));
     on('#t-load', () => this.showLoadMenu(true));
+    on('#t-past', () => this.showArchive(true));
     on('#t-new', () => this.showScenarioPicker(true));
     on('#t-how', () => this.showHowTo(true));
     on('#t-settings', () => this.showSettings());
@@ -1712,28 +1716,113 @@ export class UI {
     this.modal.append(box);
   }
 
+  /**
+   * The Load menu, with a way to get rid of a save.
+   *
+   * Two slots is not many, and until now the only way to free one was to
+   * overwrite it — which meant playing far enough into a region you did not
+   * want in order to displace a region you did.
+   */
   showLoadMenu(fromTitle = false): void {
-    const slots: Array<{ slot: string; label: string }> = [];
+    const slots: Array<{ slot: string; name: string; env: SaveEnvelope }> = [];
     for (const [slot, name] of [[MANUAL_SLOT, 'Manual save'], [AUTO_SLOT, 'Autosave']] as const) {
       const env = peek(slot);
-      if (!env) continue;
-      const when = new Date(env.savedAt).toLocaleString();
-      const year = Math.floor(env.tick / 12) + 1;
-      const lock = env.locked ? ' — OBSERVER (permanently locked)'
-        : env.ended ? ' — administration terminated' : '';
-      slots.push({ slot, label: `${name} · Year ${year} · pop ${env.population} · ${when}${lock}` });
+      if (env) slots.push({ slot, name, env });
     }
+    const back = { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } };
     if (slots.length === 0) {
-      this.showModal('Load Game', 'No saved games found.', [
-        { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } },
-      ]);
+      this.showModal('Load Game', 'No saved games found.', [back]);
       return;
     }
+    const rows = slots.map(({ slot, name, env }) => {
+      const when = new Date(env.savedAt).toLocaleString();
+      const year = Math.floor(env.tick / 12) + 1;
+      const lock = env.locked ? '<span class="save-flag">observer · permanently locked</span>'
+        : env.ended ? '<span class="save-flag">administration terminated</span>' : '';
+      return `<div class="save-row" data-slot="${slot}">
+        <span class="save-what"><b>${name}</b> · Year ${year} · pop ${env.population.toLocaleString()}
+          <small>${when}</small>${lock}</span>
+        <button class="small-btn save-load" data-slot="${slot}">Load</button>
+        <button class="small-btn save-del" data-slot="${slot}">Delete</button>
+      </div>`;
+    }).join('');
     this.showModal('Load Game',
-      fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.', [
-        ...slots.map((s) => ({ label: s.label, action: () => this.onSession({ kind: 'load', slot: s.slot }) })),
-        { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
-      ]);
+      `<p class="hint">${fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.'}</p>${rows}`,
+      [back]);
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.save-load')) {
+      b.onclick = () => { this.modal.classList.add('hidden'); this.onSession({ kind: 'load', slot: b.dataset.slot! }); };
+    }
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.save-del')) {
+      b.onclick = () => {
+        const slot = b.dataset.slot!;
+        const env = peek(slot);
+        const year = env ? Math.floor(env.tick / 12) + 1 : 0;
+        this.showModal('Delete Save',
+          `Delete this save? Year ${year}, population ${env?.population.toLocaleString() ?? 0}. ` +
+          'The decision record for a finished administration is kept either way; a region in progress is not.',
+          [
+            { label: 'Delete', action: () => { deleteSlot(slot); this.showLoadMenu(fromTitle); } },
+            { label: 'Keep it', action: () => this.showLoadMenu(fromTitle) },
+          ]);
+      };
+    }
+  }
+
+  /**
+   * Past administrations.
+   *
+   * What is kept is the record, not the region: how long it lasted, how big it
+   * got, how it ended, and every decision that got it there. A finished run
+   * used to sit in the autosave slot indefinitely, so the title screen offered
+   * to reopen a region that had been dead for weeks. It offers the list now.
+   */
+  showArchive(fromTitle = false): void {
+    const list = readArchive();
+    const back = { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } };
+    if (list.length === 0) {
+      this.showModal('Past Administrations', 'Nothing on record yet.', [back]);
+      return;
+    }
+    const rows = list.map((r) => {
+      const years = Math.floor(r.tick / 12);
+      const how = r.kind === 'observer' ? 'Outlived by the system' : 'Terminated';
+      return `<div class="save-row" data-run="${r.runId}">
+        <span class="save-what"><b>${r.scenarioName}</b> · ${years} year${years === 1 ? '' : 's'} ·
+          peak population ${r.peakPopulation.toLocaleString()}
+          <small>${how} — ${r.cause}</small></span>
+        <button class="small-btn run-open" data-run="${r.runId}">Decisions</button>
+        <button class="small-btn run-del" data-run="${r.runId}">Delete</button>
+      </div>`;
+    }).join('');
+    this.showModal('Past Administrations',
+      `<p class="hint">Each of these ended. The decisions that got them there are kept.</p>${rows}`, [back]);
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.run-open')) {
+      b.onclick = () => {
+        const rec = list.find((r) => String(r.runId) === b.dataset.run);
+        if (rec) this.showRecord(rec, fromTitle);
+      };
+    }
+    for (const b of this.modal.querySelectorAll<HTMLElement>('.run-del')) {
+      b.onclick = () => { deleteRecord(Number(b.dataset.run)); this.showArchive(fromTitle); };
+    }
+  }
+
+  /** One archived administration: how it ended, then everything it decided. */
+  private showRecord(rec: RunRecord, fromTitle: boolean): void {
+    const years = Math.floor(rec.tick / 12);
+    const rows = rec.history.length === 0
+      ? '<p>No decisions on record.</p>'
+      : rec.history.map((h) => {
+          const year = Math.floor(h.tick / 12) + 1;
+          const cls = h.kind === 'system' ? 'hist-system' : 'hist-player';
+          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${h.text}</div>`;
+        }).join('');
+    this.showModal(`${rec.scenarioName} — ${years} year${years === 1 ? '' : 's'}`,
+      `<p class="rec-cause">${rec.cause}</p>` +
+      `<p class="hint">Peak population ${rec.peakPopulation.toLocaleString()}. ` +
+      `Each entry was, at the time, a reasonable response to a real problem.</p>` +
+      `<div class="hist-list">${rows}</div>`,
+      [{ label: 'Back', action: () => this.showArchive(fromTitle) }]);
   }
 
   /** Shown once at the start of a fresh game. */

@@ -120,6 +120,25 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .ledger-net span:last-child.neg { color: var(--bad); }
 .sys-section { margin-top: 14px; border-top: 1px solid var(--panel-border); padding-top: 10px; }
 
+/* ---------------- saves and the record ---------------- */
+/* A row that is one thing plus the two verbs that apply to it. The label takes
+   whatever width is left; the buttons keep theirs, because a Delete that moves
+   about is a Delete somebody presses by accident. */
+.save-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  padding: 8px 10px; border: 1px solid var(--panel-border); border-radius: 5px;
+  background: rgba(20, 26, 38, 0.6);
+}
+.save-what { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; }
+.save-what small { display: block; color: var(--text-dim); font-size: 10px; }
+.save-flag {
+  display: inline-block; margin-top: 3px; font-size: 9px; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--mid);
+}
+.save-row .small-btn { flex: 0 0 auto; }
+.save-del, .run-del { color: var(--bad); }
+.rec-cause { font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+
 /* politics summary */
 .pol-summary { font-size: 11px; line-height: 1.6; margin-bottom: 10px; color: var(--text); }
 .pol-summary small { color: var(--text-dim); }

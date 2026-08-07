@@ -6,7 +6,8 @@ import { canDemolish } from './game/asi';
 import { UI, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, releaseSlots, saveTo } from './game/save';
+import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
@@ -86,6 +87,15 @@ else if (freshGame) ui.showIntro();
  * harder to find than a missing one.
  */
 function startSession(req: SessionRequest): void {
+  // Leaving a finished administration files it and frees the slots it was
+  // sitting in. Without this the autosave held a dead region indefinitely, so
+  // the title screen went on offering to review a run from three sessions ago
+  // and a fresh start had nowhere clean to autosave into. The record survives;
+  // the corpse does not.
+  if (!atMenu && hasEnded(g)) {
+    archiveRun(g);
+    releaseSlots(g);
+  }
   const next = req.kind === 'load'
     ? loadFrom(req.slot)
     : newGame(undefined, req.kind === 'new' ? req.scenario : 'verdant');
@@ -573,10 +583,14 @@ function frame(now: number): void {
     if (!atMenu && g.tick % AUTOSAVE_TICKS === 0) saveTo(AUTO_SLOT, g);
   }
   // Capture the terminal state once, immediately — a locked observer save is
-  // part of the design, not an accident of timing.
+  // part of the design, not an accident of timing. The record is filed at the
+  // same moment rather than when the player leaves, so a closed tab still
+  // remembers the administration; the slots it occupies are freed on the way
+  // out, in startSession, once there has been a chance to look at it.
   if ((g.gameOver || g.asi.observer) && !endStateSaved && !atMenu) {
     endStateSaved = true;
     saveTo(AUTO_SLOT, g);
+    archiveRun(g);
   }
   applyCursor();
   renderer.hour = (renderer.hour + dt * mul * HOURS_PER_SECOND) % 24;

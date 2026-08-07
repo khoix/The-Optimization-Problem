@@ -379,6 +379,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     netHistory: [],
     ledger: { income: [], outgoings: [] },
     dirtyTiles: null,   // a fresh region has nothing baked yet
+    runId: Date.now() * 1000 + Math.floor(Math.random() * 1000),
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
     history: [],
     tutorialDone: [],
