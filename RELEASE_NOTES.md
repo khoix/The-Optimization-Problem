@@ -1332,6 +1332,53 @@ the per-edit case is the one that was hurting.
 
 ---
 
+## Milestone 30 — the record — `3050c8e`
+
+A finished administration used to sit in the autosave slot indefinitely. The title screen
+went on offering to *Review Final State* of a region that had been dead for weeks, and a
+fresh start had nowhere clean to autosave into. Two slots, one of them permanently
+occupied by a corpse.
+
+### What is kept
+
+**The record, not the region.** Scenario, how long it lasted, peak population, how it
+ended, and every decision that got it there. A full state would be the same storage under
+a different name — one dead map still occupying a slot. The record is about a kilobyte, so
+a dozen fit where one region did, and the map was never the part worth keeping: the
+decision log is, each entry of which was at the time a reasonable response to a real
+problem.
+
+**Filed when the ending happens**, not when the player leaves, so a closed tab still
+remembers the run. Idempotent on a new `runId`, so sitting on the ending for twenty
+minutes does not produce twenty entries. **The slots are freed on the way out** — after
+there has been a chance to look at it, which is the order the play note asked for.
+
+> Releasing checks the `runId` inside each envelope before deleting it. A manual save
+> belonging to a *different* region is somebody's deliberate bookmark, and sweeping it up
+> because another run happened to end would be the kind of helpfulness nobody asks for
+> twice.
+
+The title screen carries **Past Administrations** whenever there is anything on record.
+Each entry opens its decision log; each can be deleted.
+
+### Deleting saves
+
+Two slots is not many, and until now the only way to free one was to overwrite it — which
+meant playing far enough into a region you did not want in order to displace a region you
+did. Both slots now offer Load and Delete. Delete asks first, and says what it will and
+will not keep: the decision record for a finished administration survives either way, a
+region in progress does not.
+
+### Verification
+
+23 checks. The ones worth naming are the negative ones, because this milestone is mostly
+about things that should *stop* happening: that reviewing an ending does not re-file it,
+that the slot survives while the ending is still on screen and not after, that the title
+screen stops offering a region that is gone, and that another region's manual save is left
+exactly where it was.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
