@@ -944,16 +944,6 @@ body.at-title .guide { padding-bottom: 20px; }
   /* The transport gives up its padding rather than the map giving up a row. */
   .civic-bar.collapsed .transport { gap: 2px; }
   .civic-bar.collapsed .speed-btn { padding: 3px 5px; font-size: 10px; }
-  /* Collapsed, the console centres — and to do that it needs the line to
-     itself, so the hamburger and the fold move up beside the vitals.
-
-     Sharing the line cannot be made to work: the console is 282px of a 378px
-     row, and centring it against a 92px button group on the right would need
-     466px. Auto margins alone move it four pixels. Vitals are 18px of content
-     and had the room to take a passenger, so the passenger goes there. */
-  .civic-bar.collapsed .bar-vitals { flex: 1 1 auto; }
-  .civic-bar.collapsed .bar-system { order: -1; flex: 0 0 auto; margin-left: auto; }
-  .civic-bar.collapsed .console { margin-left: auto; margin-right: auto; }
   .bar-system { flex: 1 1 auto; justify-content: flex-end; }
   .transport { gap: 2px; }
   .speed-btn { padding: 3px 6px; }
