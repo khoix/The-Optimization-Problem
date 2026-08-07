@@ -1078,14 +1078,18 @@ too put "YEAR 4 · AUG" and "TOWNSHIP" side by side, made the console 351px of a
 screen, and pushed the system buttons onto a band of their own. Two short lines keep the
 width; the row keeps the height.
 
-**And the console centres when the bar is folded**, rather than sitting hard against the
-left edge with the system buttons at the far right. Sharing that line cannot be made to
-centre — the console is 282px of a 378px row, and balancing it against a 92px button group
-would need 466px; auto margins alone move it four pixels. So the console takes the line and
-the hamburger and fold move up beside the vitals, which are 18px of content on a line of
-their own and had the room to take a passenger. Exact at 390px, 393px and 360px, at a cost
-of 22px of bar height — **102px collapsed**, because the vitals line grows to the height of
-the buttons that joined it.
+**And with the row showing, the console centres** rather than sitting against the left edge
+with all the slack collected past the hamburger and the fold. Nothing moved to achieve it:
+the vitals are on their own lines above, so the console shares its line only with the system
+buttons, and an empty flex item of the same growth mirrors those buttons on the left. Exact
+at 390px and 393px; at 360px the buttons are wide enough that a matching gap does not quite
+fit and it lands 5px short.
+
+> **Fix — a decision already on screen when the takeover lands stayed there.** The
+> transition clears the pending event and the UI refuses to render a new one to an observer,
+> but neither removes a dialog drawn *before* the state changed — leaving a question in
+> front of someone with no standing to answer it. Entering observer mode now closes whatever
+> is open, which at that moment can only be an event or a report.
 
 > **Fix.** The takeover screen's four exits sat on one line and ran off both edges of a
 > phone — two of them half off-screen, on the one screen where they had just become the
