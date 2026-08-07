@@ -1078,6 +1078,15 @@ too put "YEAR 4 · AUG" and "TOWNSHIP" side by side, made the console 351px of a
 screen, and pushed the system buttons onto a band of their own. Two short lines keep the
 width; the row keeps the height.
 
+**And the console centres when the bar is folded**, rather than sitting hard against the
+left edge with the system buttons at the far right. Sharing that line cannot be made to
+centre — the console is 282px of a 378px row, and balancing it against a 92px button group
+would need 466px; auto margins alone move it four pixels. So the console takes the line and
+the hamburger and fold move up beside the vitals, which are 18px of content on a line of
+their own and had the room to take a passenger. Exact at 390px, 393px and 360px, at a cost
+of 22px of bar height — **102px collapsed**, because the vitals line grows to the height of
+the buttons that joined it.
+
 > **Fix.** The takeover screen's four exits sat on one line and ran off both edges of a
 > phone — two of them half off-screen, on the one screen where they had just become the
 > only way out. They stack now. The ticker had the same problem and lost more by it: centred
