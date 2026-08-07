@@ -314,6 +314,12 @@ export interface Ledger {
 }
 
 export interface GameState {
+  /**
+   * Identity of this administration, for the archive. Assigned once at
+   * founding and carried through saves, so an ending is filed exactly once
+   * however many times the player reopens it.
+   */
+  runId: number;
   tick: number;            // 1 tick = 1 month
   seed: number;
   scenario: string;        // ScenarioId; string here to avoid an import cycle

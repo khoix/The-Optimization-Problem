@@ -137,6 +137,9 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.ledger.outgoings ??= [];
   // A loaded region has nothing baked either: everything is new to the renderer.
   g.dirtyTiles = null;
+  // Saves from before the archive get an identity now, so they can still be
+  // filed when they end.
+  g.runId ??= (env.savedAt || Date.now()) * 1000;
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.
@@ -176,6 +179,26 @@ export function saveTo(slot: string, g: GameState): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+export function deleteSlot(slot: string): void {
+  try { localStorage.removeItem(slot); } catch { /* already gone, or storage is */ }
+}
+
+/**
+ * Free the slots an ended administration was occupying.
+ *
+ * Only the ones that hold *this* run: a manual save from a different region is
+ * somebody's deliberate bookmark and is none of this function's business. The
+ * envelope carries no run identity, so the state inside it is asked.
+ */
+export function releaseSlots(g: GameState): void {
+  for (const slot of [AUTO_SLOT, MANUAL_SLOT]) {
+    const env = peek(slot);
+    if (!env) continue;
+    const runId = (env.state as { runId?: number }).runId;
+    if (runId === undefined || runId === g.runId) deleteSlot(slot);
   }
 }
 
