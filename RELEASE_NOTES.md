@@ -1379,6 +1379,82 @@ exactly where it was.
 
 ---
 
+## Milestone 33 — the region responds — `a36ff83`
+
+### Pollution clears when its source does
+
+Pollution decayed at a flat **1.5% a month** whether or not anything was still producing
+it. So demolishing a coal plant — the most expensive corrective action in the game —
+changed nothing you could see. Measured: six years after the plant came down the ground was
+still at **0.31**, above the threshold where the canopy dies. Seventeen years to visually
+clean.
+
+One rate cannot express the difference between *there is a plant here* and *there was a
+plant here*, and the rate it used was the first one applied to every tile on the map.
+
+Recovery is source-aware now. Tiles still receiving deposits keep the old rate, which is
+what having a coal plant next door means. Tiles whose source has stopped recover at 8% a
+month, with a floor that takes the last of it rather than leaving a haze that never quite
+goes:
+
+| years since the plant came down | 0 | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| ground pollution | 0.99 | 0.35 | 0.11 | 0.03 | **0** |
+
+Forest recovers faster still — keeping the green belt should pay for itself somewhere
+visible.
+
+> **The check that mattered was the other one.** Making recovery quick is only correct if a
+> *running* city is still as dirty as it was; otherwise the fix quietly deletes the
+> mechanic. On a thirty-year dirty region with everything still burning:
+>
+> | | old | new |
+> |---|---|---|
+> | average pollution | 0.159 | 0.152 |
+> | tiles under haze | 4,131 | 3,919 |
+> | tiles with dead canopy | 3,007 | 2,747 |
+> | environment score | 0.618 | 0.636 |
+>
+> A dirty city is still a dirty city and still pays for it. What changed is that stopping
+> produces a response.
+
+### An idle building is not a free building
+
+Upkeep was skipped entirely for anything offline, so a stranded nuclear plant cost
+**nothing at all**. The cheapest thing to do with a misplaced facility was leave it
+standing forever, and the demolish tool had no economic argument behind it.
+
+It pays 40% of its running upkeep now — maintained rather than operated — on its own line
+of the ledger, because it is the one bill on that list with an obvious remedy. A region
+that goes dark still pays *less* than one that runs: an outage should not be a second
+punishment on top of losing the output.
+
+### The one I am not changing, and why
+
+I flagged the early game's **85% margin** as a balance problem. Having measured it, I was
+looking at the wrong number. The margin is a ratio; what constrains play is the absolute
+rate against what things cost — **§35 a month against buildings of §300 to §800**. Ten
+months of saving for a data centre is a real decision. And the margin erodes on its own as
+infrastructure ages: 0.85 at month six, 0.76 by month sixty, with the player doing nothing
+at all. Left alone.
+
+### Verification
+
+15 checks. Run against the old simulation, seven fail and the eight invariants hold — which
+is the shape that says the assertions are about this change rather than about the game in
+general.
+
+> **Fix — twice, in the same probe.** The first version put the coal plant in an empty
+> corner of the map, where it had no water in range; an idle plant emits nothing, so it
+> measured a clean tile recovering from nothing and would have passed. The second version
+> demolished the plant by calling `requestDemolish` and walking straight on — anything above
+> §150 asks for confirmation first, so the plant was still standing for every year the probe
+> then measured, and the ground stayed fouled because it was still being fouled. The harness
+> now asserts the plant is *running* before it believes anything downstream, and answers the
+> dialog like a player.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
