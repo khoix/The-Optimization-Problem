@@ -2329,6 +2329,12 @@ export class UI {
     this.tool = { kind: 'none' };
     this.selectedBuildingId = null;
     this.inspector.classList.add('hidden');
+    // A decision already on screen when the takeover lands. Clearing the state
+    // is not enough — the dialog was drawn before the state changed, and would
+    // sit there asking a question its owner no longer has the standing to
+    // answer. Anything open at this moment is an event or a report, and both
+    // are moot the instant the administration ends.
+    this.modal.classList.add('hidden');
     // Segmented rather than one string: on a phone the full readout is wider
     // than the screen and gets clipped at *both* ends, which loses the two
     // clauses that actually say what happened. The reassurances drop first.

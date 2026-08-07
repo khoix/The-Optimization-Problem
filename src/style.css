@@ -922,6 +922,16 @@ body.at-title .guide { padding-bottom: 20px; }
      the line beside it. Letting the console grow pushed them onto a third row
      and cost 44px of map for nothing. */
   .console { flex: 0 0 auto; }
+  /* Expanded, the console centres on the line rather than sitting against the
+     left edge with all the slack on the right. The vitals are above, so the
+     line holds the console and the system buttons — an empty flex item of the
+     same growth mirrors those buttons on the left, and the console lands in
+     the middle without anything moving. Only expanded: folded, the console is
+     too wide for a matching gap to fit, and the layout there is settled. */
+  .civic-bar:not(.collapsed) .bar-row-console::before {
+    content: ''; flex: 1 1 0; min-width: 0;
+  }
+  .civic-bar:not(.collapsed) .bar-system { flex: 1 1 0; min-width: max-content; }
   /* Alerts and Override moved into the hamburger; what is left is the menu
      and the fold. */
   .bar-system .alert-btn, .bar-system .override-btn { display: none; }
