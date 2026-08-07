@@ -3,7 +3,7 @@
 // light, point lights, emissive bloom, weather, tilt-shift depth of field,
 // era-based color grading, and a vignette.
 
-import type { BuildingType, GameState } from '../game/types';
+import type { Building, BuildingType, GameState } from '../game/types';
 import { BUILDING_DEFS } from '../game/buildings';
 import {
   TILE, makeTerrain, makeRoads, makeBuildingSprites, makeConstructionSprite,
@@ -109,6 +109,8 @@ export class Renderer {
   private bctx!: CanvasRenderingContext2D;
   private bloomTmp!: HTMLCanvasElement;  // low-res, pre-blurred emissive
   private blctx!: CanvasRenderingContext2D;
+  private mirror!: HTMLCanvasElement;    // world-sized copy, read by reflections
+  private mctx!: CanvasRenderingContext2D;
 
   private terrain: TerrainSprites;
   private roads: HTMLCanvasElement[][];
@@ -148,6 +150,18 @@ export class Renderer {
   private stamp(label: string): void {
     if (this.profiling) this.marks.push([label, performance.now()]);
   }
+  /** Draw order for the buildings, rebuilt only when the region changes. */
+  private sortedCache: Building[] = [];
+  private sortedVersion = -1;
+  private sortedFor(g: GameState): Building[] {
+    if (this.sortedVersion !== g.mapVersion || this.sortedCache.length !== g.buildings.size) {
+      this.sortedVersion = g.mapVersion;
+      this.sortedCache = [...g.buildings.values()]
+        .sort((a, b) => (a.y + BUILDING_DEFS[a.type].h) - (b.y + BUILDING_DEFS[b.type].h));
+    }
+    return this.sortedCache;
+  }
+
   /** Milliseconds attributable to each pass of the last rendered frame. */
   passTimings(): Record<string, number> {
     const out: Record<string, number> = {};
@@ -191,6 +205,7 @@ export class Renderer {
     this.bctx = this.blurTmp.getContext('2d')!;
     // Low-res scratch for bloom: blur once at world resolution, scale after.
     [this.bloomTmp, this.blctx] = mk();
+    [this.mirror, this.mctx] = mk();
     this.sctx.imageSmoothingEnabled = false;
     // Rebuilt here rather than per frame: createRadialGradient and its linear
     // sibling were being constructed 60 times a second to describe something
@@ -229,6 +244,11 @@ export class Renderer {
    */
   resetSession(): void {
     this.cachedMapVersion = -1;
+    // A different region can arrive with the same mapVersion and the same
+    // number of buildings. Both halves of the cache key can collide across a
+    // session swap, so the cache is dropped rather than trusted.
+    this.sortedVersion = -1;
+    this.sortedCache = [];
     this.life = new AmbientLife();
     this.hour = 9;
     this.rain = 0;
@@ -398,8 +418,13 @@ export class Renderer {
     const xcy = ui.cursorWorld ? Math.round(ui.cursorWorld[1] - camY) : 0;
     // Sorted by the base of the footprint: with roofs lifted, what matters for
     // occlusion is where a building stands, not where its top is drawn.
-    const sorted = [...g.buildings.values()]
-      .sort((a, b) => (a.y + BUILDING_DEFS[a.type].h) - (b.y + BUILDING_DEFS[b.type].h));
+    //
+    // Cached, because buildings do not move. The sort key is fixed for the life
+    // of a building, so the order can only change when one is added or removed
+    // — both of which bump mapVersion. This used to copy and sort the whole
+    // region sixty times a second: a second of play at 187 buildings meant
+    // eleven thousand array entries allocated to produce the same order again.
+    const sorted = this.sortedFor(g);
 
     // Shadow & ambient-occlusion pass: contact AO hugs every footprint, and
     // the cast shadow tracks the sun — long to the west at dawn, short at
@@ -578,10 +603,10 @@ export class Renderer {
     // canvas it is being drawn onto, which the browser has to reconcile — so
     // the count of those reads is what costs, not their area. Runs of adjacent
     // water share a wobble and a flip, so one draw does the whole run.
-    const alpha = 0.15 + nightF * 0.12;
-    w.save();
-    w.globalAlpha = alpha;
-    w.scale(1, -1);
+    // Collect the runs first, then draw them. Nothing is drawn while the shape
+    // of the work is still being decided, so the one full-canvas copy below
+    // happens once and only when there is something to mirror.
+    const runs: Array<[number, number, number, number]> = []; // dx, dy, width, wobble
     for (let ty = y0; ty <= y1; ty++) {
       const dy = ty * TILE - camY;
       if (dy - TILE < 0) continue; // source strip must be on-canvas
@@ -596,15 +621,29 @@ export class Renderer {
           !(a.terrain === 'water' && a.buildingId === -1);
         if (reflects && runStart < 0) runStart = tx;
         if (!reflects && runStart >= 0) {
-          const dx = runStart * TILE - camX;
-          const wpx = (tx - runStart) * TILE;
-          // The y axis is flipped, so the destination top edge is -(dy + TILE).
-          w.drawImage(this.world, dx + wob, dy - TILE, wpx, TILE, dx, -(dy + TILE), wpx, TILE);
+          runs.push([runStart * TILE - camX, dy, (tx - runStart) * TILE, wob]);
           runStart = -1;
         }
       }
     }
-    w.restore();
+    if (runs.length > 0) {
+      // Each run used to read `world` — the canvas it was being drawn onto —
+      // and every one of those reads is a reconcile the browser has to do. The
+      // count of reads is the cost, not their area, which is why this pass grew
+      // from 3ms to 7ms as the city filled the buffer it was reading. One copy,
+      // then read the copy: N reconciles become one.
+      this.mctx.clearRect(0, 0, W, H);
+      this.mctx.drawImage(this.world, 0, 0);
+      const alpha = 0.15 + nightF * 0.12;
+      w.save();
+      w.globalAlpha = alpha;
+      w.scale(1, -1);
+      for (const [dx, dy, wpx, wob] of runs) {
+        // The y axis is flipped, so the destination top edge is -(dy + TILE).
+        w.drawImage(this.mirror, dx + wob, dy - TILE, wpx, TILE, dx, -(dy + TILE), wpx, TILE);
+      }
+      w.restore();
+    }
 
     this.stamp('water reflections');
     // ------------------------------------------------------------ pollution haze
@@ -809,6 +848,50 @@ export class Renderer {
     s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
 
     this.stamp('· grade+upscale');
+    /**
+     * Tilt-shift: blur the top and bottom bands of the image.
+     *
+     * This used to run at the end of compose and blur `this.screen` — reading
+     * back the canvas it was drawing to. M29 measured that pass at 21ms of a
+     * 40ms frame and found that halving its scratch buffer changed nothing at
+     * all, which located the cost exactly: not the blur, not the composite, but
+     * the readback, and the browser reconciling it. A readback is also a
+     * synchronisation point, so it absorbed the cost of everything queued
+     * before it — which is why a pass of fixed size appeared to get three times
+     * more expensive as the city grew.
+     *
+     * It blurs the graded world buffer instead, which is already in hand, and
+     * moves ahead of bloom and the light shafts so nothing has been drawn to
+     * the screen that it would want to read. Same source rect, same transform,
+     * same mask geometry — the only difference is that the glow and the shafts
+     * land sharp on top of a blurred base, and both are diffuse to begin with.
+     */
+    if (this.tiltShift) {
+      const hw = this.blurTmp.width, hh = this.blurTmp.height;
+      const k = hw / sw;
+      this.bctx.clearRect(0, 0, hw, hh);
+      this.bctx.filter = 'blur(1.5px)';
+      this.bctx.imageSmoothingEnabled = true;
+      this.bctx.drawImage(this.bloomTmp, 0, 0, W, H, -fx * k, -fy * k, W * this.zoom * k, H * this.zoom * k);
+      this.bctx.filter = 'none';
+      this.bctx.globalCompositeOperation = 'destination-in';
+      if (!this.tiltMaskGrad) {
+        const mask = this.bctx.createLinearGradient(0, 0, 0, hh);
+        mask.addColorStop(0, 'rgba(0,0,0,0.9)');
+        mask.addColorStop(0.3, 'rgba(0,0,0,0)');
+        mask.addColorStop(0.7, 'rgba(0,0,0,0)');
+        mask.addColorStop(1, 'rgba(0,0,0,0.9)');
+        this.tiltMaskGrad = mask;
+      }
+      this.bctx.fillStyle = this.tiltMaskGrad;
+      this.bctx.fillRect(0, 0, hw, hh);
+      this.bctx.globalCompositeOperation = 'source-over';
+      s.imageSmoothingEnabled = true;
+      s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
+      s.imageSmoothingEnabled = false;
+    }
+
+    this.stamp('· tilt-shift');
     // bloom: blur the emissive once at low (world) resolution, then let the
     // pixel upscale spread it — far cheaper than filtering at screen size.
     // Skipped outright when nothing emissive was drawn: a blurred copy of an
@@ -836,47 +919,6 @@ export class Renderer {
     this.drawLightShafts(g, camX, camY);
 
     this.stamp('· shafts');
-    /**
-     * Tilt-shift: blur a half-res copy, mask it to the top and bottom bands,
-     * scale it back up.
-     *
-     * Skipped on a small screen, and the reason is measured rather than
-     * assumed. On a phone-sized viewport under 4x CPU throttling this pass
-     * alone was 21ms of a 40ms frame — over half the cost of rendering
-     * anything. Halving the scratch buffer again changed it by nothing at
-     * all, which locates the cost precisely: it is not the blur or the
-     * composite, it is `drawImage(this.screen, …)` reading back the canvas
-     * being drawn to, and the browser reconciling that read. One readback,
-     * whatever size the destination.
-     *
-     * What it buys is a few millimetres of soft focus at the very top and
-     * bottom of a 390px screen, one of which is behind the bar. Desktop keeps
-     * it and keeps its cost; a phone gets the frame back.
-     */
-    if (this.tiltShift) {
-    const hw = this.blurTmp.width, hh = this.blurTmp.height;
-    this.bctx.clearRect(0, 0, hw, hh);
-    this.bctx.filter = 'blur(1.5px)';
-    this.bctx.drawImage(this.screen, 0, 0, sw, sh, 0, 0, hw, hh);
-    this.bctx.filter = 'none';
-    this.bctx.globalCompositeOperation = 'destination-in';
-    if (!this.tiltMaskGrad) {
-      const mask = this.bctx.createLinearGradient(0, 0, 0, hh);
-      mask.addColorStop(0, 'rgba(0,0,0,0.9)');
-      mask.addColorStop(0.3, 'rgba(0,0,0,0)');
-      mask.addColorStop(0.7, 'rgba(0,0,0,0)');
-      mask.addColorStop(1, 'rgba(0,0,0,0.9)');
-      this.tiltMaskGrad = mask;
-    }
-    this.bctx.fillStyle = this.tiltMaskGrad;
-    this.bctx.fillRect(0, 0, hw, hh);
-    this.bctx.globalCompositeOperation = 'source-over';
-    s.imageSmoothingEnabled = true;
-    s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
-    s.imageSmoothingEnabled = false;
-    }
-
-    this.stamp('· tilt-shift');
     // vignette
     if (!this.vignetteGrad) {
       const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);

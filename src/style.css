@@ -1088,3 +1088,18 @@ body.at-title .guide { padding-bottom: 20px; }
   .speed-btn { min-width: 40px; min-height: 40px; }
   .bar-sep { display: none; }
 }
+
+/* The narrow end of what people actually hold. At 360px the folded console and
+   the system buttons came to 379px of a 348px line, so the row wrapped and the
+   fold produced three bands instead of two — the control whose job is to give
+   the map back was giving back a third less than it should.
+
+   Width comes off the display and off the transport's *width* only. Every
+   target keeps its 40px height, which is the dimension a thumb misses in. */
+@media (max-width: 380px) {
+  .civic-bar.collapsed .lcd { min-width: 76px; padding: 2px 4px 3px; }
+  .civic-bar.collapsed .lcd-main { font-size: 9px; letter-spacing: 0.4px; }
+  .civic-bar.collapsed .lcd-sub { font-size: 6.5px; letter-spacing: 0.6px; }
+  .civic-bar.collapsed .console { gap: 4px; padding: 2px 4px 3px; }
+  .civic-bar.collapsed .speed-btn { min-width: 34px; padding: 3px 3px; }
+}

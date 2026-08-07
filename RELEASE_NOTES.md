@@ -1199,6 +1199,75 @@ infrastructure.
 
 ---
 
+## Milestone 34 — on a real device — `8ade974`
+
+The frame budget collapsed as the city grew. The two passes doing it were both reading
+back the canvas they were drawing to.
+
+### The readbacks
+
+**Tilt-shift blurred `this.screen` — its own destination.** M29 had already measured that
+pass at 21ms of a 40ms frame and found that halving its scratch buffer changed nothing,
+which located the cost as the readback rather than the blur. What M29 did not say is the
+second half: a readback is a *synchronisation point*, so it absorbs everything queued
+before it. That is why a pass of fixed size appeared to get three times more expensive as
+the region filled up — it was being charged for the region.
+
+It blurs the graded world buffer instead, which is already in hand, and moves ahead of
+bloom and the light shafts so nothing has been drawn to the screen that it would want to
+read. Same source rect, same transform, same mask geometry. The glow and the shafts now
+land sharp on top of a blurred base, and both are diffuse to begin with — the measured
+contrast in the blurred bands is identical before and after.
+
+**Water reflections had the same shape.** Each run of river read `world` while drawing
+onto it, once per run per row; the comment above the loop already said the count of reads
+was the cost rather than their area. The runs are collected first, the buffer is copied
+once, and the runs read the copy. N reconciles become one.
+
+**The building draw order is cached.** Buildings do not move, so the sort key is fixed for
+the life of a building and the order can only change when one is added or removed. It was
+copying and sorting the whole region sixty times a second — eleven thousand array entries
+a second at 187 buildings, to produce the same order again.
+
+### Measured properly, which took two tries
+
+The first measurement compared separate runs on separately grown cities and said the
+change was worth 4%, inside its own noise. The frame time on this box swings by a factor
+of two between runs, and **`water reflections` alone reads anywhere between 0.03ms and 9ms
+depending on whether the river happens to be on screen** — the same code, the same city,
+a different camera.
+
+So: one city, grown once and saved through the game's own save format, reloaded for every
+measurement; the camera parked on the centroid of the water; the clock pinned to 21:00 so
+bloom and reflections are both active; interleaved blocks; medians of five.
+
+| | old | new |
+|---|---|---|
+| `· tilt-shift` | 24.90 ms | **5.51 ms** |
+| `water reflections` | 8.95 ms | **2.18 ms** |
+| frame, tilt-shift on | 56.9 ms | **47.6 ms** |
+| frame, tilt-shift off | 46.8 ms | **39.1 ms** |
+
+> **The usual caveat, unchanged.** These are software-rasterisation figures and they
+> overstate fill against a GPU. Readbacks are the exception: a pipeline stall is a stall on
+> real hardware too, which is why the fix was to remove them rather than shrink them.
+
+The suite asserts **ratios** rather than milliseconds — a pass that was 43% of the frame
+and is now 12% has changed in a way that survives running somewhere faster. Run against
+the old build, exactly those two assertions fail and the other eleven pass, which is the
+right shape: the visual and correctness checks are invariant, the performance ones
+discriminate.
+
+### Mobile
+
+At 360px the folded console and the system buttons came to 379px of a 348px line, so the
+row wrapped and the fold produced **three bands instead of two** — the control whose job is
+to give the map back was giving back a third less than it should. Width comes off the
+display and off the transport's *width*; every target keeps its 40px height, which is the
+dimension a thumb misses in. **125px to 80px.**
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
