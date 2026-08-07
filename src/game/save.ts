@@ -2,7 +2,8 @@
 // itself: it can be reopened and watched, but never resumed as administrator.
 // That permanence is part of the design, so it lives in the format, not the UI.
 
-import type { Building, GameState } from './types';
+import type { Building, GameState, Tile } from './types';
+import { BUILDING_DEFS } from './buildings';
 import { EVENTS } from './events';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 import { connectOrphans } from './network';
@@ -24,9 +25,57 @@ export interface SaveEnvelope {
   state: Record<string, unknown>;
 }
 
+/**
+ * The map, as four strings rather than N objects.
+ *
+ * A tile serialised as JSON is about ninety bytes of repeated key names, which
+ * made a 72×72 region a 456KB save. That was survivable at 5,184 tiles and is
+ * not at 12,544: three slots of it would have crowded a 5MB localStorage quota,
+ * and the failure mode of a full quota is a save that silently does not happen.
+ *
+ * One character per tile per field, and `buildingId` is not stored at all — it
+ * is rebuilt from the buildings list and their footprints, which is the same
+ * information written twice. Pollution keeps two hex digits, giving 1/255
+ * resolution against thresholds the simulation reads at 0.04 and 0.22.
+ */
+const TERRAIN_CODE: Record<string, string> = { grass: 'g', forest: 'f', water: 'w', sand: 's', rock: 'r' };
+const CODE_TERRAIN: Record<string, Tile['terrain']> = { g: 'grass', f: 'forest', w: 'water', s: 'sand', r: 'rock' };
+
+interface PackedMap { terrain: string; variant: string; road: string; pollution: string; }
+
+function packMap(map: Tile[]): PackedMap {
+  const terrain: string[] = [], variant: string[] = [], road: string[] = [], pollution: string[] = [];
+  for (const t of map) {
+    terrain.push(TERRAIN_CODE[t.terrain] ?? 'g');
+    variant.push(String(t.variant % 10));
+    // '.' is no road; otherwise the road class, which is 0..4.
+    road.push(t.road ? String(t.roadType ?? 1) : '.');
+    pollution.push(Math.max(0, Math.min(255, Math.round((t.pollution || 0) * 255)))
+      .toString(16).padStart(2, '0'));
+  }
+  return { terrain: terrain.join(''), variant: variant.join(''), road: road.join(''), pollution: pollution.join('') };
+}
+
+function unpackMap(p: PackedMap, n: number): Tile[] {
+  const out: Tile[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = p.road[i];
+    out[i] = {
+      terrain: CODE_TERRAIN[p.terrain[i]] ?? 'grass',
+      variant: Number(p.variant[i]) || 0,
+      road: r !== '.',
+      roadType: r !== '.' ? Number(r) : 1,
+      buildingId: -1,                       // restored from the buildings list
+      pollution: parseInt(p.pollution.slice(i * 2, i * 2 + 2), 16) / 255,
+    };
+  }
+  return out;
+}
+
 export function serialize(g: GameState): SaveEnvelope {
   const state: Record<string, unknown> = {
     ...g,
+    map: packMap(g.map),
     buildings: [...g.buildings.values()],
     policies: [...g.policies],
     firedEvents: [...g.firedEvents],
@@ -55,6 +104,20 @@ export function deserialize(env: SaveEnvelope): GameState {
   } as unknown as GameState;
   const pendingId = s.pendingEvent as unknown as string | null;
   if (pendingId) g.pendingEvent = EVENTS.find((e) => e.id === pendingId) ?? null;
+  // Saves written before the map was packed still hold an array of tiles, and
+  // still load: the format changed, the regions in it did not.
+  if (!Array.isArray(s.map)) {
+    g.map = unpackMap(s.map as unknown as PackedMap, g.mapW * g.mapH);
+    for (const b of g.buildings.values()) {
+      const def = BUILDING_DEFS[b.type];
+      for (let dy = 0; dy < def.h; dy++) {
+        for (let dx = 0; dx < def.w; dx++) {
+          const t = g.map[(b.y + dy) * g.mapW + b.x + dx];
+          if (t) t.buildingId = b.id;
+        }
+      }
+    }
+  }
   // Saves from before newer systems get sensible defaults.
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
@@ -72,6 +135,8 @@ export function deserialize(env: SaveEnvelope): GameState {
   g.ledger ??= { income: [], outgoings: [] };
   g.ledger.income ??= [];
   g.ledger.outgoings ??= [];
+  // A loaded region has nothing baked either: everything is new to the renderer.
+  g.dirtyTiles = null;
   g.jobVacancies ??= Math.max(0, g.jobsTotal - g.jobsFilled);
   // Alerts predating severity get it inferred from their kind, and identities
   // assigned in order so the feed can still diff them.

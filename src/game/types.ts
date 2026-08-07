@@ -367,6 +367,13 @@ export interface GameState {
   netHistory: number[];
   /** Where last month's money came from and went. Rebuilt every tick. */
   ledger: Ledger;
+  /**
+   * Tiles changed since the renderer last baked them, as flat indices.
+   * Null means "more than is worth tracking" — repaint everything. Consumed
+   * and cleared by whichever renderer bakes the map; a renderer that finds it
+   * already emptied falls back to a full rebuild, which is slow but correct.
+   */
+  dirtyTiles: number[] | null;
   failCounters: FailCounters;
 
   history: HistoryEntry[];

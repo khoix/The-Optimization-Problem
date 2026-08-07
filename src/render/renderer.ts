@@ -321,7 +321,7 @@ export class Renderer {
     const x1 = Math.min(g.mapW - 1, Math.ceil((camX + W) / TILE)), y1 = Math.min(g.mapH - 1, Math.ceil((camY + H) / TILE));
     w.fillStyle = '#1a2430';
     w.fillRect(0, 0, W, H);
-    if (g.mapVersion !== this.cachedMapVersion) this.rebuildTerrainCache(g);
+    if (g.mapVersion !== this.cachedMapVersion) this.syncTerrainCache(g);
     w.drawImage(this.terrainCache!, camX, camY, W, H, 0, 0, W, H);
 
     const waterFrame = ((Math.floor(this.t * 2.2) % 3) + 3) % 3;
@@ -1208,36 +1208,73 @@ export class Renderer {
     w.stroke();
   }
 
-  private rebuildTerrainCache(g: GameState): void {
-    if (!this.terrainCache) {
+  /**
+   * Bring the baked map up to date.
+   *
+   * A full rebuild costs 15.5ms at 72×72 and scales with map area, and it used
+   * to run on every `mapVersion` change — which is every single road tile a
+   * player paints. One dropped frame per tile, and a larger region would have
+   * multiplied it. The map now reports which tiles changed, so the usual case
+   * repaints a handful of them.
+   *
+   * A missing or emptied list means a full rebuild: correct, just slow. That is
+   * the right way round for a cache whose failure mode is a stale tile.
+   */
+  private syncTerrainCache(g: GameState): void {
+    const fresh = !this.terrainCache ||
+      this.terrainCache.width !== g.mapW * TILE || this.terrainCache.height !== g.mapH * TILE;
+    if (fresh) {
       this.terrainCache = document.createElement('canvas');
       this.terrainCache.width = g.mapW * TILE;
       this.terrainCache.height = g.mapH * TILE;
     }
-    const c = this.terrainCache.getContext('2d')!;
+    const c = this.terrainCache!.getContext('2d')!;
     c.imageSmoothingEnabled = false;
-    c.clearRect(0, 0, this.terrainCache.width, this.terrainCache.height);
-    for (let ty = 0; ty < g.mapH; ty++) {
-      for (let tx = 0; tx < g.mapW; tx++) {
-        const tile = g.map[ty * g.mapW + tx];
-        const dx = tx * TILE, dy = ty * TILE;
-        switch (tile.terrain) {
-          case 'water': break; // animated, drawn live
-          case 'sand': c.drawImage(this.terrain.sand[tile.variant], dx, dy); break;
-          case 'rock': c.drawImage(this.terrain.rock[tile.variant], dx, dy); break;
-          default: c.drawImage(this.terrain.grass[tile.variant], dx, dy);
-        }
-        if (tile.road) {
-          let mask = 0;
-          if (g.map[(ty - 1) * g.mapW + tx]?.road) mask |= 1;
-          if (g.map[ty * g.mapW + tx + 1]?.road && tx + 1 < g.mapW) mask |= 2;
-          if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
-          if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
-          c.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
-        }
+
+    const dirty = fresh ? null : g.dirtyTiles;
+    if (dirty && dirty.length > 0) {
+      // A road tile changes how its neighbours join up, so each dirty tile
+      // drags its four neighbours along. Deduplicated, because a painted
+      // stroke names the same neighbour repeatedly.
+      const todo = new Set<number>();
+      for (const i of dirty) {
+        const tx = i % g.mapW, ty = (i / g.mapW) | 0;
+        todo.add(i);
+        if (tx > 0) todo.add(i - 1);
+        if (tx + 1 < g.mapW) todo.add(i + 1);
+        if (ty > 0) todo.add(i - g.mapW);
+        if (ty + 1 < g.mapH) todo.add(i + g.mapW);
+      }
+      for (const i of todo) this.bakeTile(g, c, i % g.mapW, (i / g.mapW) | 0, true);
+    } else {
+      c.clearRect(0, 0, this.terrainCache!.width, this.terrainCache!.height);
+      for (let ty = 0; ty < g.mapH; ty++) {
+        for (let tx = 0; tx < g.mapW; tx++) this.bakeTile(g, c, tx, ty, false);
       }
     }
+    g.dirtyTiles = [];
     this.cachedMapVersion = g.mapVersion;
+  }
+
+  /** One tile of the baked map. `clear` first when painting over old contents. */
+  private bakeTile(g: GameState, c: CanvasRenderingContext2D, tx: number, ty: number, clear: boolean): void {
+    const tile = g.map[ty * g.mapW + tx];
+    const dx = tx * TILE, dy = ty * TILE;
+    if (clear) c.clearRect(dx, dy, TILE, TILE);
+    switch (tile.terrain) {
+      case 'water': break; // animated, drawn live
+      case 'sand': c.drawImage(this.terrain.sand[tile.variant], dx, dy); break;
+      case 'rock': c.drawImage(this.terrain.rock[tile.variant], dx, dy); break;
+      default: c.drawImage(this.terrain.grass[tile.variant], dx, dy);
+    }
+    if (tile.road) {
+      let mask = 0;
+      if (g.map[(ty - 1) * g.mapW + tx]?.road) mask |= 1;
+      if (g.map[ty * g.mapW + tx + 1]?.road && tx + 1 < g.mapW) mask |= 2;
+      if (g.map[(ty + 1) * g.mapW + tx]?.road) mask |= 4;
+      if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
+      c.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
+    }
   }
 
   private constructionFor(w: number, h: number): HTMLCanvasElement {

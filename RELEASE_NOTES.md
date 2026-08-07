@@ -1268,6 +1268,70 @@ dimension a thumb misses in. **125px to 80px.**
 
 ---
 
+## Milestone 37 — a bigger region — `d34c08f`
+
+**72×72 to 112×112.** 2.42× the tiles, 56% further in each direction, and 2.8 screens
+across at 1× zoom where it used to be 1.8.
+
+Two things had to be fixed first, and both were already wrong at the old size. The bigger
+map only made them unaffordable.
+
+### Editing the map rebuilt the whole map
+
+The renderer bakes terrain and roads into one canvas and rebuilt it whenever `mapVersion`
+moved — which is **every single road tile a player paints**. 15.5ms at 72×72, 36ms at
+112×112: one dropped frame per tile, which is the stutter that gets reported as "painting
+roads feels bad".
+
+The map now says *what* changed as well as *that* it changed. Every mutation goes through
+`touchMap`, and the renderer repaints those tiles plus their four neighbours, whose
+junction art depends on them. **Painting a road tile costs 0.1ms.** A change that arrives
+unnamed still rebuilds everything — correct, just slow, which is the right way round for a
+cache whose failure mode is a stale tile.
+
+### The save format
+
+Saves stored the map as an array of tile objects: about ninety bytes of repeated key names
+each, 456KB for a 72×72 region and 1.1MB projected at 112×112. Three slots of that would
+have crowded a 5MB quota, and **a full quota fails by silently not saving**.
+
+The map is four strings now, one character per tile per field — and `buildingId` is not
+stored at all, because it is rebuilt from the buildings and their footprints, being the
+same information written twice. **72KB at 12,544 tiles**, an eighteenth of the projection.
+Saves in the old format still open: the format changed, the regions in it did not.
+
+### Measured
+
+| 72×72 → 112×112 | before | after |
+|---|---|---|
+| tiles | 5,184 | 12,544 |
+| save | 456 KB | **72 KB** |
+| terrain cache | 5.1 MB | 12.3 MB |
+| region generation | 2.2 ms | 4.2 ms |
+| simulation tick | 0.9 ms | 1.78 ms |
+| frame, fresh region | 21.1 ms | **21.4 ms** |
+| paint one road tile | 15.5 ms | **0.1 ms** |
+
+The frame row is the interesting one: map area costs nothing per frame, because the
+viewport is what gets drawn. Everything that scales with area is per-tick or per-edit, and
+the per-edit case is the one that was hurting.
+
+> **A measurement that lied, twice.** The first probe read the rebuild cost off the pass
+> stamps and reported **0.1ms** — the stamps describe the frame the browser last finished,
+> not the one the version bump landed in. Timed around an explicit `render()` instead, it
+> was 15.5ms. The same probe then reported the *steady* frame at 112×112 as 120ms, four
+> times the real figure, because back-to-back synchronous renders cannot pipeline; paced by
+> `requestAnimationFrame` it is 21.4ms, unchanged from the smaller map.
+
+> **Fix — the walkthrough's own test caught this one.** The guide scene places its buildings
+> at fixed offsets from the region centre, and what is *under* those offsets is noise that
+> resamples whenever the map's dimensions change. Growing the region put rock under the
+> compute campus, and the scene lost a building it has a whole page about — precisely the
+> failure M25 built `sceneMissing` to catch. The scene levels its own ground now instead of
+> depending on a seed it does not choose.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

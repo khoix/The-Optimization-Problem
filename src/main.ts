@@ -1,5 +1,5 @@
 import './style.css';
-import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, tileAt, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
+import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, tileAt, touchMap, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
 import { simTick } from './game/sim';
 import { Renderer, type DemolishPreview, type UiRenderState } from './render/renderer';
 import { canDemolish } from './game/asi';
@@ -132,7 +132,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
 (window as unknown as Record<string, unknown>).__api = {
   canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify,
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
-  demolishPreview, TILE, BUILDING_DEFS,
+  demolishPreview, TILE, BUILDING_DEFS, newGame, touchMap,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
@@ -482,7 +482,7 @@ function demolishTile(tx: number, ty: number, sweeping: boolean): void {
   }
   if (tile.road) {
     tile.road = false;
-    g.mapVersion++;
+    touchMap(g, tx, ty);
     if (sweeping) sound.paint(); else sound.demolished();
     return;
   }

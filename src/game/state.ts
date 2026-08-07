@@ -4,8 +4,8 @@ import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 import { scenarioDef, type ScenarioDef, type ScenarioId } from './scenarios';
 import { connectOrphans } from './network';
 
-export const MAP_W = 72;
-export const MAP_H = 72;
+export const MAP_W = 112;
+export const MAP_H = 112;
 
 // Small deterministic PRNG (mulberry32).
 export function rng(seed: number): () => number {
@@ -144,6 +144,41 @@ export function canPlace(g: GameState, type: BuildingType, x: number, y: number)
 }
 
 /**
+ * Above this many changed tiles, stop keeping the list and repaint everything.
+ *
+ * The renderer bakes the whole map into one canvas and rebuilds it whenever
+ * `mapVersion` moves. That rebuild costs 15.5ms at 72×72 and scales with area,
+ * and `mapVersion` moves for *every single road tile a player paints* — one
+ * dropped frame per tile, which is what a bigger map would have multiplied.
+ * So the map now also says *what* changed, and the renderer repaints only
+ * those tiles. The cap is generous: the largest single edit in the game is an
+ * ASI access road, a couple of dozen tiles at most.
+ */
+const DIRTY_LIMIT = 512;
+
+/**
+ * Record a change to the map and bump the version.
+ *
+ * Every mutation site goes through here rather than touching `mapVersion`
+ * directly, so a new one cannot forget to say what it changed — the failure
+ * mode of forgetting is a stale tile on screen, which is far harder to notice
+ * than a slow frame. `dirtyTiles` of null means "everything, or more than is
+ * worth tracking".
+ */
+export function touchMap(g: GameState, x: number, y: number, w = 1, h = 1): void {
+  g.mapVersion++;
+  if (g.dirtyTiles === null) return;
+  if (g.dirtyTiles.length + w * h > DIRTY_LIMIT) { g.dirtyTiles = null; return; }
+  for (let dy = 0; dy < h; dy++) {
+    for (let dx = 0; dx < w; dx++) {
+      const tx = x + dx, ty = y + dy;
+      if (tx < 0 || ty < 0 || tx >= g.mapW || ty >= g.mapH) continue;
+      g.dirtyTiles.push(ty * g.mapW + tx);
+    }
+  }
+}
+
+/**
  * Clear a tile of rock, for money. Returns what it cost, or 0 if there was
  * nothing to clear or nothing to pay with.
  *
@@ -157,7 +192,7 @@ export function clearRock(g: GameState, x: number, y: number): number {
   if (g.resources.capital < ROCK_CLEAR_COST) return 0;
   g.resources.capital -= ROCK_CLEAR_COST;
   t.terrain = 'grass';
-  g.mapVersion++;
+  touchMap(g, x, y);
   return ROCK_CLEAR_COST;
 }
 
@@ -173,7 +208,7 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
     t.road = true;
     t.roadType = def.roadType!;
     if (t.terrain === 'forest') t.terrain = 'grass';
-    g.mapVersion++;
+    touchMap(g, x, y);
     return null;
   }
   const b: Building = {
@@ -192,7 +227,7 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
       if (t.terrain === 'forest') t.terrain = 'grass';
     }
   }
-  g.mapVersion++;
+  touchMap(g, x, y, def.w, def.h);
   return b;
 }
 
@@ -207,7 +242,7 @@ export function removeBuilding(g: GameState, id: number): void {
     }
   }
   g.buildings.delete(id);
-  g.mapVersion++;
+  touchMap(g, b.x, b.y, def.w, def.h);
 }
 
 /** Severity a kind carries unless a caller says otherwise. */
@@ -343,6 +378,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     lastOutgoings: 0,
     netHistory: [],
     ledger: { income: [], outgoings: [] },
+    dirtyTiles: null,   // a fresh region has nothing baked yet
     failCounters: { blackout: 0, approval: 0, environment: 0, inactive: 0 },
     history: [],
     tutorialDone: [],
