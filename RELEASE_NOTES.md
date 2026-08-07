@@ -1125,6 +1125,80 @@ ticks elapsed rather than by reading `g.speed` back.
 
 ---
 
+## Milestone 36 — the system builds like it means it — `73855e5`
+
+Three faults in the ASI's siting, which together meant most of what it built after taking
+over could not be reached.
+
+### Nothing is stranded
+
+`findSpot` returned its fallback site **whether or not the access road succeeded**. A
+failed connection still produced a building: a nuclear plant in an empty field with no way
+in, inactive, for the rest of the run. It returns null now, and the region simply does not
+get that building.
+
+The access road is a breadth-first search rather than the L-shaped dogleg it used to lay.
+The dogleg gave up silently on anything in its way — a building, a river — and left a road
+with a hole in it, which is not a road: the site stayed unreachable and the caller was told
+it had worked. The search routes around what it cannot cross, refuses rock the way the
+player's roads do, and stops at the first pavement it reaches rather than paving through
+it. It also excludes the site itself, because `canPlace` refuses a road tile — routing
+across the footprint would lay the road and then fail to place the building it was for.
+
+### It crosses water
+
+The old stub refused water outright, so an access road stopped dead at the bank. It lays
+bridge deck now, on tiles that satisfy the same span rule the player's bridges do. The
+system that optimizes better than you finally knows the crossings exist.
+
+### Its roads clear the canopy
+
+Player-laid roads turn forest to grass; the system's did not, which is why its access roads
+had trees standing in the middle of them. Same code path now, same result.
+
+> **Fix — the mirrored twin skipped siting altogether.** In observer mode the optimized city
+> grows in mirror image, one twin at a time. The twin asked `canPlace` and nothing else — no
+> road, no service area, no connection — so half of everything built after the takeover went
+> up in open country. Symmetry is the aesthetic; stranded buildings were never the point.
+> This is the one the player actually photographed.
+
+Siting also prefers the candidate nearest existing development over the first one the dice
+produced.
+
+### Verification, against the old code as well as the new
+
+The bug here is an **absence** — a building with no road to it — so the audit counts what
+should be there: every ASI-built structure must touch the same road component as the rest
+of the region. Then the fix was stashed and the same suite run against the old build, which
+is the only way to know an assertion has teeth.
+
+| Twenty-five years of autonomous building | before | after |
+|---|---|---|
+| Buildings with no road at all | 8 | **0** |
+| Buildings on road islands, cut off from the region | 124 of 201 | **0 of 221** |
+| Road tiles with trees still standing in them | 87 of 524 | **0 of 595** |
+| Bridge tiles ever laid | 0 | **14** |
+| Buildings placed on a map with no road network at all | 143 | **0** |
+
+That third-from-last row is the headline: **more than half of everything the system built
+was on an island of its own**, and the interface reported all of it as commissioned
+infrastructure.
+
+> **Note — one check has no teeth, and is kept anyway.** "It builds beside what is already
+> there" passes on the old code too (nearest-neighbour median 4 tiles, worst 9) and on the
+> new (median 3, worst 7). With two hundred buildings on a 72×72 map everything ends up near
+> something, so the measure cannot discriminate. It stands as a regression guard, not as
+> evidence for the siting change — and saying so is cheaper than quietly counting it as a
+> seventh win.
+
+> **Fix — the first version of that check measured the wrong thing entirely.** It took the
+> distance from each ASI building to the nearest *human-built* structure, which only measures
+> how far the city has grown from the founding village — a number that must rise over
+> twenty-five years whether the siting is good or catastrophic. It failed the fixed build for
+> being a growing city.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
