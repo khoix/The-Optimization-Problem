@@ -12,6 +12,7 @@ import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, MANUAL_SLOT, deleteSlot, peek, saveTo, type SaveEnvelope } from '../game/save';
 import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
 import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, NET_WINDOW } from '../game/sim';
+import { performUpgrade, upgradePlan, withArticle } from '../game/upgrade';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
 import { CORP_DEFS, CORP_ORDER, GROUP_DEFS, GROUP_ORDER, RESISTANCE_STAGES, weightedApproval } from '../game/politics';
@@ -1633,6 +1634,24 @@ export class UI {
       <p class="stats ${b.progress >= 1 && !b.active ? 'stat-bad' : ''}">${b.progress < 1 ? `Under construction (${Math.round(b.progress * 100)}%)` : b.active ? 'Operational' : OFFLINE_REASONS[b.offlineReason ?? 'utility']}</p>
       <p class="stats">${def.jobs ? `Jobs ${def.jobs} · ` : ''}${def.power !== 0 ? `Power ${def.power > 0 ? '+' : ''}${def.power} · ` : ''}${def.water !== 0 ? `Water ${def.water > 0 ? '+' : ''}${def.water} · ` : ''}${def.compute ? `Compute +${def.compute} · ` : ''}Condition ${Math.round(cond * 100)}%</p>`;
     const row = el('div', 'inspector-actions');
+    // The ladder, if this building is on one. Shown even when the step is out
+    // of reach, because "this becomes a Mid-Rise Block once the region is a
+    // City" is the only place the game ever says so.
+    const plan = upgradePlan(g, buildingId);
+    if (plan) {
+      const up = el('button', 'small-btn upgrade-btn' + (plan.ok ? '' : ' locked'),
+        plan.ok ? `Upgrade → ${plan.toDef.name} (§${plan.cost.toLocaleString()})`
+          : `Upgrade → ${plan.toDef.name}`);
+      up.title = plan.ok
+        ? `Replaces this ${def.name}. §${plan.toDef.cost.toLocaleString()} less §${plan.credit.toLocaleString()} traded in.`
+        : plan.reason ?? '';
+      up.onclick = () => {
+        if (this.refuseAdministrative()) return;
+        if (!plan.ok) { this.sound?.refused(); this.flashSystemNote(plan.reason ?? 'Unavailable.'); return; }
+        this.commitUpgrade(buildingId);
+      };
+      row.append(up);
+    }
     if (b.progress >= 1 && cond < 0.98) {
       const renovateCost = Math.round(def.cost * 0.35);
       const ren = el('button', 'small-btn', `Renovate (§${renovateCost})`);
@@ -1652,6 +1671,38 @@ export class UI {
     close.onclick = () => { this.selectedBuildingId = null; this.inspector.classList.add('hidden'); };
     row.append(demo, close);
     this.inspector.append(row);
+  }
+
+  /**
+   * Replace a building with the next thing up its ladder.
+   *
+   * An upgrade demolishes what is there, so anything substantial asks first,
+   * on the same threshold demolition uses — and the confirmation says what
+   * demolition's does not: that the block empties while the replacement goes
+   * up, which for housing is the whole population of it, gone for a few months.
+   */
+  private commitUpgrade(buildingId: number): void {
+    const g = this.g;
+    const plan = upgradePlan(g, buildingId);
+    if (!plan || !plan.ok) return;
+    const fromDef = BUILDING_DEFS[plan.from];
+    const finish = () => {
+      const nb = performUpgrade(g, buildingId);
+      if (!nb) { this.sound?.refused(); this.flashSystemNote('Upgrade could not proceed.'); return; }
+      this.sound?.placed();
+      this.flashSystemNote(`${fromDef.name} being replaced by ${plan.toDef.name}. §${plan.cost.toLocaleString()} committed.`);
+      this.selectedBuildingId = nb.id;
+      this.showInspector(nb.id);
+    };
+    if (plan.cost < CONFIRM_DEMOLITION_ABOVE) { finish(); return; }
+    const disruption = fromDef.housing
+      ? `The ${fromDef.housing} residents move out today; the ${plan.toDef.housing} places come back when it tops out.`
+      : `Its output stops today and returns when the ${plan.toDef.name} is finished.`;
+    this.showModal('Confirm Upgrade',
+      `Replace the ${fromDef.name} with ${withArticle(plan.toDef.name)}? ` +
+      `§${plan.toDef.cost.toLocaleString()} to build, §${plan.credit.toLocaleString()} traded in for what is standing — ` +
+      `§${plan.cost.toLocaleString()} from the treasury.<br><br>${disruption}`,
+      [{ label: `Upgrade · §${plan.cost.toLocaleString()}`, action: finish }, { label: 'Cancel', action: () => {} }]);
   }
 
   /**
