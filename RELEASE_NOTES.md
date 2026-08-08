@@ -1455,6 +1455,123 @@ general.
 
 ---
 
+## Milestone 32 — growing in place — `d6a2f93`
+
+### The only direction the interface offered was outward
+
+To get a denser block you demolished the one you had and drew the next one over the hole:
+two clicks, a confirmation, a refund worth a third of nothing, and a site standing empty
+while anyone — including the system — could take it. So regions sprawled, because sprawl
+was the only thing the interface made easy.
+
+A building can now be replaced by the next thing up its ladder, as **one decision**, from
+the inspector.
+
+### Upgrades are a player action, and only a player action
+
+Nothing in the simulation calls into `src/game/upgrade.ts`, and nothing in `asi.ts` does
+either. `performUpgrade` has exactly one caller in the codebase: an `onclick` handler in
+the inspector. The system builds over your region without asking once it is running
+things — that is the point of the last third of the game — but it never replaces something
+you put there with something bigger and hands you the bill.
+
+### The ladders
+
+Data, not special cases, and every rung is a pair the game already treats as a succession:
+
+| | |
+|---|---|
+| House → Apartment Block → Mid-Rise → High-Rise → Arcology | the long one |
+| Retail Strip → Office Tower | |
+| Factory → Automated Factory | sixty jobs become six |
+| Edge Node → Cloud Data Center → AI Training Campus | |
+| Solar Farm → Solar Array · Water Plant → Reclamation Works | |
+| Coal Plant → Nuclear Plant | the smoke stops |
+
+### What it costs
+
+The old building is traded in at **half its cost, scaled by condition**, against the
+replacement's full price. Deliberately better than the 35% demolition refund: scrapping a
+block gets scrap value, upgrading keeps the site, the frontage and the service hookups.
+
+| | apartment → mid-rise |
+|---|---|
+| by hand: demolish, then build | §420 − §77 = **§343**, and the site sits empty |
+| upgrade, block in good repair | §420 − §110 = **§310** |
+| upgrade, block twenty years old | §420 − §62 = **§358** |
+
+No rung is ever free — there is a floor at a tenth of the replacement — and letting a
+building rot to save on the trade-in is not a strategy, because the trade-in bottoms out
+at 55%.
+
+The replacement goes up with a **30% head start** rather than a discount: the ground is
+cleared, the road is there, the trenches are dug. It is still months of construction, and
+the housing is *gone* for those months. Anything over §150 confirms first and says so —
+"the 40 residents move out today; the 90 places come back when it tops out."
+
+### Where a bigger building goes
+
+An apartment block becoming a high-rise needs a tile it did not have. Insisting on the
+top-left anchor would refuse the upgrade whenever the room happened to be on the other
+side, so every anchor that still covers the old footprint is tried and scored toward
+staying centred: a block grows *around* itself rather than lurching down and right. A
+blocked corner is not mistaken for no room. When nothing fits, the button says what the
+footprint needs.
+
+### What it refuses
+
+In this order, because the order is the story: under construction · region class · regional
+compute · **whatever the system will not let you decommission** · room · money.
+
+That fourth one matters. Replacing a building demolishes one, so an upgrade goes through
+the same gate demolition does — and at phase 2 the data centre that is "operationally
+infeasible" to decommission is not something you may quietly rebuild either. In observation
+the button is still on screen, and answers with the same notice as everything else.
+
+The button is drawn even when the step is out of reach, greyed, with the reason on it.
+"This becomes a Mid-Rise Block once the region is a City" is worth saying, and an absent
+button says nothing.
+
+### Fix — the inspector has been invisible since M10
+
+Clicking a building has done nothing visible for twenty-two milestones.
+
+The M10 CSS restructure took the shared `.panel` rule out along with the old side panels
+and never put it back. Its one remaining user was `.inspector`, which was left with a
+width, a corner offset and **no positioning**: a run of unstyled text at the top-left of
+the app, painted underneath an absolutely positioned canvas. Renovate and Demolish were
+unreachable from anywhere in the game.
+
+That release's notes record restoring `.hidden` from the same casualty list. `.panel` was
+the other one, and nothing tested for it — the inspector is the one surface no probe had
+ever clicked through. Restored, and anchored to the bar's *measured* height rather than to
+a fixed number that was right for one layout.
+
+### Verification
+
+41 checks.
+
+- **Never automatic** runs thirty years to phase 6 and observation, with **126
+  autonomously commissioned buildings** and 23 upgradeable ones standing, watching every
+  upgradeable building for a successor appearing on its tiles. Nothing upgraded itself,
+  and nothing claimed to in the decision record.
+- Crippling the anchor search to the top-left corner fails **exactly** the two siting
+  checks. Removing the demolition gate fails **exactly** the two ASI checks. Reverting the
+  `.panel` rule makes every click in the harness time out against the canvas.
+
+> **Fix — the first version of the never-automatic test reached phase 0.** A township of
+> eight seeded buildings never emerges, so thirty quiet years would have proved only that
+> nothing happens when nothing is happening: the strongest-sounding assertion in the suite
+> was passing over an absence. It now seeds real compute, points the allocation at
+> research, and floors emergence upward year on year so the phases arrive through
+> `updateAsi` in order, doing everything they normally do — including building.
+>
+> A second one: the observer-mode check clicked the button and reported that nothing
+> happened. The takeover overlay covers the whole screen until it is acknowledged, so it
+> had clicked the overlay — which would have been equally true of every button on the page.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
@@ -1500,8 +1617,15 @@ clipped" precisely because the missing part was missing. It would have passed on
 that had vanished entirely. Rewritten to enumerate the segments that
 are actually on screen and measure each one's box, it says something true.
 
+M32 supplied the flattest instance of the second rule, and it had been sitting there for
+twenty-two milestones. The inspector — the panel with Renovate and Demolish on it — has
+been invisible and unclickable since M10, and no probe ever noticed, because no probe had
+ever clicked through it. Every test that touched a building reached it through
+`window.__ui` or `window.__api`, which works perfectly on a panel that is painted
+underneath the canvas. The surface nothing tests is the surface that breaks.
+
 The standing rules that came out of all this: **make the assertion touch real state,
 not a proxy for it**; **count what should be there, not what is**; **feed it what the
-game feeds it**; **make the probe say what it built, not only what it found**; and when
-a test passes over a symptom the player can still see, the test is the thing that is
-wrong.
+game feeds it**; **make the probe say what it built, not only what it found**; **reach
+the interface the way a player reaches it**; and when a test passes over a symptom the
+player can still see, the test is the thing that is wrong.
