@@ -213,8 +213,6 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .civic-bar.collapsed .vital-secondary { display: none; }
 .civic-bar.collapsed { padding-bottom: 5px; }
 .collapse-btn { padding: 6px 7px; }
-/* anchored UI follows the bar up when it folds */
-body.bar-collapsed .inspector { bottom: 62px; }
 /* collapsed, the console lies down: LCD beside the transport, not above it */
 .civic-bar.collapsed .console { flex-direction: row; align-items: center; gap: 8px; padding: 3px 8px; }
 .civic-bar.collapsed .lcd { min-width: 132px; }
@@ -440,15 +438,36 @@ body.bar-collapsed .inspector { bottom: 62px; }
 .hc-warn { color: var(--mid); }
 .hc-bad { color: var(--bad); }
 
-.inspector { bottom: 120px; left: 10px; width: 280px; }
+/* Floating surfaces anchored to the map rather than to the bar.
+   The M10 restructure took the shared `.panel` rule out along with the old
+   side panels and never put it back, so `.inspector` — the only user left —
+   had a width, a corner offset and no positioning: a run of unstyled text at
+   the top-left of the app, painted *under* an absolutely positioned canvas.
+   Clicking a building appeared to do nothing, and Renovate and Demolish were
+   unreachable from anywhere. */
+.panel {
+  position: absolute; z-index: 12;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 5px; padding: 9px 11px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+.panel h3 { font-size: 12px; margin-bottom: 4px; }
+/* Measured, not guessed: the bar reflows when it folds and when the window
+   narrows, and any fixed number is right for exactly one of those. */
+.inspector { bottom: calc(var(--bar-h, 130px) + 10px); left: 10px; width: 280px; }
 .inspector p { font-size: 11px; margin-bottom: 5px; color: var(--text-dim); }
 .inspector .stats { font-family: var(--mono); }
 .inspector .stat-bad { color: var(--bad); }
-.inspector-actions { display: flex; gap: 6px; margin-top: 6px; }
+/* Wraps: the upgrade button carries a building name and a price, and on a
+   narrow inspector that is wider than the three short buttons beside it. */
+.inspector-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .small-btn {
   background: #1a2230; color: var(--text); border: 1px solid var(--panel-border);
   padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 11px;
 }
+/* The one action that grows the region rather than maintaining it. */
+.upgrade-btn { border-color: var(--accent); color: var(--accent); }
+.upgrade-btn.locked { border-color: var(--panel-border); color: var(--text-dim); }
 .asi-tag { color: var(--asi); font-size: 10px; font-family: var(--mono); }
 
 /* ---------------- title screen ---------------- */

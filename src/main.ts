@@ -11,6 +11,7 @@ import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
 import { rawDeltas } from './game/preview';
+import { performUpgrade, upgradePlan, UPGRADE_PATH } from './game/upgrade';
 import { invalidateNetwork, roadNetwork } from './game/network';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
@@ -143,6 +144,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   canPlace, placeBuilding, simTick, EVENTS, rawDeltas, notify,
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
   demolishPreview, TILE, BUILDING_DEFS, newGame, touchMap,
+  upgradePlan, performUpgrade, UPGRADE_PATH,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
