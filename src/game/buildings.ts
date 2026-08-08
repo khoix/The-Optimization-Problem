@@ -243,3 +243,23 @@ export const BUILD_MENU_ORDER: BuildingType[] = [
 
 /** Region-class names, indexed by tier. Mirrors TIERS in sim.ts. */
 export const TIER_NAMES = ['Township', 'City', 'Metropolis', 'Megaregion'];
+
+/**
+ * What a region can build for the first time on reaching class `to` from `from`.
+ *
+ * Derived from the definitions rather than written out, so the reclassification
+ * report cannot drift from the build menu: adding a tier-gated building puts it
+ * in both places or neither. Ordered as the menu orders it, because that is
+ * where the player is about to go looking.
+ *
+ * A range rather than a single class because a class can be skipped — a
+ * migration surge can carry a Township past City in one month, and a report
+ * that listed only the class landed on would silently swallow four buildings
+ * that had just become available.
+ */
+export function unlockedBetween(from: number, to: number): BuildingType[] {
+  return BUILD_MENU_ORDER.filter((t) => {
+    const u = BUILDING_DEFS[t].unlockTier;
+    return u != null && u > from && u <= to;
+  });
+}

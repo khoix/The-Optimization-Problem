@@ -166,6 +166,21 @@ export class Soundscape {
     this.tone(1174, 0.5, 0.022, 0, 'sine');
   }
 
+  /**
+   * The region moves up a class. The only unambiguously good news in the game.
+   *
+   * A rising major triad with the root doubled an octave up under it — warm,
+   * civic, and deliberately the opposite of `systemTone`, which is one cold
+   * note that resolves nowhere. This is the sound of a thing you did working,
+   * and it is worth being the only sound in the game that sounds like that.
+   */
+  promotion(): void {
+    this.tone(523, 0.22, 0.030, 0);        // C5
+    this.tone(659, 0.22, 0.028, 0.11);     // E5
+    this.tone(784, 0.36, 0.030, 0.22);     // G5
+    this.tone(1047, 0.70, 0.024, 0.30, 'sine'); // C6, held under it
+  }
+
   // ------------------------------------------------------------ interaction
   //
   // The console had two sounds in it — a decision chime and a system tone —

@@ -118,6 +118,9 @@ export const COMPACT_WIDTH = 820;
 /** Above this build cost, demolition asks before it happens. */
 const CONFIRM_DEMOLITION_ABOVE = 150;
 
+/** How long the console keeps the class field lit after a reclassification. */
+const PROMOTION_MARK_MS = 12000;
+
 /** What the system says when it declines to stop. Same words from every control. */
 const PAUSE_REFUSED = 'Pause request received. Simulation continuity has been prioritized.';
 
@@ -1748,10 +1751,10 @@ export class UI {
   }
 
   // ------------------------------------------------------------ modal & events
-  private showModal(title: string, bodyHtml: string, choices: Array<{ label: string; action: () => void }>, recommendedIndex = -1): void {
+  private showModal(title: string, bodyHtml: string, choices: Array<{ label: string; action: () => void }>, recommendedIndex = -1, variant = ''): void {
     this.modal.classList.remove('hidden');
     this.modal.innerHTML = '';
-    const box = el('div', 'modal-box');
+    const box = el('div', 'modal-box' + (variant ? ' ' + variant : ''));
     box.append(el('h2', '', title), el('div', 'modal-body', bodyHtml));
     const btns = el('div', 'modal-choices');
     choices.forEach((c, i) => {
@@ -2067,6 +2070,30 @@ export class UI {
   }
 
   /** A transient line of system chrome. Also how main.ts reports a bad save. */
+  /**
+   * Mark the class field after a promotion.
+   *
+   * The console has always shown the class and always will, which means the
+   * one moment it changes looks exactly like every moment it does not. A
+   * timer rather than a CSS animation because the same class has to survive
+   * the LCD being rebuilt by `refresh()` sixty times a second underneath it.
+   */
+  private promotedUntil = 0;
+  private markPromotion(): void {
+    this.promotedUntil = performance.now() + PROMOTION_MARK_MS;
+    this.syncPromotionMark();
+  }
+  /**
+   * Applied here as well as in `refresh()`, because refresh reaches the LCD a
+   * couple of hundred lines before it reaches the report queue: a mark set or
+   * cleared down there would otherwise not land until the next refresh, and at
+   * four a second that is a visible quarter-second of the console disagreeing
+   * with the dialog in front of it.
+   */
+  private syncPromotionMark(): void {
+    this.civicBar.classList.toggle('lcd-promoted', performance.now() < this.promotedUntil);
+  }
+
   flashSystemNote(text: string): void {
     const n = el('div', 'sys-flash', text);
     this.root.append(n);
@@ -2243,6 +2270,7 @@ export class UI {
     // Observer mode used to be excluded here because its clock could not be
     // stopped. It can now, and a stopped clock says so wherever it happens.
     this.civicBar.classList.toggle('lcd-halt', g.speed === 0);
+    this.syncPromotionMark();
     for (const b of this.civicBar.querySelectorAll<HTMLElement>('.speed-btn')) {
       b.classList.toggle('active', Number(b.dataset.speed) === g.speed);
     }
@@ -2428,10 +2456,18 @@ export class UI {
     if (g.pendingReport && this.modal.classList.contains('hidden')) {
       const rep = g.pendingReport;
       this.autoPause();
-      this.sound?.systemTone();
+      // One report in the game is good news. It gets its own sound, its own
+      // treatment, and a mark on the class field so the change is legible in
+      // the console after the dialog is gone.
+      if (rep.fanfare) { this.sound?.promotion(); this.markPromotion(); }
+      // A demotion puts the mark out. Nothing else can arrive between the two
+      // in a real game, but a lit class field over "population decline has
+      // moved the region down a class" would be the console contradicting the
+      // dialog in front of it.
+      else { this.sound?.systemTone(); this.promotedUntil = 0; this.syncPromotionMark(); }
       this.showModal(rep.title, rep.body, [
-        { label: 'Acknowledge', action: () => { g.pendingReport = null; this.autoResume(); } },
-      ]);
+        { label: rep.fanfare ? 'Continue' : 'Acknowledge', action: () => { g.pendingReport = null; this.autoResume(); } },
+      ], -1, rep.fanfare ? 'promotion' : '');
     }
 
     // Events ---------------------------------------------------------------

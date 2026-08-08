@@ -399,7 +399,12 @@ export interface GameState {
   notificationSeq: number;
   pendingEvent: GameEvent | null;
   /** A one-button informational modal (election results, region reclassification). */
-  pendingReport: { title: string; body: string } | null;
+  /**
+   * A report waiting to be read. `fanfare` marks the one kind that is good
+   * news — the region moving up a class — so the interface can celebrate that
+   * and only that. Elections and demotions arrive plain.
+   */
+  pendingReport: { title: string; body: string; fanfare?: boolean } | null;
   firedEvents: Set<string>;
   eventCooldowns: Record<string, number>; // last-fired tick for repeatable events
   lastEventTick: number;   // tick the last event was *resolved*, not fired

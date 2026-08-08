@@ -261,6 +261,14 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .lcd-sub { font-size: 9px; opacity: 0.78; letter-spacing: 2.2px; }
 .civic-bar.lcd-halt .lcd-line { animation: lcd-blink 1.7s steps(2, start) infinite; }
 @keyframes lcd-blink { 50% { opacity: 0.45; } }
+/* The console has always shown the region's class, which means the one month
+   it changes looks exactly like the two hundred months it does not. For a
+   little while after a reclassification, it doesn't. */
+.civic-bar.lcd-promoted .lcd-sub {
+  color: #9fe8c4; opacity: 1; text-shadow: 0 0 9px rgba(140, 235, 195, 0.85);
+  animation: lcd-promoted 1.5s ease-out 3;
+}
+@keyframes lcd-promoted { 0%, 100% { opacity: 1; } 45% { opacity: 0.5; } }
 
 .transport { display: flex; gap: 3px; }
 .speed-btn {
@@ -703,6 +711,80 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   border-radius: 8px; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
 }
 .modal-box h2 { font-size: 16px; margin-bottom: 10px; }
+/* The one dialog in this game that is good news.
+   A civic dashboard would absolutely put a gold rule on this, so it does. */
+.modal-box.promotion {
+  border-color: #4d7a63;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(143, 224, 192, 0.12) inset;
+  animation: promo-in 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.modal-box.promotion::before {
+  content: ''; display: block; height: 3px; margin: -20px -20px 14px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(to right, transparent, #8fe0c0 20%, #6fb6ff 80%, transparent);
+}
+.modal-box.promotion h2 { color: #b6f0d6; letter-spacing: 0.3px; }
+@keyframes promo-in { from { transform: translateY(10px) scale(0.985); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .modal-box.promotion { animation: none; }
+  .civic-bar.lcd-promoted .lcd-sub { animation: none; }
+}
+
+/* reclassification report */
+.promo-lede { font-size: 14px; color: var(--text); margin-bottom: 14px; }
+.promo-lede b { color: #b6f0d6; }
+.promo-warn { margin-top: 14px; color: var(--text-dim); font-size: 12px; line-height: 1.5; }
+.unlock-head {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--text-dim); border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 3px; margin: 14px 0 7px;
+}
+.unlock-head:first-child { margin-top: 0; }
+/* The list is the part that varies — three rows usually, seven when a class
+   is skipped — so it is the part that scrolls. Capping it here rather than
+   letting `.modal-body` do the scrolling keeps the treadmill figures and the
+   warning under them on screen, which is the half of this report the player
+   cannot get anywhere else. */
+.unlock-list {
+  display: flex; flex-direction: column; gap: 5px;
+  /* An absolute cap as well as a proportional one: 30vh of a tall phone is
+     still enough list to push the treadmill off the bottom of a dialog that
+     is itself bounded by the bar. */
+  max-height: min(30vh, 220px); overflow-y: auto; padding-right: 2px;
+}
+/* Name and price on one line, the reason to want it underneath — the same
+   shape as the build card it is telling you about. */
+.unlock-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 0 10px;
+  padding: 6px 9px; border: 1px solid var(--panel-border); border-radius: 4px;
+  background: rgba(20, 26, 38, 0.6);
+}
+.unlock-row b { font-size: 12px; color: var(--text); }
+.unlock-cost { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+.unlock-row small { grid-column: 1 / -1; font-size: 10px; color: var(--accent); font-family: var(--mono); }
+.tier-rate {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 11px; line-height: 1.9; color: var(--text-dim);
+}
+.tier-rate span:last-child { font-family: var(--mono); }
+.tier-rate b { color: var(--mid); }
+/* On a phone the dialog is bounded by the bar as well as the viewport, and
+   this report is the longest one in the game. Same content, less air. */
+@media (max-width: 820px), (max-height: 700px) {
+  .promo-lede { font-size: 13px; margin-bottom: 10px; }
+  .unlock-head { margin: 10px 0 6px; }
+  .unlock-row { padding: 5px 8px; }
+  .unlock-list { max-height: min(26vh, 200px); }
+  .tier-rate { line-height: 1.7; }
+  .promo-warn { margin-top: 10px; font-size: 11px; }
+  .modal-box.promotion .modal-body { margin-bottom: 11px; }
+}
+/* Shorter than this and there is no arrangement that fits: capping the list
+   here would just give the report two nested scrollers instead of one, so the
+   list is uncapped and the dialog body does the scrolling on its own. */
+@media (max-height: 660px) {
+  .unlock-list { max-height: none; overflow: visible; }
+}
 .modal-body { font-size: 13px; line-height: 1.5; color: #b8c2d4; margin-bottom: 16px; font-family: inherit; max-height: 60vh; overflow-y: auto; }
 
 /* historical decision review */
