@@ -1572,6 +1572,89 @@ a fixed number that was right for one layout.
 
 ---
 
+## Milestone 38 — the region changes class — `9feda2d`
+
+### The moment that never said what it meant
+
+Reaching a new class produced one line — `Region reclassified: Metropolis` — and a
+dialog of general warning about the treadmill. Both true. Neither usable.
+
+A class is the only gate on **eight** of the game's buildings, and the report had never
+named one of them. The multipliers behind the warning were sitting in the tier table,
+unread.
+
+### What it says now
+
+| | |
+|---|---|
+| **Now available to build** | every building the class unlocks, with cost and the one stat that makes you want it |
+| **And the treadmill** | migration pressure, compute demand and service expectations, before → after |
+
+Both halves are **derived**. The unlocks come from the definitions through
+`unlockedBetween()`, so adding a tier-gated building puts it in the report and the build
+menu or in neither — they cannot drift. The multipliers come from the `TIERS` rows the
+simulation actually runs on: Township to City is migration **1.00× → 1.70×**, compute
+demand **1.00× → 1.50×**, service expectations **1.00× → 1.25×**.
+
+A *range* rather than a single class, because a class can be skipped. A migration surge
+can carry a Township past City in one month, and a report keyed to the class it landed on
+would have silently swallowed the four buildings that had just become available.
+
+The alert feed carries the unlocks too — *"The region is a City. Now available: Avenue,
+Mid-Rise Block, Museum and Solar Array."* The dialog can be dismissed in a second and
+usually is; the feed is what gets scrolled back to.
+
+### Fanfare, and only here
+
+A rising major triad against the single cold tone every other report gets. A rule across
+the head of the dialog. **Continue** instead of Acknowledge. And the console's class field
+lit for twelve seconds, so the change stays legible after the dialog is gone — the bar has
+always shown the class, which means the one month it changes looked exactly like the two
+hundred months it does not.
+
+This is the only unambiguously good news in the game. It is worth being the only thing
+that sounds like it.
+
+### Going down is not an event
+
+No inventory of what was lost. A demotion is a slide the player is already fighting, the
+buildings are still in the menu behind the gate they always had, and a list of them is a
+scolding rather than a tool. It says which way it went — *from City to Township* — in one
+flat paragraph, with the flat tone and none of the treatment. A demotion also puts out a
+promotion mark, so the console cannot sit there celebrating over the top of it.
+
+And phases 4 and up still flatten the whole thing to *"Regional classification updated for
+administrative efficiency."* Observation says nothing at all. Having the fanfare taken away
+is worth more than the fanfare.
+
+### Fitting it
+
+The unlock list is the part that varies — three rows usually, seven when a class is
+skipped — so it is the part that scrolls, which keeps the treadmill figures and the
+warning on screen at 1280×800, 390×844 and every size between. Below 660px of viewport
+height there is no arrangement that fits, so the cap comes off and the dialog body scrolls
+on its own rather than nesting two scrollers inside each other.
+
+### Verification
+
+35 checks. Against the previous messaging **15 fail and 17 hold** — the ones that hold
+being that the region reclassifies at all, that phase 4 flattens it, that observation is
+silent, and that a demotion carries no unlock list, all of which were already true. That
+split is the shape that says the assertions are about this change rather than about the
+game in general.
+
+> **Fix — two probes that were about to lie in opposite directions.** The observer check
+> counted *every* alert raised during the tick and failed on `"A solar farm is under
+> construction. Authorization reference unavailable."` — because the pattern it was
+> matching on included the word `available`, and "unavailable" contains it. And the
+> demotion check found the console still lit, which was real: `refresh()` reaches the LCD
+> two hundred lines before it reaches the report queue, so a mark cleared down there did
+> not land until the next pass, a visible quarter-second of the console disagreeing with
+> the dialog in front of it. The first was a bad assertion; the second was a bad
+> interface, and only the flakiness told them apart.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

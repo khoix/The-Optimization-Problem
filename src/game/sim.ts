@@ -1,5 +1,5 @@
-import type { Building, GameState, Ledger, LedgerLine, PolicyId } from './types';
-import { BUILDING_DEFS } from './buildings';
+import type { Building, BuildingType, GameState, Ledger, LedgerLine, PolicyId } from './types';
+import { BUILDING_DEFS, TIER_NAMES, unlockedBetween } from './buildings';
 import { POLICY_DEFS } from './policies';
 import { notify, policyActive, record, removeBuilding, rng, tileAt } from './state';
 import { updateAsi } from './asi';
@@ -124,6 +124,57 @@ export function tierOf(pop: number): (typeof TIERS)[number] {
   let t = TIERS[0];
   for (const cand of TIERS) if (pop >= cand.min) t = cand;
   return t;
+}
+
+/** "Avenue, Mid-Rise Block, Museum and Solar Array" */
+function nameList(types: BuildingType[]): string {
+  const names = types.map((t) => BUILDING_DEFS[t].name);
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * The report a region gets for moving up a class.
+ *
+ * It used to be four sentences of general warning about the treadmill, which
+ * was true and told the player nothing they could act on. A class is worth
+ * something specific — it is the only gate on eight of the game's buildings —
+ * and the numbers behind the warning are sitting in TIERS unread.
+ *
+ * Both halves are derived: the unlocks from the definitions, the multipliers
+ * from the tier rows. Neither can drift from what the game actually does.
+ */
+function promotionReport(from: string, to: string, opened: BuildingType[]): { title: string; body: string } {
+  const a = TIERS.find((t) => t.name === from) ?? TIERS[0];
+  const b = TIERS.find((t) => t.name === to) ?? TIERS[TIERS.length - 1];
+  const cards = opened.map((t) => {
+    const d = BUILDING_DEFS[t];
+    const stats: string[] = [];
+    if (d.housing) stats.push(`${d.housing} residents`);
+    if (d.jobs) stats.push(`${d.jobs} jobs`);
+    if (d.power > 0) stats.push(`+${d.power} power`);
+    if (d.water > 0) stats.push(`+${d.water} water`);
+    if (d.compute) stats.push(`+${d.compute} compute`);
+    if (d.roadCapacity) stats.push(`${d.roadCapacity} capacity`);
+    return `<div class="unlock-row"><b>${d.name}</b><span class="unlock-cost">§${d.cost.toLocaleString()}</span>` +
+      `<small>${stats.join(' · ') || d.desc}</small></div>`;
+  }).join('');
+  const rate = (label: string, x: number, y: number) =>
+    `<div class="tier-rate"><span>${label}</span><span>${x.toFixed(2)}× → <b>${y.toFixed(2)}×</b></span></div>`;
+  return {
+    title: `Region Reclassified: ${to}`,
+    body:
+      `<p class="promo-lede">The census bureau confirms it. ${from} to <b>${to}</b>.</p>` +
+      (opened.length > 0
+        ? `<div class="unlock-head">Now available to build</div><div class="unlock-list">${cards}</div>`
+        : '<p>Nothing new opens at this class — the menu you have is the menu you keep.</p>') +
+      '<div class="unlock-head">And the treadmill</div>' +
+      rate('Migration pressure', a.mig, b.mig) +
+      rate('Compute demand', a.comp, b.comp) +
+      rate('Service expectations', a.exp, b.exp) +
+      '<p class="promo-warn">Congratulations are in order, and so is a warning. ' +
+      'The treadmill does not slow down at the next class. It speeds up.</p>',
+  };
 }
 
 /**
@@ -464,7 +515,8 @@ export function simTick(g: GameState): void {
   // ---------- Region reclassification ----------
   const tierNow = tierOf(g.population).name;
   if (tierNow !== g.tierName) {
-    const upgraded = tierOf(g.population).min > (TIERS.find((x) => x.name === g.tierName)?.min ?? 0);
+    const was = g.tierName;
+    const upgraded = tierOf(g.population).min > (TIERS.find((x) => x.name === was)?.min ?? 0);
     g.tierName = tierNow;
     record(g, 'system', `Region reclassified: ${tierNow}.`);
     if (g.asi.observer) {
@@ -472,18 +524,23 @@ export function simTick(g: GameState): void {
     } else if (g.asi.phase >= 4) {
       notify(g, 'Regional classification updated for administrative efficiency.', 'asi');
     } else if (upgraded) {
-      notify(g, `The region has been reclassified as a ${tierNow}.`, 'system');
-      g.pendingReport = {
-        title: `Region Reclassified: ${tierNow}`,
-        body: `The census bureau confirms it: this is a <b>${tierNow}</b> now.<br><br>` +
-          'Congratulations are in order, and so is a warning. Larger regions attract migrants faster, ' +
-          'normalize services quicker, and demand more compute for everything. The treadmill does not slow down at the next class. It speeds up.',
-      };
+      const opened = unlockedBetween(TIER_NAMES.indexOf(was), TIER_NAMES.indexOf(tierNow));
+      // The feed carries the unlocks too. The modal can be dismissed in a
+      // second and often is; the alert is what the player scrolls back to.
+      notify(g, opened.length > 0
+        ? `The region is a ${tierNow}. Now available: ${nameList(opened)}.`
+        : `The region has been reclassified as a ${tierNow}.`, 'system');
+      g.pendingReport = { ...promotionReport(was, tierNow, opened), fanfare: true };
     } else {
+      // No inventory of what has been lost. A demotion is a slide the player
+      // is already fighting, the buildings are still in the menu behind the
+      // same gate they always were, and a list of them is a scolding rather
+      // than a tool.
       notify(g, `The region has been reclassified as a ${tierNow}. The census is unsentimental.`, 'warn');
       g.pendingReport = {
         title: `Reclassification: ${tierNow}`,
-        body: `Population decline has moved the region down a class. Investors read the census too.<br><br>` +
+        body: `Population decline has moved the region down a class, from ${was} to <b>${tierNow}</b>. ` +
+          'Investors read the census too.<br><br>' +
           'Migration pressure eases at this size — which is another way of saying fewer people want to be here.',
       };
     }
