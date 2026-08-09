@@ -103,6 +103,26 @@ function ambientAt(hour: number): [number, number, number] {
  */
 const WORLD_BUDGET = 4_400_000;
 
+/**
+ * How much of the close-up treatment a zoom gets, 0..1.
+ *
+ * Three passes mean nothing at map scale and are the ones that scale with how
+ * much map is in the buffer: the tilt-shift band, bloom, and water
+ * reflections. They used to switch off at exactly 1:1, which was invisible
+ * when zoom moved in whole rungs and is a visible pop now that a pinch slides
+ * through it. They fade across a band instead. Zero still means skipped
+ * outright, so the overview costs what it costs.
+ *
+ * The band runs 0.55 to 1.0, which is wider than it needs to be to cover the
+ * boundary — deliberately. Every rung below 1:1 is 0.5 or lower, so at rest
+ * the fade is always fully out and the overview pays nothing; the extra width
+ * is spent entirely on the middle of a pinch, where a short step from a
+ * quarter strength straight to nothing was still visible as a flick.
+ */
+function detailAt(zoom: number): number {
+  return Math.max(0, Math.min(1, (zoom - 0.55) / 0.45));
+}
+
 export class Renderer {
   camX = 0; camY = 0; zoom = 2;
   hour = 9;               // time of day, driven by main loop
@@ -205,8 +225,29 @@ export class Renderer {
     // A window that shrank can put the current zoom below what the new screen
     // affords — and a device that rotates does exactly that.
     this.zoom = Math.max(this.minZoom(), this.zoom);
-    const w = Math.ceil(this.screen.width / this.zoom) + TILE * 2;
-    const h = Math.ceil(this.screen.height / this.zoom) + TILE * 2;
+    // A new screen size invalidates whatever the buffers were sized for, so
+    // the grow-only rule restarts here rather than carrying a stale floor.
+    this.bufferZoom = 1;
+    this.allocFor(this.zoom);
+  }
+
+  /**
+   * How far out the buffers are currently big enough to draw.
+   *
+   * Reset by `resize()`, and only ever lowered within a session. Zoom is
+   * continuous now, so sizing the buffers to the live zoom would reallocate
+   * five canvases on every frame of a pinch; sizing them to the floor up front
+   * would hold 59MB on a phone that never zooms out. They grow instead, once,
+   * the first time the player goes past 1:1 — and stay grown, because a player
+   * who pinched out once will do it again and reallocation thrash across a
+   * boundary is worse than the memory.
+   */
+  private bufferZoom = 1;
+
+  private allocFor(zoom: number): void {
+    this.bufferZoom = Math.min(this.bufferZoom, zoom);
+    const w = Math.ceil(this.screen.width / this.bufferZoom) + TILE * 2;
+    const h = Math.ceil(this.screen.height / this.bufferZoom) + TILE * 2;
     const mk = (): [HTMLCanvasElement, CanvasRenderingContext2D] => {
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
@@ -231,6 +272,14 @@ export class Renderer {
     // that only changes when the window does.
     this.vignetteGrad = null;
     this.tiltMaskGrad = null;
+  }
+
+  /** The slice of the buffers this zoom actually draws into. */
+  private get viewW(): number {
+    return Math.min(this.world.width, Math.ceil(this.screen.width / this.zoom) + TILE * 2);
+  }
+  private get viewH(): number {
+    return Math.min(this.world.height, Math.ceil(this.screen.height / this.zoom) + TILE * 2);
   }
 
   /**
@@ -266,26 +315,99 @@ export class Renderer {
     return Renderer.ZOOM_STEPS[Renderer.ZOOM_STEPS.length - 1];
   }
 
-  /** Move one rung, keeping the point under the cursor fixed. */
-  stepZoom(dir: -1 | 1, cx: number, cy: number): void {
+  /** Nearest rung to a zoom, which is where a gesture comes to rest. */
+  nearestRung(z: number): number {
     const steps = Renderer.ZOOM_STEPS;
-    // Nearest rung to where we are, then move — so a zoom restored from a
-    // saved preference that is no longer on the ladder still steps sanely.
-    let i = 0;
-    for (let k = 1; k < steps.length; k++) {
-      if (Math.abs(steps[k] - this.zoom) < Math.abs(steps[i] - this.zoom)) i = k;
+    const floor = this.minZoom();
+    let best = steps[0], d = Infinity;
+    for (const s of steps) {
+      // In log space, because the rungs are geometric: 0.5 is as far from 1 as
+      // 2 is, and picking by absolute difference would snap almost everything
+      // upward.
+      if (s < floor) continue;
+      const dd = Math.abs(Math.log(s) - Math.log(z));
+      if (dd < d) { d = dd; best = s; }
     }
-    this.setZoom(steps[Math.max(0, Math.min(steps.length - 1, i + dir))], cx, cy);
+    return best;
   }
 
+  /**
+   * Ease toward a zoom, keeping a point on screen fixed as it moves.
+   *
+   * The anchor is re-applied on every frame of the ease rather than once at
+   * the start: zooming toward the cursor means the world point under it must
+   * stay put for the whole movement, not just at the ends.
+   */
+  private zoomTarget = 2;
+  private zoomAnchor: [number, number] | null = null;
+  /** e-folds per second of the zoom ease. */
+  private static readonly ZOOM_EASE = 14;
+
+  zoomTo(z: number, cx: number, cy: number): void {
+    this.zoomTarget = this.clampZoom(z);
+    this.zoomAnchor = [cx, cy];
+  }
+
+  /** Move one rung from wherever the zoom currently is, and ease there. */
+  stepZoom(dir: -1 | 1, cx: number, cy: number): void {
+    const steps = Renderer.ZOOM_STEPS.filter((z) => z >= this.minZoom());
+    const at = this.nearestRung(this.zoomTarget);
+    let i = steps.indexOf(at);
+    if (i < 0) i = 0;
+    // A rung that is merely the nearest one to a continuous zoom is not a rung
+    // the player has arrived at: stepping in from 1.7 should reach 2, not 3.
+    if (dir > 0 && at < this.zoomTarget) i++;
+    else if (dir < 0 && at > this.zoomTarget) i--;
+    this.zoomTo(steps[Math.max(0, Math.min(steps.length - 1, i + dir))], cx, cy);
+  }
+
+  /** Come to rest on the nearest rung — the end of a pinch. */
+  snapZoom(cx: number, cy: number): void {
+    this.zoomTo(this.nearestRung(this.zoom), cx, cy);
+  }
+
+  /** Advance the ease. Called once per frame from update(). */
+  private easeZoom(dt: number): void {
+    if (!this.zoomAnchor) return;
+    const [cx, cy] = this.zoomAnchor;
+    const from = Math.log(this.zoom), to = Math.log(this.zoomTarget);
+    if (Math.abs(to - from) < 0.0015) {
+      if (this.zoom !== this.zoomTarget) this.setZoom(this.zoomTarget, cx, cy);
+      this.zoomAnchor = null;
+      return;
+    }
+    const k = 1 - Math.exp(-dt * Renderer.ZOOM_EASE);
+    this.setZoom(Math.exp(from + (to - from) * k), cx, cy);
+  }
+
+  private clampZoom(z: number): number {
+    const steps = Renderer.ZOOM_STEPS;
+    return Math.max(this.minZoom(), Math.min(steps[steps.length - 1], z));
+  }
+
+  /**
+   * Set the zoom outright — the live value during a pinch, and each frame of
+   * an ease. Free to call sixty times a second, which it was not before M41:
+   * it used to run `resize()`, and `resize()` builds five canvases.
+   */
   setZoom(z: number, cx: number, cy: number): void {
     const [wx, wy] = this.screenToWorld(cx, cy);
-    const steps = Renderer.ZOOM_STEPS;
-    this.zoom = Math.max(this.minZoom(), Math.min(steps[steps.length - 1], z));
-    this.resize();
+    this.zoom = this.clampZoom(z);
+    // Straight to the floor, not to wherever the zoom happens to be this
+    // frame. Sizing to the live zoom rebuilt five canvases on *every frame* of
+    // a pinch that crossed 1:1 — nine reallocations in one gesture, which is
+    // the exact cost the buffer/viewport split exists to remove.
+    if (this.zoom < this.bufferZoom) this.allocFor(this.minZoom());
     // keep the point under the cursor fixed
     this.camX = wx - cx / this.zoom;
     this.camY = wy - cy / this.zoom;
+  }
+
+  /** A pinch drives this directly; it cancels any ease in flight. */
+  setZoomDirect(z: number, cx: number, cy: number): void {
+    this.zoomAnchor = null;
+    this.setZoom(z, cx, cy);
+    this.zoomTarget = this.zoom;
   }
 
   screenToWorld(sx: number, sy: number): [number, number] {
@@ -330,6 +452,9 @@ export class Renderer {
   }
 
   update(g: GameState, dt: number, simSpeedMul: number): void {
+    // Real seconds, not sim-scaled: a zoom that eased faster because the game
+    // was running at 4x would be answering the wrong clock.
+    this.easeZoom(dt);
     this.t += dt * Math.max(0.2, simSpeedMul);
     this.snowing = Renderer.seasonOf(g.tick) === 0 && this.rain > 0.05;
     // Weather drifts; observer mode is meteorologically serene.
@@ -373,7 +498,11 @@ export class Renderer {
   render(g: GameState, ui: UiRenderState): void {
     this.marks.length = 0;
     this.stamp('start');
-    const W = this.world.width, H = this.world.height;
+    // The slice of the buffers in use, which since M41 is not the same thing
+    // as their size: they are allocated for the widest view the session has
+    // asked for and drawn into from the top-left corner. Every cull bound,
+    // clear and blit below wants this, not the allocation.
+    const W = this.viewW, H = this.viewH;
     this.clampCamera(g);
     const camX = Math.floor(this.camX), camY = Math.floor(this.camY);
     const w = this.wctx;
@@ -677,7 +806,7 @@ export class Renderer {
     // much map is in the buffer — so this is where it costs most and shows
     // least. Same reasoning as the tilt-shift band further down.
     const runs: Array<[number, number, number, number]> = []; // dx, dy, width, wobble
-    for (let ty = this.zoom >= 1 ? y0 : y1 + 1; ty <= y1; ty++) {
+    for (let ty = detailAt(this.zoom) > 0 ? y0 : y1 + 1; ty <= y1; ty++) {
       const dy = ty * TILE - camY;
       if (dy - TILE < 0) continue; // source strip must be on-canvas
       const wob = Math.round(Math.sin(this.t * 1.7 + ty * 0.8) * 1);
@@ -703,8 +832,8 @@ export class Renderer {
       // from 3ms to 7ms as the city filled the buffer it was reading. One copy,
       // then read the copy: N reconciles become one.
       this.mctx.clearRect(0, 0, W, H);
-      this.mctx.drawImage(this.world, 0, 0);
-      const alpha = 0.15 + nightF * 0.12;
+      this.mctx.drawImage(this.world, 0, 0, W, H, 0, 0, W, H);
+      const alpha = (0.15 + nightF * 0.12) * detailAt(this.zoom);
       w.save();
       w.globalAlpha = alpha;
       w.scale(1, -1);
@@ -907,30 +1036,39 @@ export class Renderer {
     // ------------------------------------------------------------ compose to screen
     const s = this.sctx;
     const sw = this.screen.width, sh = this.screen.height;
-    // Crisp on the way up, smooth on the way down. Below 1 the world buffer is
-    // larger than the screen, and a nearest-neighbour 3:1 reduction throws
-    // away two rows in three: every thin thing — road markings, car roofs,
-    // the lit windows — flickers in and out as the camera moves a pixel.
-    // Held in a local because two passes below flip it and have to put it
-    // back to whatever it was, not to false.
-    const crisp = this.zoom >= 1;
+    // Crisp only at an exact whole-number upscale. Everywhere else — below 1:1,
+    // or mid-pinch at 2.37 — nearest-neighbour puts some source pixels on two
+    // screen pixels and some on three, and the boundary crawls as the camera
+    // moves. Held in a local because two passes below flip it and have to put
+    // it back to whatever it was, not to false.
+    const crisp = this.zoom >= 1 && Math.abs(this.zoom - Math.round(this.zoom)) < 1e-3;
     s.imageSmoothingEnabled = !crisp;
-    // era + season grading applied at world resolution (cheap), then a crisp
-    // unfiltered pixel upscale
+
+    /**
+     * How much of the close-up treatment this zoom gets, 0..1.
+     *
+     * The three passes that mean nothing at map scale used to switch off at
+     * exactly 1:1, which was invisible when zoom moved in whole rungs and is a
+     * visible pop now that a pinch slides through it. They fade across a band
+     * instead. Zero still means skipped outright, so the overview costs what
+     * it costs.
+     */
+    const detail = detailAt(this.zoom);
+    // era + season grading applied at world resolution, then the upscale.
     const fx = (this.camX - camX) * this.zoom, fy = (this.camY - camY) * this.zoom;
-    if (crisp) {
+    // The branch is about who *reads* the graded copy, not about how it looks.
+    // The tilt-shift band and bloom both take `bloomTmp` as their source, so
+    // the copy has to exist whenever either of them will run — and once
+    // neither will, making it is filtering several million pixels that are
+    // then thrown away in the downscale. One filtered draw straight to the
+    // screen does the same job over the smaller of the two.
+    if (detail > 0) {
       this.blctx.clearRect(0, 0, W, H);
       this.blctx.filter = this.gradeFilter(g);
-      this.blctx.drawImage(this.world, 0, 0);
+      this.blctx.drawImage(this.world, 0, 0, W, H, 0, 0, W, H);
       this.blctx.filter = 'none';
       s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
     } else {
-      // Below 1:1 the world buffer is *bigger* than the screen, so grading it
-      // into a full-size copy first is filtering several million pixels that
-      // are then thrown away in the downscale. One filtered draw straight to
-      // the screen does the same job over the smaller of the two. The graded
-      // copy is not wanted afterwards either: the two passes that read it —
-      // the tilt-shift band and bloom — are both off at this scale.
       s.filter = this.gradeFilter(g);
       s.drawImage(this.world, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
       s.filter = 'none';
@@ -958,7 +1096,7 @@ export class Renderer {
     // The band is a depth cue for a camera looking at a few streets. Pointed at
     // most of a region it is just a blurred top and bottom of the map, and it
     // is the single most expensive pass in the frame — so below 1:1 it goes.
-    if (this.tiltShift && crisp) {
+    if (this.tiltShift && detail > 0) {
       const hw = this.blurTmp.width, hh = this.blurTmp.height;
       const k = hw / sw;
       this.bctx.clearRect(0, 0, hw, hh);
@@ -979,7 +1117,9 @@ export class Renderer {
       this.bctx.fillRect(0, 0, hw, hh);
       this.bctx.globalCompositeOperation = 'source-over';
       s.imageSmoothingEnabled = true;
+      s.globalAlpha = detail;
       s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
+      s.globalAlpha = 1;
       s.imageSmoothingEnabled = !crisp;
     }
 
@@ -993,11 +1133,11 @@ export class Renderer {
     // 3px blur over a buffer several times the size of the screen, to produce
     // a glow that lands sub-pixel once it is downscaled. Measured at 52% of
     // the frame at 1:3 — the single largest thing the overview was paying for.
-    const bloomStrength = 0.25 + nightF * 0.75;
-    if (this.emissiveUsed && crisp) {
+    const bloomStrength = (0.25 + nightF * 0.75) * detail;
+    if (this.emissiveUsed && detail > 0) {
       this.blctx.clearRect(0, 0, W, H);
       this.blctx.filter = 'blur(3px)';
-      this.blctx.drawImage(this.emiss, 0, 0);
+      this.blctx.drawImage(this.emiss, 0, 0, W, H, 0, 0, W, H);
       this.blctx.filter = 'none';
       s.imageSmoothingEnabled = true; // smooth scale sells the glow
       s.globalCompositeOperation = 'lighter';
