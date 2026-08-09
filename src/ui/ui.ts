@@ -472,6 +472,7 @@ export class UI {
     this.explainPinned = false;
     this.explainCard.classList.add('hidden');
     this.tool = { kind: 'none' };
+    this.syncToolButtons();
     this.selectedBuildingId = null;
     this.overlay = null;
     this.resumeSpeed = null;
@@ -696,19 +697,29 @@ export class UI {
     }
     // Demolish sits outside the scrolling belt, pinned right, with a hidden
     // twin on the left keeping the centred group honestly centred.
+    // The belt is rebuilt whenever what it can offer changes, and the new
+    // buttons come up empty: the memo has to forget, or it skips the write
+    // that fills them and leaves a blank square where Demolish should be.
+    this.actionButtonShowing = '';
     this.toolRow.querySelectorAll('.tool-spacer, .demolish').forEach((n) => n.remove());
     const demo = el('button', 'bar-tool demolish');
-    demo.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>' +
-      keyBadge(ACTION_KEYS.demolish);
     demo.onclick = () => {
+      // Cancelling is not an administrative act — it is putting down what you
+      // are already holding — so it does not go through the refusal. It cannot
+      // be reached under one anyway: observer mode refuses the build card that
+      // would have armed the tool in the first place.
+      if (this.tool.kind === 'build') {
+        this.sound?.uiTick();
+        this.tool = { kind: 'none' };
+        this.syncToolButtons();
+        return;
+      }
       if (this.refuseAdministrative()) return;
       this.closePanel();
       this.tool = this.tool.kind === 'demolish' ? { kind: 'none' } : { kind: 'demolish' };
       this.syncToolButtons();
     };
     const spacer = el('div', 'bar-tool tool-spacer');
-    spacer.innerHTML = '<span class="tool-ico">⛏</span><span class="tool-label">Demolish</span>' +
-      keyBadge(ACTION_KEYS.demolish);
     spacer.setAttribute('aria-hidden', 'true');
     this.toolRow.prepend(spacer);
     this.toolRow.append(demo);
@@ -1372,7 +1383,52 @@ export class UI {
     window.setTimeout(() => t.el.remove(), 400);
   }
 
+  /**
+   * What the button at the right of the belt currently is.
+   *
+   * Demolish, normally. With something armed from the build menu it becomes
+   * Cancel, and does what Escape's last step does — because Escape is a key
+   * that does not exist on a phone and is not discoverable on a desktop, and
+   * "how do I put this down again" should not need a manual.
+   *
+   * The hidden twin on the left mirrors it exactly, or the centred group in
+   * the middle of the belt shifts sideways every time a tool is armed.
+   */
+  private actionButton(): { icon: string; label: string; key: string; title: string; cancel: boolean } {
+    if (this.tool.kind === 'build') {
+      const def = BUILDING_DEFS[this.tool.type];
+      return { icon: '✕', label: 'Cancel', key: 'Esc', cancel: true, title: `Put down the ${def.name} (Esc)` };
+    }
+    return {
+      icon: '⛏', label: 'Demolish', key: ACTION_KEYS.demolish, cancel: false,
+      title: `Demolish (${ACTION_KEYS.demolish})`,
+    };
+  }
+
+  /**
+   * Cheap to call often: the markup is only rewritten when it would change.
+   *
+   * Keyed on the tooltip as well as the label, because the label is the same
+   * "Cancel" for every armed building while the tooltip names which one —
+   * keying on the label alone left it saying "Put down the House" with a solar
+   * farm in hand.
+   */
+  private actionButtonShowing = '';
+
   private syncToolButtons(): void {
+    const act = this.actionButton();
+    const shape = `${act.label}|${act.title}`;
+    if (this.actionButtonShowing !== shape) {
+      this.actionButtonShowing = shape;
+      const html = `<span class="tool-ico">${act.icon}</span><span class="tool-label">${act.label}</span>` +
+        keyBadge(act.key);
+      for (const b of this.toolRow.querySelectorAll<HTMLElement>('.demolish, .tool-spacer')) {
+        b.innerHTML = html;
+        b.classList.toggle('cancel', act.cancel);
+      }
+      const real = this.toolRow.querySelector<HTMLElement>('.demolish');
+      if (real) real.title = act.title;
+    }
     // While a build drawer is open the digits belong to its cards, so the
     // belt's own numbers step aside rather than claiming keys they no longer
     // answer to. The letters keep working and keep their badges.
@@ -2503,6 +2559,7 @@ export class UI {
 
   private enterObserverMode(): void {
     this.tool = { kind: 'none' };
+    this.syncToolButtons();
     this.selectedBuildingId = null;
     this.inspector.classList.add('hidden');
     // A decision already on screen when the takeover lands. Clearing the state

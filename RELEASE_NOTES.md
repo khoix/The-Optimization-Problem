@@ -1806,6 +1806,64 @@ instead of jumping.
 
 ---
 
+## Milestone 39 — the belt says what pressing it does — `e697f02`
+
+With something armed from the build menu, the Demolish button becomes **✕ Cancel**
+and puts it down again.
+
+Until now the only way out of an armed tool was Escape — a key that does not exist
+on a phone and is not discoverable on a desktop. The button is the one surface that
+could have said so, and it was sitting there saying something else.
+
+| | |
+|---|---|
+| empty hand | **⛏ Demolish** · red · key badge `B` |
+| holding a building | **✕ Cancel** · neutral · key badge `Esc` · *"Put down the Mid-Rise Block (Esc)"* |
+
+Cancel does not go through the administrative refusal. Cancelling is not an
+administrative act — it is putting down what you are already holding — and it
+cannot be reached under one anyway, because observer mode refuses the build card
+that would have armed the tool in the first place.
+
+With an empty hand nothing changes: the button is Demolish, arms the demolish
+tool, and puts it away when pressed again.
+
+### The twin
+
+The belt centres a group of category buttons between a right-pinned Demolish and a
+hidden twin of it on the left. The twin mirrors the label exactly — or the centred
+group shifts sideways every time a tool is armed. Below 820px the twin is out of
+the layout and the labels are hidden, so the swap is icon-only and nothing moves
+there either. Measured at both widths: the first category button sits at the same
+pixel before and after.
+
+### One cost, accepted
+
+Going straight from an armed build tool to the demolish tool is two presses now
+rather than one. It is a rare transition, and the two-press version cannot arm a
+demolisher by accident while you think you are still placing.
+
+### Verification
+
+29 checks. Removing the cancel state fails **11** of them.
+
+> **Fixes — two in the memo, one in the suite.** The button is re-synced on every
+> tool change, so its markup is only rewritten when it would actually differ. That
+> memo keyed on the *label* alone — but the label is "Cancel" for every armed
+> building and only the tooltip distinguishes them, so swapping a house for a solar
+> farm left the tooltip naming the house. And it survived a belt rebuild, which
+> throws the old buttons away and makes empty new ones: the memo thought they
+> already said Demolish, skipped the write that fills them, and left a blank square
+> on the bar.
+>
+> The third was the test. The check that the tooltip follows the armed building
+> accepted any `"Put down the …"` string, and passed while it still said *House*
+> with a solar farm in hand — it was reading the shape of the sentence rather than
+> its content. It compares against the name of what is actually held now, which is
+> what caught the memo bug.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

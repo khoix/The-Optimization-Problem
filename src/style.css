@@ -317,6 +317,10 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 .civic-bar.submenu-owns-digits .tool-key.num { visibility: hidden; }
 .tool-label { letter-spacing: 0.3px; white-space: nowrap; }
 .bar-tool.demolish { color: var(--bad); flex-shrink: 0; }
+/* The same button, meaning the opposite thing. Cancel is a way out, not a
+   destructive act, so it drops the red and reads as neutral. */
+.bar-tool.demolish.cancel { color: var(--text-dim); }
+.bar-tool.demolish.cancel:hover { color: var(--text); }
 .bar-sep { width: 1px; height: 40px; background: var(--panel-border); margin: 0 6px; flex-shrink: 0; }
 
 /* right: alerts and system authority — one row, never stacked */
