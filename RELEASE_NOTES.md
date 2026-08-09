@@ -1655,6 +1655,91 @@ game in general.
 
 ---
 
+## Milestone 40 — the overview — `35eee44`
+
+### Twelve tiles of a hundred-and-twelve-tile region
+
+Zoom was integers 2 to 5. On a 390px phone the furthest out the player could
+ever get was **12.2 tiles across** — a fifth of what a desktop window shows, on
+the device that needs the overview most.
+
+| | phone 390×844 | desktop 1280×800 |
+|---|---|---|
+| old floor | 2× — 12.2 tiles across | 2× — 40 tiles |
+| new floor | **1:3 — 73 tiles across, 158 down** | **1:2 — 160 tiles, the whole region** |
+
+### The ladder
+
+`1/4 · 1/3 · 1/2 · 1 · 2 · 3 · 4 · 5`
+
+Every rung is an exact integer ratio in one direction or the other — 3× up, or
+1:3 down. The game is pixel art; anything between resamples it onto a fractional
+grid, and a 1.5× step is neither crisp nor smooth, just wrong in a way that is
+visible on every roof edge. Below 1:1 the world buffer is *larger* than the
+screen and gets downsampled, which is the one place smoothing is wanted: a
+nearest-neighbour 3:1 reduction throws away two rows in three, and every thin
+thing — road markings, car roofs, lit windows — flickers as the camera moves a
+pixel.
+
+### The floor is derived, not chosen
+
+Five canvases are allocated at world resolution — world, light, emissive, bloom
+scratch, reflection mirror — and each is the screen divided by the zoom. Halving
+the zoom quadruples all five. So the floor is the lowest rung whose buffers stay
+inside a pixel budget, and it comes out different on different screens on
+purpose: *how far can you zoom out* is really *how much can this screen afford*,
+and one number cannot answer for both a phone and a desktop. `resize()` lifts
+the zoom to whatever the new screen affords, so a device that rotates cannot
+strand itself below its own floor.
+
+### Three passes that the overview was paying for and could not see
+
+Profiled on a phone-sized viewport with a full region at 1:3, the frame was
+**52% bloom and 36% grade+upscale**. Everything that actually draws the region —
+terrain, buildings, trees, lighting — came to under 5% between them.
+
+- **The tilt-shift band** is a depth cue for a camera looking at a few streets.
+  Pointed at most of a region it is a blurred top and bottom of the map.
+- **Bloom** is a 3px blur over a buffer several times the size of the screen,
+  producing a glow that lands sub-pixel once it is downscaled.
+- **Water reflections** mirror a one-tile strip that is two screen pixels tall.
+
+All three are off below 1:1. The **grade** is not optional — it is the era and
+season treatment, the game's whole look — but it does not have to be applied at
+world resolution when the world buffer is bigger than the screen. Below 1:1 it
+goes straight to the screen as one filtered downscale, instead of a full-size
+graded copy that is then thrown away in the reduction; the copy is not wanted
+afterwards either, because the two passes that read it are both off.
+
+| frame at 1:3, phone viewport, full region | |
+|---|---|
+| before | **165 ms** |
+| after | **37 ms** |
+
+Software rasterisation: bounds cost and ranks passes, does not predict a GPU.
+The ratio is the point.
+
+### Verification
+
+29 checks. Restoring the three passes at low zoom fails **exactly four** of them,
+the frame budget among them at 199ms against 49.
+
+> **Fix — an assertion that was true of every number ever measured.** The
+> companion to "bloom is off at the overview" was "bloom is still on at playing
+> zoom", written as `>= 0`. The mutation run is what exposed it: with the gating
+> removed, the *timing* assertion for the tilt-shift band still passed, because
+> that pass reads as 0ms at playing zoom either way. It reads the screen now —
+> the band toggled off and on and diffed against itself at the same zoom — and
+> that one catches it.
+>
+> The first version of that screen check compared the top of the frame against
+> the middle, and failed at the overview for a reason that had nothing to do
+> with blur: at 1:3 the region is centred with dark margin above it, so it was
+> comparing empty sky with a city and reporting "sharp at the top" because
+> there was nothing at the top to be blurred.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
