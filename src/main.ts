@@ -288,7 +288,7 @@ function touchDown(ev: PointerEvent): void {
  */
 let cursorX = 0, cursorY = 0, cursorOnMap = false, cursorDirty = false;
 let panDX = 0, panDY = 0;
-let pendingZoom: [number, number, number] | null = null;
+let pendingZoom: [-1 | 1, number, number] | null = null;
 // getBoundingClientRect() forces layout; the canvas fills a fixed viewport, so
 // its rect only changes on resize.
 let canvasRect = canvas.getBoundingClientRect();
@@ -360,7 +360,7 @@ function applyCursor(): void {
   if (pendingZoom) {
     const [step, zx, zy] = pendingZoom;
     pendingZoom = null;
-    renderer.setZoom(renderer.zoom + step, zx - canvasRect.left, zy - canvasRect.top);
+    renderer.stepZoom(step, zx - canvasRect.left, zy - canvasRect.top);
   }
   if (panDX !== 0 || panDY !== 0) {
     renderer.camX -= panDX / renderer.zoom;
@@ -413,7 +413,7 @@ canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
 canvas.addEventListener('wheel', (ev) => {
   ev.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  renderer.setZoom(renderer.zoom + (ev.deltaY < 0 ? 1 : -1), ev.clientX - rect.left, ev.clientY - rect.top);
+  renderer.stepZoom(ev.deltaY < 0 ? 1 : -1, ev.clientX - rect.left, ev.clientY - rect.top);
 }, { passive: false });
 
 window.addEventListener('keyup', (ev) => { xrayHeld = modifierHeld(ev); });

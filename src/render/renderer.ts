@@ -87,6 +87,22 @@ function ambientAt(hour: number): [number, number, number] {
   return [255, 255, 255];
 }
 
+/**
+ * Ceiling on the pixels the zoom-dependent buffers may cover.
+ *
+ * Five of them are allocated at world resolution — world, light, emissive,
+ * bloom scratch, reflection mirror — so this is five times this many pixels of
+ * RGBA held at once, plus the per-frame cost of filling them.
+ *
+ * Set from measurement, not taste. At this figure a 390×844 phone reaches 1:3
+ * — 73 tiles across a 112-tile region, and the whole of it top to bottom —
+ * for 59MB of buffers and a 38ms software-rasterised frame, against 12 tiles
+ * and 5ms at the old floor of 2×. A 1280×800 window reaches 1:2, which is the
+ * entire region with room around it. One rung further out on either would
+ * roughly double both figures to show mostly empty margin.
+ */
+const WORLD_BUDGET = 4_400_000;
+
 export class Renderer {
   camX = 0; camY = 0; zoom = 2;
   hour = 9;               // time of day, driven by main loop
@@ -186,6 +202,9 @@ export class Renderer {
   resize(): void {
     this.screen.width = this.screen.clientWidth;
     this.screen.height = this.screen.clientHeight;
+    // A window that shrank can put the current zoom below what the new screen
+    // affords — and a device that rotates does exactly that.
+    this.zoom = Math.max(this.minZoom(), this.zoom);
     const w = Math.ceil(this.screen.width / this.zoom) + TILE * 2;
     const h = Math.ceil(this.screen.height / this.zoom) + TILE * 2;
     const mk = (): [HTMLCanvasElement, CanvasRenderingContext2D] => {
@@ -214,9 +233,55 @@ export class Renderer {
     this.tiltMaskGrad = null;
   }
 
+  /**
+   * The zoom ladder.
+   *
+   * Zoom used to be integers 2..5, which on a phone meant the closest the
+   * player could ever get to an overview was about twelve tiles across a
+   * hundred-and-twelve-tile region — a fifth of what a desktop window shows,
+   * on the device that needs the overview most.
+   *
+   * Every rung is an exact integer ratio in one direction or the other: 3×
+   * up, or 1:3 down. The game is pixel art, and anything between resamples it
+   * onto a fractional grid — a 1.5× step is neither crisp nor smooth, it is
+   * just wrong in a way that is visible on every roof edge.
+   */
+  static readonly ZOOM_STEPS = [1 / 4, 1 / 3, 1 / 2, 1, 2, 3, 4, 5];
+
+  /**
+   * The lowest rung this screen can afford, in world-buffer pixels.
+   *
+   * Five full-size canvases are reallocated on every zoom step, and each is
+   * the screen divided by the zoom — so halving the zoom quadruples all five.
+   * The floor is derived rather than fixed because "how far can you zoom out"
+   * is really "how much can this screen afford": a budget that suits a phone
+   * leaves a desktop unable to see its own region, and one that suits a
+   * desktop asks a phone for buffers it does not have.
+   */
+  minZoom(): number {
+    const area = Math.max(1, this.screen.width * this.screen.height);
+    for (const z of Renderer.ZOOM_STEPS) {
+      if (area / (z * z) <= WORLD_BUDGET) return z;
+    }
+    return Renderer.ZOOM_STEPS[Renderer.ZOOM_STEPS.length - 1];
+  }
+
+  /** Move one rung, keeping the point under the cursor fixed. */
+  stepZoom(dir: -1 | 1, cx: number, cy: number): void {
+    const steps = Renderer.ZOOM_STEPS;
+    // Nearest rung to where we are, then move — so a zoom restored from a
+    // saved preference that is no longer on the ladder still steps sanely.
+    let i = 0;
+    for (let k = 1; k < steps.length; k++) {
+      if (Math.abs(steps[k] - this.zoom) < Math.abs(steps[i] - this.zoom)) i = k;
+    }
+    this.setZoom(steps[Math.max(0, Math.min(steps.length - 1, i + dir))], cx, cy);
+  }
+
   setZoom(z: number, cx: number, cy: number): void {
     const [wx, wy] = this.screenToWorld(cx, cy);
-    this.zoom = Math.max(2, Math.min(5, z));
+    const steps = Renderer.ZOOM_STEPS;
+    this.zoom = Math.max(this.minZoom(), Math.min(steps[steps.length - 1], z));
     this.resize();
     // keep the point under the cursor fixed
     this.camX = wx - cx / this.zoom;
@@ -606,8 +671,13 @@ export class Renderer {
     // Collect the runs first, then draw them. Nothing is drawn while the shape
     // of the work is still being decided, so the one full-canvas copy below
     // happens once and only when there is something to mirror.
+    // Skipped below 1:1, where the camera is showing most of a region and a
+    // one-tile mirrored strip is a couple of screen pixels nobody can read.
+    // It is also, by measurement, one of the two passes that scale with how
+    // much map is in the buffer — so this is where it costs most and shows
+    // least. Same reasoning as the tilt-shift band further down.
     const runs: Array<[number, number, number, number]> = []; // dx, dy, width, wobble
-    for (let ty = y0; ty <= y1; ty++) {
+    for (let ty = this.zoom >= 1 ? y0 : y1 + 1; ty <= y1; ty++) {
       const dy = ty * TILE - camY;
       if (dy - TILE < 0) continue; // source strip must be on-canvas
       const wob = Math.round(Math.sin(this.t * 1.7 + ty * 0.8) * 1);
@@ -837,15 +907,34 @@ export class Renderer {
     // ------------------------------------------------------------ compose to screen
     const s = this.sctx;
     const sw = this.screen.width, sh = this.screen.height;
-    s.imageSmoothingEnabled = false;
+    // Crisp on the way up, smooth on the way down. Below 1 the world buffer is
+    // larger than the screen, and a nearest-neighbour 3:1 reduction throws
+    // away two rows in three: every thin thing — road markings, car roofs,
+    // the lit windows — flickers in and out as the camera moves a pixel.
+    // Held in a local because two passes below flip it and have to put it
+    // back to whatever it was, not to false.
+    const crisp = this.zoom >= 1;
+    s.imageSmoothingEnabled = !crisp;
     // era + season grading applied at world resolution (cheap), then a crisp
     // unfiltered pixel upscale
-    this.blctx.clearRect(0, 0, W, H);
-    this.blctx.filter = this.gradeFilter(g);
-    this.blctx.drawImage(this.world, 0, 0);
-    this.blctx.filter = 'none';
     const fx = (this.camX - camX) * this.zoom, fy = (this.camY - camY) * this.zoom;
-    s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
+    if (crisp) {
+      this.blctx.clearRect(0, 0, W, H);
+      this.blctx.filter = this.gradeFilter(g);
+      this.blctx.drawImage(this.world, 0, 0);
+      this.blctx.filter = 'none';
+      s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
+    } else {
+      // Below 1:1 the world buffer is *bigger* than the screen, so grading it
+      // into a full-size copy first is filtering several million pixels that
+      // are then thrown away in the downscale. One filtered draw straight to
+      // the screen does the same job over the smaller of the two. The graded
+      // copy is not wanted afterwards either: the two passes that read it —
+      // the tilt-shift band and bloom — are both off at this scale.
+      s.filter = this.gradeFilter(g);
+      s.drawImage(this.world, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
+      s.filter = 'none';
+    }
 
     this.stamp('· grade+upscale');
     /**
@@ -866,7 +955,10 @@ export class Renderer {
      * same mask geometry — the only difference is that the glow and the shafts
      * land sharp on top of a blurred base, and both are diffuse to begin with.
      */
-    if (this.tiltShift) {
+    // The band is a depth cue for a camera looking at a few streets. Pointed at
+    // most of a region it is just a blurred top and bottom of the map, and it
+    // is the single most expensive pass in the frame — so below 1:1 it goes.
+    if (this.tiltShift && crisp) {
       const hw = this.blurTmp.width, hh = this.blurTmp.height;
       const k = hw / sw;
       this.bctx.clearRect(0, 0, hw, hh);
@@ -888,7 +980,7 @@ export class Renderer {
       this.bctx.globalCompositeOperation = 'source-over';
       s.imageSmoothingEnabled = true;
       s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
-      s.imageSmoothingEnabled = false;
+      s.imageSmoothingEnabled = !crisp;
     }
 
     this.stamp('· tilt-shift');
@@ -897,8 +989,12 @@ export class Renderer {
     // Skipped outright when nothing emissive was drawn: a blurred copy of an
     // empty buffer plus two full-screen 'lighter' composites is a lot of work
     // to add nothing, and at midday with no data centres that is every frame.
+    // Also off at map scale, and for the same reason as the band above it: a
+    // 3px blur over a buffer several times the size of the screen, to produce
+    // a glow that lands sub-pixel once it is downscaled. Measured at 52% of
+    // the frame at 1:3 — the single largest thing the overview was paying for.
     const bloomStrength = 0.25 + nightF * 0.75;
-    if (this.emissiveUsed) {
+    if (this.emissiveUsed && crisp) {
       this.blctx.clearRect(0, 0, W, H);
       this.blctx.filter = 'blur(3px)';
       this.blctx.drawImage(this.emiss, 0, 0);
@@ -911,7 +1007,7 @@ export class Renderer {
       s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
       s.globalAlpha = 1;
       s.globalCompositeOperation = 'source-over';
-      s.imageSmoothingEnabled = false;
+      s.imageSmoothingEnabled = !crisp;
     }
 
     this.stamp('· bloom');
