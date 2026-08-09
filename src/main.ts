@@ -120,7 +120,7 @@ function startSession(req: SessionRequest): void {
   rocksClearedSinceRecord = 0;
   panDX = 0; panDY = 0; cursorDirty = true;
   xrayHeld = false;
-  touches.clear(); pinchRef = 0; pendingZoom = null; toolPending = false;
+  touches.clear(); pinchRef = 0; pinchZoom0 = 0; pendingZoom = null; toolPending = false;
   cancelLongPress();
 
   invalidateNetwork(g);
@@ -194,15 +194,18 @@ let toolPending = false;
 let longPressTimer = 0;
 let longPressing = false;
 /**
- * Pinch is accumulated and applied in whole steps.
+ * Pinch drives the zoom directly.
  *
- * setZoom() reallocates five canvases, which is fine once per wheel click and
- * ruinous sixty times a second — so the ratio is tracked continuously and only
- * spent when it crosses a step.
+ * It used to be accumulated and spent in whole steps, because setZoom()
+ * reallocated five canvases and doing that sixty times a second is ruinous.
+ * The buffers are decoupled from the zoom now, so the zoom can track the
+ * fingers — measured against where the gesture *started* rather than against
+ * the previous frame, so a slow pinch and a fast one covering the same
+ * distance end in the same place and nothing accumulates drift.
  */
 let pinchRef = 0;
+let pinchZoom0 = 0;
 let pinchCx = 0, pinchCy = 0;
-const PINCH_IN = 1.32, PINCH_OUT = 0.76;
 
 const cancelLongPress = (): void => {
   if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = 0; }
@@ -249,6 +252,7 @@ function touchDown(ev: PointerEvent): void {
     dragging = false;
     const [a, b] = [...touches.values()];
     pinchRef = Math.hypot(a.x - b.x, a.y - b.y);
+    pinchZoom0 = renderer.zoom;
     pinchCx = (a.x + b.x) / 2; pinchCy = (a.y + b.y) / 2;
     return;
   }
@@ -288,7 +292,7 @@ function touchDown(ev: PointerEvent): void {
  */
 let cursorX = 0, cursorY = 0, cursorOnMap = false, cursorDirty = false;
 let panDX = 0, panDY = 0;
-let pendingZoom: [-1 | 1, number, number] | null = null;
+let pendingZoom: { z: number; cx: number; cy: number; live: boolean } | null = null;
 // getBoundingClientRect() forces layout; the canvas fills a fixed viewport, so
 // its rect only changes on resize.
 let canvasRect = canvas.getBoundingClientRect();
@@ -328,12 +332,13 @@ function touchMove(ev: PointerEvent): void {
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
     panDX += cx - pinchCx; panDY += cy - pinchCy;
     pinchCx = cx; pinchCy = cy;
-    if (pinchRef > 0) {
-      const ratio = d / pinchRef;
-      if (ratio > PINCH_IN) { pendingZoom = [1, cx, cy]; pinchRef = d; }
-      else if (ratio < PINCH_OUT) { pendingZoom = [-1, cx, cy]; pinchRef = d; }
+    if (pinchRef > 8) {
+      // Deferred to the frame rather than applied here: a move event can fire
+      // more than once between frames, and each setZoom moves the camera.
+      pendingZoom = { z: pinchZoom0 * (d / pinchRef), cx, cy, live: true };
     } else {
       pinchRef = d;
+      pinchZoom0 = renderer.zoom;
     }
     return;
   }
@@ -358,9 +363,11 @@ function touchMove(ev: PointerEvent): void {
 /** Turn the recorded pointer into tiles, hover text and camera motion. */
 function applyCursor(): void {
   if (pendingZoom) {
-    const [step, zx, zy] = pendingZoom;
+    const { z, cx, cy, live } = pendingZoom;
     pendingZoom = null;
-    renderer.stepZoom(step, zx - canvasRect.left, zy - canvasRect.top);
+    const ax = cx - canvasRect.left, ay = cy - canvasRect.top;
+    if (live) renderer.setZoomDirect(z, ax, ay);
+    else renderer.snapZoom(ax, ay);
   }
   if (panDX !== 0 || panDY !== 0) {
     renderer.camX -= panDX / renderer.zoom;
@@ -390,9 +397,16 @@ const endPointer = (ev: PointerEvent, cancelled: boolean): void => {
     return;
   }
   const wasSingle = touches.size === 1;
+  const wasPinching = touches.size >= 2;
   touches.delete(ev.pointerId);
   cancelLongPress();
-  if (touches.size < 2) { pinchRef = 0; }
+  if (touches.size < 2) {
+    // Lifting a finger ends the pinch, and the zoom comes to rest on a rung.
+    // Mid-gesture it can sit anywhere, which is soft; at rest it should be an
+    // exact pixel ratio, which is crisp. The snap is what buys both.
+    if (wasPinching && pinchRef > 0) pendingZoom = { z: 0, cx: pinchCx, cy: pinchCy, live: false };
+    pinchRef = 0;
+  }
   if (touches.size === 0) {
     // A tap that never became a drag does the one-shot version of whatever
     // was in hand: a tool places or removes exactly one tile, an empty hand
