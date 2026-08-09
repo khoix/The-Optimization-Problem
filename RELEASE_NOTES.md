@@ -1740,6 +1740,72 @@ the frame budget among them at 199ms against 49.
 
 ---
 
+## Milestone 41 — smooth zoom — `c2f8dfc`
+
+Pinch tracks the fingers now, continuously, and comes to rest on an exact pixel
+ratio when they lift.
+
+### Two things stood in the way, and only one was real
+
+**`setZoom()` rebuilt five canvases.** The buffers were sized screen ÷ zoom, so a
+continuous zoom meant reallocating five canvases *per frame*. That, not the maths,
+is why zoom was stepped.
+
+They are decoupled now: buffers are allocated for the widest view the session has
+asked for and drawn into from the top-left corner, with a new `viewW`/`viewH` as
+the slice in use. Every cull bound, clear and blit in the pipeline already wanted
+the slice rather than the allocation — all 31 references — so that part came down
+to one line at the top of `render()` and three `drawImage` calls that had been
+copying whole buffers when they only needed a corner.
+
+Allocation **grows and never shrinks** within a session, and it grows straight to
+the floor rather than to wherever the zoom happens to be. Coming back in keeps the
+big buffers: oscillating across a boundary is worse than the memory.
+
+**Pixel art at a non-integer scale either shimmers or goes soft**, and that one has
+no fix in Canvas 2D — sharp-bilinear sampling needs a shader, and this project has
+no WebGL by design. So: *soft while it moves, crisp when it stops*. Nobody
+perceives softness while the whole screen is in motion, and the snap on release is
+what buys the crispness back. Wheel steps ease to their rung over the same path
+instead of jumping.
+
+### Details that matter to the feel
+
+- Pinch measures against **where the gesture started**, not the previous frame, so
+  a slow pinch and a fast one covering the same distance end in the same place and
+  nothing accumulates drift.
+- The ease runs in **log space** — 0.5 is as far from 1 as 2 is — and on real
+  seconds, not sim-scaled ones, so a zoom does not get faster because the game is
+  running at 4×.
+- Snapping picks the nearest rung in log space too. A gesture ending at 0.6 goes
+  *down* to 1:2, not up to 1:1.
+- The three passes that switch off at map scale now **fade across 0.55 → 1.0**
+  rather than switching at exactly 1:1 — invisible when zoom moved in whole rungs,
+  a visible flick once a pinch slides through it. Every resting rung below 1:1 is
+  0.5 or lower, so the overview still pays nothing.
+
+### Verification
+
+19 checks. Sizing the buffers to the live zoom fails the reallocation check with
+**nine grows in one gesture**; replacing the fade with a hard switch fails two more.
+
+> **Fix — a check that could not see what it was testing, then one that claimed
+> more than it could see.** The fade check first compared consecutive frames of a
+> zoom sweep, which cannot tell a pass switching off from the sample row landing on
+> different pixels at a different scale: it passed just as happily with the fade
+> removed, which was the one thing it existed to catch. Diffing the pass against
+> itself at a *fixed* zoom has no resampling in it at all.
+>
+> The rewrite then over-claimed in the other direction, asserting a smooth decline
+> the measurement cannot support. A low-alpha layer moves one or two levels per
+> channel, and 8-bit rounding compresses a tenth-strength band and a half-strength
+> one into nearly the same number. What survives that compression is *presence*, so
+> the claim is back to what presence can honestly carry — no switch at the boundary
+> a pinch crosses, nothing left at the rungs — with the reason written into the
+> suite rather than left as a mystery for whoever tightens the threshold next.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
