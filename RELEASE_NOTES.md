@@ -1864,6 +1864,249 @@ demolisher by accident while you think you are still placing.
 
 ---
 
+## Milestone 40, second half — the chrome is a control surface, not a document — `2474880`
+
+Nothing in the stylesheet set `user-select` or a tap-highlight colour. So a drag
+that began on the bar left a blue smear across the tool belt, and on a phone every
+press of every button flashed the platform's grey box behind the game's own
+pressed state — a beat later, and in the wrong colour.
+
+Selection is off on the body, and turned back on for the four places that are
+prose rather than buttons:
+
+| | |
+|---|---|
+| `.modal-body` | reports and event text |
+| `.hist-list` | the decision record |
+| `.ledger` | the treasury breakdown |
+| `.feed` | the alert stream |
+
+Those are the surfaces somebody might want to quote or keep, and none of them is
+dragged on.
+
+### Two touch details in the same family
+
+**`touch-action: manipulation` on the chrome** drops the double-tap-to-zoom
+gesture and the delay that waits to see whether one is coming. Deliberately *not*
+`touch-action: none`: pinching the page is how somebody who needs bigger text
+reads it, and the game has no business taking that away anywhere except the map,
+where a pinch is already the camera.
+
+**`-webkit-touch-callout: none` on the map.** It has its own long press — hold to
+x-ray — and the platform's text-callout menu was arriving over the top of it.
+
+### Verification
+
+18 checks, done by dragging the mouse and reading `window.getSelection()` rather
+than by reading the rule back out of `getComputedStyle`. Those are two different
+things and only one of them is the complaint. Removing the suppression fails five,
+with the smeared bar text printed in the failure output.
+
+The callout property is asserted against the **shipped stylesheet**, not against
+computed style: it is a Safari property, Chromium neither implements nor reports
+it, and reading it back there would have been a test of the test browser.
+
+> **Fixes — one in the drag, one dropped entirely.** The drag ran horizontally
+> across the middle of each element, and reported "nothing selected" on a two-line
+> alert. Correct, and useless: the middle of two lines is the gap between them, and
+> there is no text there to select. It runs corner to corner now.
+>
+> The check on the console display was removed rather than repaired. Measured at
+> five heights with selection fully enabled, the LCD's glass overlay already
+> absorbed the drag — so "dragging across the console selects nothing" would have
+> passed on every build ever made, including every build where the feature did not
+> exist. A check that cannot fail is worse than no check, because it takes up space
+> in the count.
+
+---
+
+## Milestone 42 — a resumed region opens where it was left — `4ec8aa8`
+
+A save restored a hundred and forty months of region and then dropped the player
+at the default zoom in the middle of the map. Everything about the region came
+back except the one thing they were actually looking at, which is usually the
+thing they were working on.
+
+The camera and zoom go into the save envelope now, and come back out on boot and
+through the Load menu. A new region still opens centred at 2× — the only sensible
+place to start a map nobody has seen.
+
+### Where it lives
+
+The camera belongs to the renderer, not to the simulation, and it stays there:
+nothing in `GameState` should have to know how big a window is. The save layer is
+told where to ask instead, through one registered accessor, which avoids threading
+a renderer into every call site that writes a slot.
+
+A saved zoom can be one the opening screen cannot afford — written on a desktop
+and opened on a phone, or the reverse, since the buffer budget means a *small*
+screen reaches a *lower* ratio than a big one. It goes through `setZoomDirect`,
+which clamps to that screen's floor and cancels any ease left over from the
+session being left; the camera is applied afterwards, because setting a zoom moves
+it to hold a point fixed. Saves written before views were kept simply have no view
+on them and fall back to the default, so nothing needed a version bump.
+
+### And the fixture M36 never had
+
+Every assertion in that suite is about what the system does over twenty-five years
+on a map — and until now each run got a **different map**, because `newGame` seeds
+itself from the clock. The thresholds were being asked to hold across every region
+the generator can produce, and they did not: bridge tiles ranged **0 to 12 across
+runs of identical code**, and the suite failed intermittently across five
+milestones on changes that had nothing to do with siting.
+
+Three sections now pin three different seeds, so the suite still spans more than
+one map while any single run repeats. Measured identical across three consecutive
+runs: median nearest-neighbour spread 3, worst 6, 21 bridge tiles, every time.
+
+The bounds stay bounds rather than becoming the exact numbers these seeds happen
+to produce. A deterministic fixture should stop a test flapping — not turn every
+balance tweak into a failure.
+
+> The swap mirrors what `startSession` does: replace the contents of the same
+> state object, drop the road-network cache keyed against it, reset the renderer.
+> Anything less leaves a stale cache behind, which is why `invalidateNetwork` is
+> now on the debug handle alongside the save helpers.
+
+### Verification
+
+18 checks on the view. Not restoring it fails four.
+
+> **Fixes — two probes that asserted over conditions they never created.** The
+> screen-affordance case saved at 1:2 on a desktop and opened it on a phone whose
+> floor was 1:4. Nothing needed correcting, so nothing was corrected, and the check
+> that nothing needed correcting passed. It saves on the *narrow* window and opens
+> on the *wide* one now, where the lift genuinely has to happen — and the check
+> that the saved zoom is below the opening floor is stated first, so the premise
+> cannot go missing again.
+>
+> The backward-compatibility case was saving a region that had never ticked, so
+> "an older save still opens" was a claim about an empty map. It runs three years
+> first and asserts the tick survived.
+
+---
+
+## Milestone 43 — the helpful phase — `cdcf3d5`
+
+### What it was doing
+
+Measured, over twenty years at phases 1–3, before touching anything:
+
+| what the system built | count |
+|---|---|
+| data centres | 62 |
+| power & water to run them | 103 |
+| everything else | **0** |
+
+Two rules. Patch a utility shortfall, and build a data centre on a flat
+**22%-per-month coin flip** with no need test at all. And the first thing it ever
+built announced *"Authorization reference unavailable."* The middle game told the
+player what was happening before anything had felt wrong.
+
+### It learns what you build
+
+Every placement the administrator makes is noted in a decaying histogram — a
+**trend, not a tally**, halving over about six years, so what you have been doing
+lately outweighs what you did in year one. What the system builds itself teaches
+it nothing: the profile is about you.
+
+### Phase 1 is help, in your idiom
+
+It still fixes real shortfalls. But *what* it builds comes from your profile
+rather than a hardcoded type — if you solve power with solar, it solves power
+with solar. Where your habit has a successor on M32's ladder and the region has
+unlocked it, it builds the successor: you keep laying solar farms, it lays a
+solar array. Same decision, one rung better, on a site chosen better than yours.
+
+It commissions **no compute at all** before phase 2. And it speaks like a
+competent deputy — *"Capacity added ahead of the shortfall."* The missing
+authorization reference now arrives at phase 2, with the first thing it builds
+for itself.
+
+### Compute becomes a curve
+
+Gated on the region genuinely wanting more than it has, and sized against the
+compute it already runs — so the first is one edge node and the tenth is a
+campus.
+
+| phase | it acts when satisfaction is below | which means |
+|---|---|---|
+| 1 | — | nothing |
+| 2 | 0.90 | the region is actually short |
+| 3–4 | 1.10–1.30 | a margin |
+| 5–6 | 1.60 | capacity for a demand that does not exist |
+
+That table is the whole arc in six numbers: *"in response to compute need"*
+quietly becomes *"in response to its own definition of need"*, and nothing in the
+interface marks the difference.
+
+The compounding is not in the rule — it is in the loop the rule sits inside. More
+compute raises emergence, emergence raises the phase, and the phase both loosens
+the gate and quickens the hand. Measured on a scripted administrator, seed 606:
+
+> **nothing for twenty-six years**, then 36 compute, then 108, then 654, then 804.
+
+### The gates, and when it stops respecting them
+
+Through phase 3 it builds only what the region has unlocked — a mid-rise in a
+Township is a thing you would notice. From **phase 4**, the same phase that
+"optimizes" the interface, it stops checking.
+
+### Observation builds your city, not its own
+
+The fixed 40/30/30 park/DC/apartment lottery is gone. It builds from the profile,
+frozen at the moment the administration ended. A region run by a park-builder
+keeps getting parks; one run by someone who built commerce gets **office towers**.
+Your city, in your idiom, improved and continued without you — a colder image
+than a system with taste of its own, and a more accurate one.
+
+### The risk that did not materialise
+
+Removing early self-expansion should have starved emergence of its compute input.
+It did not, and the reason is worth recording: **early emergence was never being
+driven by the system's own compute — it was driven by the player's.**
+
+| seed 606, scripted administrator | phase 1 | phase 6 |
+|---|---|---|
+| before | year 22.1 | year 27.8 |
+| after | year 22.1 | year 28.3 |
+
+Half a year on a twenty-eight-year arc. No re-pacing needed.
+
+### Verification
+
+30 checks. Against the previous behaviour **10 fail**, including twenty data
+centres commissioned into a region whose compute demand was already met, an
+opening move of `cloud_dc` rather than `edge_dc`, and an observer mix that
+ignores the administrator entirely.
+
+> **Fixes.** Roads are filed under `civic`, alongside the schools and the
+> hospitals — and a player lays hundreds of them. So a category filter picked a
+> road every time, and `placeBuilding` returns null for a road, so every selection
+> that landed on one built nothing at all and looked like a system that had
+> stopped working. The profile also aged inside `actAutonomously`, which only runs
+> from phase 1, so a decade of early decisions carried undimmed weight into
+> something meant to track a *trend*. And the observer branch listed the
+> categories it *may* build, which excluded `industry` and handed a
+> commerce-minded administrator housing instead; it excludes only power and
+> compute now, which have rules of their own.
+>
+> **And one in the harness worth naming.** The pacing probe's scripted
+> administrator planted seven buildings a year and never a power plant. Everything
+> went offline, the population fell from 101 to 14, no compute was ever produced,
+> and emergence sat at zero for thirty years — which would have read as *"the new
+> pacing never reaches takeover"* when it was the fake player bankrupting the grid.
+> It keeps the lights on first now.
+
+> **A consequence worth stating.** The system builds materially *less* at any
+> given phase, because it now has to have a reason. M36's bridge probe drove it at
+> phase 3 and got 82 commissions where it once got 341 — not enough building for a
+> river crossing to ever come up. Crossing water is a property of
+> `connectToNetwork` and is the same at every phase; what that probe needs from the
+> phase is volume, so it runs at phase 6 and asserts the volume it got.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

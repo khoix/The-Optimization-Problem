@@ -22,7 +22,33 @@ html, body {
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
 }
-body { font-family: var(--font); color: var(--text); font-size: 13px; }
+body {
+  font-family: var(--font); color: var(--text); font-size: 13px;
+  /* The whole thing is a control surface, and a drag across a control surface
+     should move something or nothing — never leave a blue smear across the
+     tool belt. Selection is turned back on below for the handful of places
+     that are prose rather than buttons.
+
+     The tap highlight goes with it: on a phone every press of every button
+     flashed the platform's grey box behind it, on top of the game's own
+     pressed state, a beat later and in the wrong colour. */
+  user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Where the words are worth having: reports and event text, the decision
+   record, the treasury breakdown, the alert feed. These are the surfaces a
+   player might want to quote or keep, and none of them is dragged on. */
+.modal-body, .hist-list, .ledger, .feed, .rec-cause {
+  user-select: text; -webkit-user-select: text;
+}
+/* Removes the double-tap-to-zoom gesture on the chrome, and the 300ms wait
+   for it that made every button feel a beat behind. Deliberately not
+   `touch-action: none`: pinching the *page* is how somebody who needs bigger
+   text reads it, and the game has no business taking that away from them
+   anywhere except the map, where a pinch is already the camera. */
+.civic-bar, .flyout, .panel, .modal, .title-screen, .observer-overlay, .toast-stack {
+  touch-action: manipulation;
+}
 
 #app { position: relative; width: 100%; height: 100%; }
 /* touch-action:none is what makes the map a map rather than a page: without it
@@ -31,6 +57,9 @@ body { font-family: var(--font); color: var(--text); font-size: 13px; }
 #game {
   position: absolute; inset: 0; width: 100%; height: 100%; display: block;
   cursor: crosshair; image-rendering: pixelated; touch-action: none;
+  /* The map has its own long press — hold to x-ray — and the platform's
+     text-callout menu was arriving over the top of it. */
+  -webkit-touch-callout: none;
 }
 
 

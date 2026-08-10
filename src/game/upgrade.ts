@@ -1,5 +1,5 @@
 import type { Building, BuildingDef, BuildingType, GameState } from './types';
-import { BUILDING_DEFS, TIER_NAMES } from './buildings';
+import { BUILDING_DEFS, TIER_NAMES, UPGRADE_PATH, upgradeTargetOf } from './buildings';
 import { canDemolish } from './asi';
 import { placeBuilding, record, removeBuilding, tileAt } from './state';
 import { buildingCondition, tierOf } from './sim';
@@ -47,29 +47,9 @@ export const UPGRADE_HEAD_START = 0.3;
 /** An upgrade never costs less than this fraction of the replacement. */
 const MIN_PRICE = 0.1;
 
-/**
- * The ladders, as data.
- *
- * Every pair is a building the game already has, replaced by the thing that
- * game already treats as its successor — so the ladder teaches the build menu
- * rather than competing with it. Housing is the long one. The others are
- * single steps the region reaches anyway: a factory that stops needing sixty
- * people, a coal plant that stops smoking, an edge node that becomes a real
- * data centre.
- */
-export const UPGRADE_PATH: Partial<Record<BuildingType, BuildingType>> = {
-  house: 'apartment',
-  apartment: 'midrise',
-  midrise: 'highrise',
-  highrise: 'arcology',
-  retail: 'office',
-  factory: 'auto_factory',
-  edge_dc: 'cloud_dc',
-  cloud_dc: 'ai_campus',
-  solar_farm: 'solar_array',
-  water_plant: 'water_reclamation',
-  coal_plant: 'nuclear_plant',
-};
+// The ladders themselves live in buildings.ts, next to the definitions they
+// describe and out of the import cycle this module sits in.
+export { UPGRADE_PATH, upgradeTargetOf };
 
 export interface UpgradePlan {
   from: BuildingType;
@@ -92,10 +72,6 @@ export function withArticle(name: string): string {
   return `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
 }
 
-/** The successor for a type, or null where the ladder ends. */
-export function upgradeTargetOf(type: BuildingType): BuildingType | null {
-  return UPGRADE_PATH[type] ?? null;
-}
 
 /**
  * Can the replacement's footprint sit at this anchor?

@@ -241,6 +241,37 @@ export const BUILD_MENU_ORDER: BuildingType[] = [
   'edge_dc', 'community_dc', 'med_dc', 'cloud_dc', 'gov_dc', 'ai_campus',
 ];
 
+/**
+ * The upgrade ladders, as data.
+ *
+ * Every pair is a building the game already has, replaced by the thing the game
+ * already treats as its successor. Two systems read this: the inspector's
+ * Upgrade button, and the system's own siting — when it has learned that the
+ * administrator solves power with solar farms, this is how it knows that a
+ * solar array is the same decision, made better.
+ *
+ * It lives here rather than in upgrade.ts because upgrade.ts imports from
+ * asi.ts, and asi.ts would then have to import back for a lookup table.
+ */
+export const UPGRADE_PATH: Partial<Record<BuildingType, BuildingType>> = {
+  house: 'apartment',
+  apartment: 'midrise',
+  midrise: 'highrise',
+  highrise: 'arcology',
+  retail: 'office',
+  factory: 'auto_factory',
+  edge_dc: 'cloud_dc',
+  cloud_dc: 'ai_campus',
+  solar_farm: 'solar_array',
+  water_plant: 'water_reclamation',
+  coal_plant: 'nuclear_plant',
+};
+
+/** The successor for a type, or null where the ladder ends. */
+export function upgradeTargetOf(type: BuildingType): BuildingType | null {
+  return UPGRADE_PATH[type] ?? null;
+}
+
 /** Region-class names, indexed by tier. Mirrors TIERS in sim.ts. */
 export const TIER_NAMES = ['Township', 'City', 'Metropolis', 'Megaregion'];
 

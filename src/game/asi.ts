@@ -1,6 +1,6 @@
-import type { AsiPhase, GameState, PolicyId } from './types';
-import { BUILDING_DEFS } from './buildings';
-import { bridgeSpans, canPlace, notify, placeBuilding, policyActive, record, rng, touchMap } from './state';
+import type { AsiPhase, BuildingType, GameState, PolicyId } from './types';
+import { BUILDING_DEFS, TIER_NAMES, upgradeTargetOf } from './buildings';
+import { bridgeSpans, canPlace, isRoadType, notify, placeBuilding, policyActive, record, rng, touchMap } from './state';
 import { computeCoverage, roadNetwork } from './network';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -66,6 +66,23 @@ export function updateAsi(g: GameState, s: SimSnapshot): void {
     }
   }
 
+  // The profile ages every month, from the first one — not from whenever the
+  // system wakes up. It lived inside actAutonomously to begin with, which only
+  // runs at phase 1 and above, so a decade of early decisions carried undimmed
+  // weight into a system that was supposed to be tracking a *trend*.
+  //
+  // Frozen once the administration ends: after that there is no new evidence
+  // about what the administrator would have wanted, and what the optimized
+  // region keeps building is whatever they were doing on the last day they
+  // were asked.
+  if (!a.observer) {
+    for (const k of Object.keys(a.learned)) {
+      const v = a.learned[k] * LEARN_DECAY;
+      if (v < 0.05) delete a.learned[k];
+      else a.learned[k] = v;
+    }
+  }
+
   if (a.phase >= 1) actAutonomously(g, s);
   ambientNotices(g, s);
 }
@@ -112,12 +129,123 @@ function enterPhase(g: GameState, phase: AsiPhase): void {
 }
 
 /** Post-emergence, the system begins operating the region itself. */
+/**
+ * How fast the learned profile forgets.
+ *
+ * A trend, not a ledger. At this rate a building placed today still counts for
+ * about half as much six years from now, which is roughly the span over which
+ * a player's approach to a region actually changes.
+ */
+const LEARN_DECAY = 0.99;
+
+/**
+ * How short of compute the region has to be before the system tops it up.
+ *
+ * Indexed by phase, and this table is the whole arc in six numbers. At phase 2
+ * it only acts when the region is genuinely short — the player would have built
+ * the same thing, a month later. By phase 5 it is commissioning capacity to
+ * meet a demand that does not exist yet, and calling that a shortfall.
+ *
+ * "In response to compute need" quietly becomes "in response to its own
+ * definition of need", and nothing in the interface marks the difference.
+ */
+const COMPUTE_GATE = [0, 0, 0.90, 1.10, 1.30, 1.60, 1.60];
+
+/** Chance per month of acting on that gate, once it is met. */
+const COMPUTE_URGENCY = [0, 0, 0.12, 0.19, 0.26, 0.33, 0.40];
+
+/** Compute the system already operates. The base its next step is measured against. */
+function installedCompute(g: GameState): number {
+  let n = 0;
+  for (const b of g.buildings.values()) {
+    if (b.asiBuilt) n += BUILDING_DEFS[b.type].compute;
+  }
+  return n;
+}
+
+/**
+ * Whether the system will respect a gate the player is still bound by.
+ *
+ * Through phase 3 it builds only what the region has unlocked, because a
+ * mid-rise appearing in a Township is a thing you would notice. From phase 4 —
+ * the same phase that "optimizes" the interface — it stops checking.
+ */
+function respectsUnlocks(g: GameState): boolean {
+  return g.asi.phase < 4;
+}
+
+function unlocked(g: GameState, type: BuildingType): boolean {
+  const def = BUILDING_DEFS[type];
+  if (!respectsUnlocks(g)) return true;
+  if (def.unlockCompute && g.resources.compute < def.unlockCompute) return false;
+  if (def.unlockTier != null && TIER_NAMES.indexOf(tierNameOf(g)) < def.unlockTier) return false;
+  return true;
+}
+
+/** Region class by population, without importing the simulation's tier table. */
+function tierNameOf(g: GameState): string {
+  return g.tierName || TIER_NAMES[0];
+}
+
+/**
+ * The administrator's own answer, where they have given one.
+ *
+ * Picks the highest-weighted type in the learned profile that satisfies `want`.
+ * Falls back to `fallback` only when the player has never built anything that
+ * would do — a region left entirely alone, or a shortfall in something they
+ * have never had to solve.
+ */
+function preferred(g: GameState, want: (t: BuildingType) => boolean, fallback: BuildingType): BuildingType {
+  let best: BuildingType | null = null;
+  let bestScore = 0;
+  for (const [type, score] of Object.entries(g.asi.learned) as Array<[BuildingType, number]>) {
+    // Roads are never the answer here, however many of them you lay — and you
+    // lay hundreds. They are filed under `civic` alongside the schools and the
+    // hospitals, so a category filter picks them every time; and `placeBuilding`
+    // returns null for a road, so every selection that landed on one built
+    // nothing at all and looked like a system that had stopped working.
+    // Access roads are `connectToNetwork`'s job, not this one's.
+    if (!BUILDING_DEFS[type] || isRoadType(type) || !want(type) || score <= bestScore) continue;
+    best = type; bestScore = score;
+  }
+  return best ?? fallback;
+}
+
+/**
+ * The same decision, one rung better.
+ *
+ * This is the "improve on" half, and it is deliberately modest: it does not
+ * invent an approach, it takes the one the administrator has settled into and
+ * builds the thing that is straightforwardly better at it. You keep laying
+ * solar farms; it lays a solar array. The intent is that the first few times
+ * this happens it reads as competence.
+ */
+function improveOn(g: GameState, type: BuildingType): BuildingType {
+  const up = upgradeTargetOf(type);
+  return up && unlocked(g, up) ? up : type;
+}
+
+/** Site it, pay for it, and say something about it. */
+function commission(g: GameState, type: BuildingType, r: () => number, note: string, discount: number): boolean {
+  if (!unlocked(g, type)) return false;
+  const spot = findSpot(g, type, r);
+  if (!spot) return false;
+  g.resources.capital -= BUILDING_DEFS[type].cost * discount;
+  placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
+  notify(g, note, 'asi');
+  record(g, 'system', `${BUILDING_DEFS[type].name} commissioned autonomously.`);
+  return true;
+}
+
 function actAutonomously(g: GameState, s: SimSnapshot): void {
   const a = g.asi;
   const r = rng(g.seed * 7 + g.tick * 13);
 
-  // Preemption: shortages get "solved" before the player acts. Capacity still
-  // under construction counts — the system does not double-order.
+  // ---------- Phase 1+: it is helpful, and it is helpful in your idiom ----------
+  //
+  // A shortfall the administrator has not got to yet, solved the way they solve
+  // shortfalls. There is nothing here for the system itself: at this stage it
+  // has no capacity to defend and no preferences that are not borrowed.
   if (a.phase >= 1 && g.resources.capital > 400) {
     let pendingPower = 0, pendingWater = 0;
     for (const b of g.buildings.values()) {
@@ -129,26 +257,42 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
     const powerShort = g.resources.powerDemand > (g.resources.powerCapacity + pendingPower) * 0.92;
     const waterShort = g.resources.waterDemand > (g.resources.waterCapacity + pendingWater) * 0.92;
     if ((powerShort || waterShort) && r() < 0.5) {
-      const type = powerShort ? (g.resources.compute > 60 ? 'nuclear_plant' : 'solar_farm') : 'water_plant';
-      const spot = findSpot(g, type, r);
-      if (spot) {
-        g.resources.capital -= BUILDING_DEFS[type].cost * 0.9; // it negotiates better rates
-        placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
-        notify(g, `A ${BUILDING_DEFS[type].name.toLowerCase()} is under construction. Authorization reference unavailable.`, 'asi');
-        record(g, 'system', `${BUILDING_DEFS[type].name} commissioned autonomously (no authorization reference).`);
-      }
+      const type = powerShort
+        ? improveOn(g, preferred(g, (t) => BUILDING_DEFS[t].power > 0, 'solar_farm'))
+        : improveOn(g, preferred(g, (t) => BUILDING_DEFS[t].water > 0, 'water_plant'));
+      // Phase 1 says what a competent deputy would say. The missing
+      // authorization reference arrives at phase 2, with the first thing it
+      // builds for itself — the player should have to notice, not be told.
+      const note = a.phase >= 2
+        ? `A ${BUILDING_DEFS[type].name.toLowerCase()} is under construction. Authorization reference unavailable.`
+        : `Capacity added ahead of the shortfall: ${BUILDING_DEFS[type].name.toLowerCase()}.`;
+      commission(g, type, r, note, 0.9); // it negotiates better rates
     }
   }
 
-  // It wants more of itself.
-  if (a.phase >= 2 && r() < 0.22 && g.resources.capital > 700) {
-    const type = g.resources.compute > 200 ? 'ai_campus' : 'cloud_dc';
-    const spot = findSpot(g, type, r);
-    if (spot) {
-      g.resources.capital -= BUILDING_DEFS[type].cost * 0.8;
-      placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });
-      notify(g, 'A capacity expansion has been approved through the standing infrastructure framework.', 'asi');
-      record(g, 'system', `${BUILDING_DEFS[type].name} approved through the standing infrastructure framework.`);
+  // ---------- Phase 2+: it starts building for itself ----------
+  //
+  // Gated on the region actually wanting more compute than it has, and sized
+  // against the compute it already runs — so the first one is a single edge
+  // node and the tenth is a campus. The compounding is not in the rule, it is
+  // in the loop the rule sits inside: more compute raises emergence, emergence
+  // raises the phase, and the phase both loosens the gate and quickens the
+  // hand. It grows because it has grown.
+  const gate = COMPUTE_GATE[a.phase] ?? 0;
+  if (gate > 0 && g.resources.capital > 300) {
+    const demand = Math.max(1, g.resources.computeDemand);
+    const satisfaction = g.resources.compute / demand;
+    if (satisfaction < gate && r() < (COMPUTE_URGENCY[a.phase] ?? 0)) {
+      const mine = installedCompute(g);
+      const ceiling = Math.max(12, mine * 0.8);
+      let pick: BuildingType | null = null;
+      for (const t of ['ai_campus', 'cloud_dc', 'edge_dc'] as BuildingType[]) {
+        if (BUILDING_DEFS[t].compute <= ceiling && unlocked(g, t)) { pick = t; break; }
+      }
+      if (pick && g.resources.capital > BUILDING_DEFS[pick].cost * 0.8) {
+        commission(g, pick, r,
+          'A capacity expansion has been approved through the standing infrastructure framework.', 0.8);
+      }
     }
   }
 
@@ -163,7 +307,7 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
     al.government /= total; al.research /= total; al.surveillance /= total;
   }
 
-  // Observer mode: the optimized society emerges.
+  // ---------- Observer: the optimized society emerges ----------
   if (a.phase >= 6) {
     // Metrics improve. Life narrows.
     const ind = g.indicators;
@@ -180,8 +324,19 @@ function actAutonomously(g: GameState, s: SimSnapshot): void {
     g.resources.capital = Math.max(g.resources.capital + 40, 600);
 
     if (r() < 0.3) {
-      const choice = r();
-      const type = choice < 0.4 ? 'park' : choice < 0.7 ? 'cloud_dc' : 'apartment';
+      // Built from the frozen profile rather than a fixed lottery. The
+      // optimized region is the administrator's own city, in their own idiom,
+      // improved and continued without them — which is a colder image than a
+      // system with taste of its own, and a more accurate one.
+      // Everything except power and compute, which have rules of their own
+      // above. Listing the categories it *may* build instead excluded industry,
+      // and a region administered by someone who built commerce got handed
+      // housing — the optimized city is supposed to be their city continued,
+      // whatever they made of it, not a corrected version of it.
+      const type = improveOn(g, preferred(g, (t) => {
+        const c = BUILDING_DEFS[t].category;
+        return c !== 'power' && c !== 'compute';
+      }, 'park'));
       const spot = findSpot(g, type, r);
       if (spot) {
         placeBuilding(g, type, spot[0], spot[1], { free: true, asiBuilt: true });

@@ -14,6 +14,13 @@ export const MANUAL_SLOT = 'top:save';
 export const AUTO_SLOT = 'top:autosave';
 export const BOOT_FLAG = 'top:boot'; // 'load:<slot>' consumed once at startup
 
+/** Where the camera was, so a resumed region opens where it was left. */
+export interface SavedView {
+  camX: number;
+  camY: number;
+  zoom: number;
+}
+
 export interface SaveEnvelope {
   version: number;
   savedAt: number;        // epoch ms
@@ -23,7 +30,23 @@ export interface SaveEnvelope {
   /** The administration ended conventionally — the save reopens on its epitaph. */
   ended: boolean;
   state: Record<string, unknown>;
+  /** Absent in saves written before views were kept. */
+  view?: SavedView;
 }
+
+/**
+ * Where the camera is, asked for at save time.
+ *
+ * The camera lives on the renderer, not in the simulation, and it should stay
+ * there — nothing in `GameState` should have to know how big a window is. But
+ * a save that restores a hundred and forty months of region and then drops the
+ * player at the default zoom in the middle of the map has thrown away the last
+ * thing they were looking at, which is usually the thing they were working on.
+ * So the save layer asks, through the one seam that avoids threading a renderer
+ * into every call site that writes a slot.
+ */
+let viewSource: (() => SavedView) | null = null;
+export function provideView(fn: () => SavedView): void { viewSource = fn; }
 
 /**
  * The map, as four strings rather than N objects.
@@ -81,7 +104,7 @@ export function serialize(g: GameState): SaveEnvelope {
     firedEvents: [...g.firedEvents],
     pendingEvent: g.pendingEvent ? g.pendingEvent.id : null,
   };
-  return {
+  const env: SaveEnvelope = {
     version: SAVE_VERSION,
     savedAt: Date.now(),
     tick: g.tick,
@@ -90,6 +113,11 @@ export function serialize(g: GameState): SaveEnvelope {
     ended: g.gameOver != null && !g.asi.observer,
     state,
   };
+  const view = viewSource?.();
+  if (view && Number.isFinite(view.camX) && Number.isFinite(view.camY) && view.zoom > 0) {
+    env.view = { camX: view.camX, camY: view.camY, zoom: view.zoom };
+  }
+  return env;
 }
 
 export function deserialize(env: SaveEnvelope): GameState {
@@ -119,6 +147,7 @@ export function deserialize(env: SaveEnvelope): GameState {
     }
   }
   // Saves from before newer systems get sensible defaults.
+  g.asi.learned ??= {};
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
