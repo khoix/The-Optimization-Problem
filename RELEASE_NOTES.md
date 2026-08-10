@@ -1864,6 +1864,62 @@ demolisher by accident while you think you are still placing.
 
 ---
 
+## Milestone 40, second half — the chrome is a control surface, not a document — `2474880`
+
+Nothing in the stylesheet set `user-select` or a tap-highlight colour. So a drag
+that began on the bar left a blue smear across the tool belt, and on a phone every
+press of every button flashed the platform's grey box behind the game's own
+pressed state — a beat later, and in the wrong colour.
+
+Selection is off on the body, and turned back on for the four places that are
+prose rather than buttons:
+
+| | |
+|---|---|
+| `.modal-body` | reports and event text |
+| `.hist-list` | the decision record |
+| `.ledger` | the treasury breakdown |
+| `.feed` | the alert stream |
+
+Those are the surfaces somebody might want to quote or keep, and none of them is
+dragged on.
+
+### Two touch details in the same family
+
+**`touch-action: manipulation` on the chrome** drops the double-tap-to-zoom
+gesture and the delay that waits to see whether one is coming. Deliberately *not*
+`touch-action: none`: pinching the page is how somebody who needs bigger text
+reads it, and the game has no business taking that away anywhere except the map,
+where a pinch is already the camera.
+
+**`-webkit-touch-callout: none` on the map.** It has its own long press — hold to
+x-ray — and the platform's text-callout menu was arriving over the top of it.
+
+### Verification
+
+18 checks, done by dragging the mouse and reading `window.getSelection()` rather
+than by reading the rule back out of `getComputedStyle`. Those are two different
+things and only one of them is the complaint. Removing the suppression fails five,
+with the smeared bar text printed in the failure output.
+
+The callout property is asserted against the **shipped stylesheet**, not against
+computed style: it is a Safari property, Chromium neither implements nor reports
+it, and reading it back there would have been a test of the test browser.
+
+> **Fixes — one in the drag, one dropped entirely.** The drag ran horizontally
+> across the middle of each element, and reported "nothing selected" on a two-line
+> alert. Correct, and useless: the middle of two lines is the gap between them, and
+> there is no text there to select. It runs corner to corner now.
+>
+> The check on the console display was removed rather than repaired. Measured at
+> five heights with selection fully enabled, the LCD's glass overlay already
+> absorbed the drag — so "dragging across the console selects nothing" would have
+> passed on every build ever made, including every build where the feature did not
+> exist. A check that cannot fail is worse than no check, because it takes up space
+> in the count.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
