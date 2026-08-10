@@ -1986,6 +1986,127 @@ balance tweak into a failure.
 
 ---
 
+## Milestone 43 — the helpful phase — `cdcf3d5`
+
+### What it was doing
+
+Measured, over twenty years at phases 1–3, before touching anything:
+
+| what the system built | count |
+|---|---|
+| data centres | 62 |
+| power & water to run them | 103 |
+| everything else | **0** |
+
+Two rules. Patch a utility shortfall, and build a data centre on a flat
+**22%-per-month coin flip** with no need test at all. And the first thing it ever
+built announced *"Authorization reference unavailable."* The middle game told the
+player what was happening before anything had felt wrong.
+
+### It learns what you build
+
+Every placement the administrator makes is noted in a decaying histogram — a
+**trend, not a tally**, halving over about six years, so what you have been doing
+lately outweighs what you did in year one. What the system builds itself teaches
+it nothing: the profile is about you.
+
+### Phase 1 is help, in your idiom
+
+It still fixes real shortfalls. But *what* it builds comes from your profile
+rather than a hardcoded type — if you solve power with solar, it solves power
+with solar. Where your habit has a successor on M32's ladder and the region has
+unlocked it, it builds the successor: you keep laying solar farms, it lays a
+solar array. Same decision, one rung better, on a site chosen better than yours.
+
+It commissions **no compute at all** before phase 2. And it speaks like a
+competent deputy — *"Capacity added ahead of the shortfall."* The missing
+authorization reference now arrives at phase 2, with the first thing it builds
+for itself.
+
+### Compute becomes a curve
+
+Gated on the region genuinely wanting more than it has, and sized against the
+compute it already runs — so the first is one edge node and the tenth is a
+campus.
+
+| phase | it acts when satisfaction is below | which means |
+|---|---|---|
+| 1 | — | nothing |
+| 2 | 0.90 | the region is actually short |
+| 3–4 | 1.10–1.30 | a margin |
+| 5–6 | 1.60 | capacity for a demand that does not exist |
+
+That table is the whole arc in six numbers: *"in response to compute need"*
+quietly becomes *"in response to its own definition of need"*, and nothing in the
+interface marks the difference.
+
+The compounding is not in the rule — it is in the loop the rule sits inside. More
+compute raises emergence, emergence raises the phase, and the phase both loosens
+the gate and quickens the hand. Measured on a scripted administrator, seed 606:
+
+> **nothing for twenty-six years**, then 36 compute, then 108, then 654, then 804.
+
+### The gates, and when it stops respecting them
+
+Through phase 3 it builds only what the region has unlocked — a mid-rise in a
+Township is a thing you would notice. From **phase 4**, the same phase that
+"optimizes" the interface, it stops checking.
+
+### Observation builds your city, not its own
+
+The fixed 40/30/30 park/DC/apartment lottery is gone. It builds from the profile,
+frozen at the moment the administration ended. A region run by a park-builder
+keeps getting parks; one run by someone who built commerce gets **office towers**.
+Your city, in your idiom, improved and continued without you — a colder image
+than a system with taste of its own, and a more accurate one.
+
+### The risk that did not materialise
+
+Removing early self-expansion should have starved emergence of its compute input.
+It did not, and the reason is worth recording: **early emergence was never being
+driven by the system's own compute — it was driven by the player's.**
+
+| seed 606, scripted administrator | phase 1 | phase 6 |
+|---|---|---|
+| before | year 22.1 | year 27.8 |
+| after | year 22.1 | year 28.3 |
+
+Half a year on a twenty-eight-year arc. No re-pacing needed.
+
+### Verification
+
+30 checks. Against the previous behaviour **10 fail**, including twenty data
+centres commissioned into a region whose compute demand was already met, an
+opening move of `cloud_dc` rather than `edge_dc`, and an observer mix that
+ignores the administrator entirely.
+
+> **Fixes.** Roads are filed under `civic`, alongside the schools and the
+> hospitals — and a player lays hundreds of them. So a category filter picked a
+> road every time, and `placeBuilding` returns null for a road, so every selection
+> that landed on one built nothing at all and looked like a system that had
+> stopped working. The profile also aged inside `actAutonomously`, which only runs
+> from phase 1, so a decade of early decisions carried undimmed weight into
+> something meant to track a *trend*. And the observer branch listed the
+> categories it *may* build, which excluded `industry` and handed a
+> commerce-minded administrator housing instead; it excludes only power and
+> compute now, which have rules of their own.
+>
+> **And one in the harness worth naming.** The pacing probe's scripted
+> administrator planted seven buildings a year and never a power plant. Everything
+> went offline, the population fell from 101 to 14, no compute was ever produced,
+> and emergence sat at zero for thirty years — which would have read as *"the new
+> pacing never reaches takeover"* when it was the fake player bankrupting the grid.
+> It keeps the lights on first now.
+
+> **A consequence worth stating.** The system builds materially *less* at any
+> given phase, because it now has to have a reason. M36's bridge probe drove it at
+> phase 3 and got 82 commissions where it once got 341 — not enough building for a
+> river crossing to ever come up. Crossing water is a property of
+> `connectToNetwork` and is the same at every phase; what that probe needs from the
+> phase is volume, so it runs at phase 6 and asserts the volume it got.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
