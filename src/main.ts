@@ -6,7 +6,7 @@ import { canDemolish } from './game/asi';
 import { UI, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, releaseSlots, saveTo } from './game/save';
+import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, provideView, releaseSlots, saveTo, type SavedView } from './game/save';
 import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
@@ -34,7 +34,9 @@ const bootFlag = consumeBootFlag();
 const wantsMenu = bootFlag === 'menu' || bootFlag === null;
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
-const g = (isNew || wantsMenu ? null : loadFrom(bootFlag ?? AUTO_SLOT)) ?? newGame(undefined, scenarioChoice);
+const bootSlot = bootFlag ?? AUTO_SLOT;
+const bootView = isNew || wantsMenu ? null : peek(bootSlot)?.view ?? null;
+const g = (isNew || wantsMenu ? null : loadFrom(bootSlot)) ?? newGame(undefined, scenarioChoice);
 // A menu backdrop is scenery, not an administration: it must never autosave
 // over the save the player is about to be offered. Mutable, because the menu
 // is somewhere the player can now return to without reloading the page.
@@ -43,6 +45,29 @@ const freshGame = g.tick === 0 && !wantsMenu;
 
 const renderer = new Renderer(canvas);
 renderer.centerOn(Math.floor(MAP_W * 0.52), Math.floor(MAP_H * 0.5));
+// The camera is the renderer's, so the save layer has to be told where to ask.
+provideView((): SavedView => ({ camX: renderer.camX, camY: renderer.camY, zoom: renderer.zoom }));
+
+/**
+ * Put a resumed region back where it was left.
+ *
+ * A saved zoom can be one this screen cannot afford — written on a desktop,
+ * opened on a phone — so it goes through setZoom, which clamps to the floor,
+ * and the camera is set afterwards because setZoom moves it to hold a point
+ * fixed. Anything the map cannot honour is corrected by clampCamera on the
+ * first frame.
+ */
+function restoreView(view: SavedView | null | undefined): boolean {
+  if (!view || !Number.isFinite(view.camX) || !Number.isFinite(view.camY) || !(view.zoom > 0)) return false;
+  // setZoomDirect rather than setZoom: it also cancels any ease still in
+  // flight from the session being left, which would otherwise pull the
+  // restored zoom back toward a target belonging to a different region.
+  renderer.setZoomDirect(view.zoom, 0, 0);
+  renderer.camX = view.camX;
+  renderer.camY = view.camY;
+  return true;
+}
+restoreView(bootView);
 
 const sound = new Soundscape();
 /**
@@ -98,6 +123,7 @@ function startSession(req: SessionRequest): void {
     archiveRun(g);
     releaseSlots(g);
   }
+  const loadedView = req.kind === 'load' ? peek(req.slot)?.view ?? null : null;
   const next = req.kind === 'load'
     ? loadFrom(req.slot)
     : newGame(undefined, req.kind === 'new' ? req.scenario : 'verdant');
@@ -125,7 +151,12 @@ function startSession(req: SessionRequest): void {
 
   invalidateNetwork(g);
   renderer.resetSession();
-  renderer.centerOn(Math.floor(g.mapW * 0.52), Math.floor(g.mapH * 0.5));
+  // A resumed region opens where it was left; anything else opens at the
+  // middle, which is the only sensible place to start a map nobody has seen.
+  if (!restoreView(loadedView)) {
+    renderer.setZoomDirect(2, 0, 0);
+    renderer.centerOn(Math.floor(g.mapW * 0.52), Math.floor(g.mapH * 0.5));
+  }
   ui.resetSession();
 
   if (atMenu) ui.showTitle();
@@ -146,6 +177,13 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
   demolishPreview, TILE, BUILDING_DEFS, newGame, touchMap,
   upgradePlan, performUpgrade, UPGRADE_PATH, unlockedBetween,
+  // Exposed so a harness can swap in a seeded region the way startSession
+  // does: the road network is cached against the state object, and a swap
+  // that mutates it in place leaves a stale entry behind.
+  invalidateNetwork,
+  // The save layer, so a harness can write and read a slot without going
+  // through the menu to do it.
+  saveTo, peek, MANUAL_SLOT: 'top:save',
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
