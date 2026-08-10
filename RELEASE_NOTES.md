@@ -1920,6 +1920,72 @@ it, and reading it back there would have been a test of the test browser.
 
 ---
 
+## Milestone 42 — a resumed region opens where it was left — `4ec8aa8`
+
+A save restored a hundred and forty months of region and then dropped the player
+at the default zoom in the middle of the map. Everything about the region came
+back except the one thing they were actually looking at, which is usually the
+thing they were working on.
+
+The camera and zoom go into the save envelope now, and come back out on boot and
+through the Load menu. A new region still opens centred at 2× — the only sensible
+place to start a map nobody has seen.
+
+### Where it lives
+
+The camera belongs to the renderer, not to the simulation, and it stays there:
+nothing in `GameState` should have to know how big a window is. The save layer is
+told where to ask instead, through one registered accessor, which avoids threading
+a renderer into every call site that writes a slot.
+
+A saved zoom can be one the opening screen cannot afford — written on a desktop
+and opened on a phone, or the reverse, since the buffer budget means a *small*
+screen reaches a *lower* ratio than a big one. It goes through `setZoomDirect`,
+which clamps to that screen's floor and cancels any ease left over from the
+session being left; the camera is applied afterwards, because setting a zoom moves
+it to hold a point fixed. Saves written before views were kept simply have no view
+on them and fall back to the default, so nothing needed a version bump.
+
+### And the fixture M36 never had
+
+Every assertion in that suite is about what the system does over twenty-five years
+on a map — and until now each run got a **different map**, because `newGame` seeds
+itself from the clock. The thresholds were being asked to hold across every region
+the generator can produce, and they did not: bridge tiles ranged **0 to 12 across
+runs of identical code**, and the suite failed intermittently across five
+milestones on changes that had nothing to do with siting.
+
+Three sections now pin three different seeds, so the suite still spans more than
+one map while any single run repeats. Measured identical across three consecutive
+runs: median nearest-neighbour spread 3, worst 6, 21 bridge tiles, every time.
+
+The bounds stay bounds rather than becoming the exact numbers these seeds happen
+to produce. A deterministic fixture should stop a test flapping — not turn every
+balance tweak into a failure.
+
+> The swap mirrors what `startSession` does: replace the contents of the same
+> state object, drop the road-network cache keyed against it, reset the renderer.
+> Anything less leaves a stale cache behind, which is why `invalidateNetwork` is
+> now on the debug handle alongside the save helpers.
+
+### Verification
+
+18 checks on the view. Not restoring it fails four.
+
+> **Fixes — two probes that asserted over conditions they never created.** The
+> screen-affordance case saved at 1:2 on a desktop and opened it on a phone whose
+> floor was 1:4. Nothing needed correcting, so nothing was corrected, and the check
+> that nothing needed correcting passed. It saves on the *narrow* window and opens
+> on the *wide* one now, where the lift genuinely has to happen — and the check
+> that the saved zoom is below the opening floor is stated first, so the premise
+> cannot go missing again.
+>
+> The backward-compatibility case was saving a region that had never ticked, so
+> "an older save still opens" was a claim about an empty map. It runs three years
+> first and asserts the tick survived.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
