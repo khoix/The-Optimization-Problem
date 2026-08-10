@@ -213,6 +213,18 @@ export interface AsiState {
   shadowPolicies: PolicyId[];
   /** Oversight policies the player enacted that were quietly scoped down. */
   diluted: PolicyId[];
+  /**
+   * What the administrator builds, as a decaying count per building type.
+   *
+   * Not a tally — a *trend*. Every entry decays a little each month, so what
+   * the player has been doing lately outweighs what they did in year one, and
+   * the system's idea of a good decision moves with them.
+   *
+   * It is the input to everything the system builds while it is still being
+   * helpful: it does not have preferences of its own until it has compute to
+   * defend, so until then it has yours.
+   */
+  learned: Record<string, number>;
 }
 
 export interface EventChoice {

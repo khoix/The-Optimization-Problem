@@ -203,6 +203,10 @@ export function placeBuilding(g: GameState, type: BuildingType, x: number, y: nu
     if (g.resources.capital < def.cost) return null;
     g.resources.capital -= def.cost;
   }
+  // Everything the administrator puts down is noted. Roads included: a player
+  // who paves before they build is telling the system something about how they
+  // work, and the system is listening from the first month.
+  if (!opts?.asiBuilt) g.asi.learned[type] = (g.asi.learned[type] ?? 0) + 1;
   if (isRoadType(type)) {
     const t = tileAt(g, x, y)!;
     t.road = true;
@@ -392,6 +396,7 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     asi: {
       emergence: 0, phase: 0, phaseTick: 0, noticesShown: [], renamed: false, observer: false,
       weights: profile.weights, thresholds: profile.thresholds, shadowPolicies: [], diluted: [],
+      learned: {},
     },
     notifications: [],
     notificationSeq: 0,

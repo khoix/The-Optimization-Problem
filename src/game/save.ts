@@ -147,6 +147,7 @@ export function deserialize(env: SaveEnvelope): GameState {
     }
   }
   // Saves from before newer systems get sensible defaults.
+  g.asi.learned ??= {};
   g.scenario ??= 'verdant';
   g.mapVersion ??= 0;
   g.pendingReport ??= null;
