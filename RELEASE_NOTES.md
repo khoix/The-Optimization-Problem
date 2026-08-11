@@ -2197,6 +2197,116 @@ founding roads standing on rock, a 4×4 landing a tile and a half off the pointe
 
 ---
 
+## Milestone 45 — the region at night — `5800ad6`
+
+### The affordances went out with the lights
+
+The build cursor, the service ring, the ghost, the demolition hatching, the
+selection outline and the offline badges were all drawn into the world buffer
+*before* the lighting pass — so at midnight they were multiplied down by the
+ambient along with the ground they sit on. Measured at 1 a.m.:
+
+| | change to the pixels under the cursor |
+|---|---|
+| noon | 122 |
+| 1 a.m., before | 27 |
+| 1 a.m., after | 199 |
+
+The answer to *"can I build here"* was faintest at the hour the map was hardest
+to read. These are not lit surfaces — they are the interface, drawn over the
+world — so they now run after the lighting multiply, in a pass of their own.
+The white selection outline goes the same way: 431 by day and 152 at night
+before, 435 and 481 after.
+
+Diagnostic layers stay under the lighting. A coverage layer is a recolouring of
+the ground, and ground is a thing that gets dark.
+
+### Street lights
+
+The one piece of infrastructure with nothing on it after dark was the roads,
+which made a night region read as an unlit field with lit boxes standing in it.
+
+**Every tile of street carries a pair of lamps, one on each verge.** Which edge
+is the verge depends on which way the carriageway runs, so each tile asks its
+four neighbours — the same test the road sprites use — and stands its pair on
+the two sides the traffic is not using. A junction has no single answer, so its
+pair goes to opposite corners, which are off both. Each bulb is a single pixel:
+there are six times as many of them as a lamp every third tile would give, and
+at any larger size they read as a dotted line painted down the kerb.
+
+A **dirt track gets none** — it exists to be the cheap thing you lay at the edge
+of the map, and lighting it would be the most expensive part of it.
+
+Every lamp throws its own pool, at a radius of a tile and a bit. Two on opposite
+kerbs light the road from both sides and meet in the middle of it, which is what
+a lit street looks like and is not what one pool centred on the crown of the
+road looks like.
+
+The pools are the whole cost of the feature — a lit downtown stamps two thousand
+of them a frame — so what is left to optimise is how they are drawn, not how
+many there are. Each is baked once for the session rather than built with
+`createRadialGradient` per lamp per frame, which is what the building lights do
+and is most of what a small light costs. A tile's pair is baked *together*, into
+one sprite sized to the light rather than to the tile: the two pools overlap
+across most of their area, so stamping them as a pair draws the ground between
+them once instead of twice and halves the composite count.
+
+| region, at 1:1, at 1 a.m. | bulbs | pools | lighting pass |
+|---|---|---|---|
+| a two-year-old town | ~140 | ~140 | 2.4ms |
+| a 950-tile downtown grid | 1,914 | 1,914 | 9.7ms |
+| every buildable tile paved | 22,598 | 8,398 | 40.8ms |
+
+Two cheaper arrangements were measured and rejected. **One pool per tile**
+instead of one per bulb saves a third and puts the light down the crown of the
+road instead of along its edges — cheaper, and not what a street lamp does.
+**Half-resolution accumulation** — stamp the pools into a quarter-area scratch
+buffer and blit it up once — is worse, not better: the smoothed upscale of a
+world-sized buffer costs more than the fill it saves, and it took a two-year-old
+town's lighting pass from 2.7ms to 14.3ms before saving a single lamp. Baking
+the pair together and fitting the sprite to the light took the downtown case
+from 14.2ms to 9.7ms without touching what it looks like.
+
+Below 1:1 the pools thin by half — the viewport grows as the square of how far
+out you are, so at 0.7 it holds three times the tiles, while each pool fades
+toward nothing and covers less than a pixel of the screen it lands on. The bulbs
+never thin, because a pixel costs nothing. Both stop below the detail band,
+along with the other close-up passes.
+
+*(Software rasterisation in headless Chromium. These bound the cost and rank the
+passes; they do not predict what a GPU does with them.)*
+
+### Fixes
+
+> **Car headlights have never once been drawn.** The emissive buffer was cleared
+> at the top of the *buildings* pass — but the agents run before the buildings,
+> and write headlights into that buffer. Every headlight in the region was
+> erased one pass after it was written, on every frame, since the prototype. The
+> clear moved to the top of the frame. Measured: 0 emissive pixels at a car
+> parked on a dark road before, non-zero after. Street lamps are written in the
+> same window and would have been eaten by the same line.
+
+> **And two in the harness.** The demolish-cursor check hovered a clear patch of
+> grass and measured a difference of exactly zero — a true fact about empty
+> ground, since the tool draws nothing where there is nothing to remove. And the
+> whole file founded its region from `Date.now()`, so a run whose terrain
+> happened to put no open grass in the sampling band failed on a probe rather
+> than on the code. Seeded now, which is the M36 lesson arriving for the second
+> time: a screen read is a claim about a specific region, so it has to be the
+> same region twice.
+
+### Verification
+
+40 checks. Against the previous behaviour **13 fail**, including the cursor
+losing four-fifths of its contrast at 1 a.m., open ground and pavement going
+dark at the same rate, and nothing whatsoever in the emissive buffer where a car
+is standing. Lamp placement is read out of the emissive buffer a pixel at a
+time, over every tile of street on screen rather than a sample of them — the
+composite chain upscales, grades, blooms and blurs before anything reaches the
+screen, and this is a claim about which pixel a lamp is on.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
