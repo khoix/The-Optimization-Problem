@@ -174,7 +174,6 @@ body {
 }
 .save-row .small-btn { flex: 0 0 auto; }
 .row-x:hover { background: rgba(220, 80, 80, 0.18); color: var(--bad); }
-.run-del { color: var(--bad); }
 .rec-cause { font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
 
 /* politics summary */
