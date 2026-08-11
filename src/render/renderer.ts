@@ -67,6 +67,15 @@ const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
+/**
+ * Tiles between street lamps, counted along whichever axis the road runs.
+ *
+ * Three is close enough that a street reads as continuously lit and far enough
+ * that the pools stay distinguishable — and it bounds the cost: a screenful of
+ * solid pavement at 1:1 is about a hundred and forty lamps, not four hundred.
+ */
+const LAMP_SPACING = 3;
+
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 /** Ambient light keyframes across 24h: [hour, r, g, b]. */
@@ -164,6 +173,17 @@ export class Renderer {
   private cars: HTMLCanvasElement[];
   private peds: HTMLCanvasElement[];
   private clouds: HTMLCanvasElement;
+  /** One baked pool of lamplight, stamped once per street light. */
+  private lampGlow: HTMLCanvasElement;
+  /**
+   * Where this frame's street lamps are, in world-buffer pixels, flat x,y.
+   *
+   * Filled by the lamp pass and read again by the lighting pass, so the road
+   * tiles in view are walked once rather than twice. Reused between frames:
+   * this runs sixty times a second and a fresh array each time is garbage for
+   * nothing.
+   */
+  private lamps: number[] = [];
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
   /** Screen-sized gradients. Their geometry only changes on resize. */
@@ -223,6 +243,7 @@ export class Renderer {
     this.cars = makeCarSprites();
     this.peds = makePedestrianSprites();
     this.clouds = this.makeCloudShadow();
+    this.lampGlow = this.makeLampGlow();
     this.resize();
   }
 
@@ -522,6 +543,14 @@ export class Renderer {
     const x1 = Math.min(g.mapW - 1, Math.ceil((camX + W) / TILE)), y1 = Math.min(g.mapH - 1, Math.ceil((camY + H) / TILE));
     w.fillStyle = '#1a2430';
     w.fillRect(0, 0, W, H);
+    // The emissive buffer is cleared here, at the top of the frame, and not —
+    // as it was — at the start of the buildings pass. The agents run before the
+    // buildings and write car headlights into it, so clearing it later wiped
+    // every headlight in the region before anything could read them: the code
+    // has been there since the prototype and has never once put light on a
+    // road. Anything emissive drawn before the buildings had the same fate.
+    this.ectx.clearRect(0, 0, W, H);
+    this.emissiveUsed = false;
     if (g.mapVersion !== this.cachedMapVersion) this.syncTerrainCache(g);
     w.drawImage(this.terrainCache!, camX, camY, W, H, 0, 0, W, H);
 
@@ -555,6 +584,13 @@ export class Renderer {
     const nightF = this.nightFactor();
 
     this.stamp('terrain');
+    // ------------------------------------------------------------ street lamps
+    // Before the agents and the buildings, so a car passes under a lamp and a
+    // tower stands in front of one. The glows themselves are added in the
+    // lighting pass, from the positions collected here.
+    this.drawStreetLamps(w, g, camX, camY, x0, y0, x1, y1, nightF);
+
+    this.stamp('street lamps');
     // ------------------------------------------------------------ agents
     // Drawn before the buildings, not after: with the height axis a tall
     // building's mass now covers ground behind it, and a car on that street
@@ -605,8 +641,6 @@ export class Renderer {
 
     this.stamp('trees');
     // ------------------------------------------------------------ buildings
-    this.ectx.clearRect(0, 0, W, H);
-    this.emissiveUsed = false;
 
     // The x-ray window is cut out of the buildings themselves rather than
     // pasted back over them. Anything standing nearer than the point under the
@@ -902,6 +936,52 @@ export class Renderer {
     if (ui.overlay) this.drawOverlay(w, g, ui.overlay, camX, camY, x0, y0, x1, y1);
 
     this.stamp('diagnostics');
+    // ------------------------------------------------------------ lighting pass
+    const [ar, ag, ab] = ambientAt(this.hour);
+    const rainDim = 1 - this.rain * 0.25;
+    const l = this.lctx;
+    l.globalCompositeOperation = 'source-over';
+    l.fillStyle = `rgb(${Math.round(ar * rainDim)},${Math.round(ag * rainDim)},${Math.round(ab * rainDim)})`;
+    l.fillRect(0, 0, W, H);
+    if (nightF > 0.05) {
+      l.globalCompositeOperation = 'lighter';
+      for (const pl of this.collectLights(g, camX, camY, W, H)) {
+        const grad = l.createRadialGradient(pl.x, pl.y, 1, pl.x, pl.y, pl.r);
+        grad.addColorStop(0, pl.color);
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        l.globalAlpha = pl.intensity * nightF;
+        l.fillStyle = grad;
+        l.fillRect(pl.x - pl.r, pl.y - pl.r, pl.r * 2, pl.r * 2);
+      }
+      // Street lamps, from the positions the lamp pass already collected. One
+      // baked pool stamped per lamp rather than a gradient built per lamp: a
+      // lit grid puts far more of these on screen than there are buildings.
+      if (this.lamps.length) {
+        const gw = this.lampGlow.width, half = gw / 2;
+        l.globalAlpha = 0.62 * nightF;
+        for (let i = 0; i < this.lamps.length; i += 2) {
+          l.drawImage(this.lampGlow, this.lamps[i] - half, this.lamps[i + 1] - half);
+        }
+      }
+      l.globalAlpha = 1;
+      l.globalCompositeOperation = 'source-over';
+    }
+    w.globalCompositeOperation = 'multiply';
+    w.drawImage(this.light, 0, 0);
+    w.globalCompositeOperation = 'source-over';
+
+    this.stamp('lighting');
+    // ------------------------------------------------ the interface layer
+    // Everything from here to the compose is the player's own marks on the
+    // map: what a click would place, what it would take away, what is
+    // selected, and which finished buildings are standing idle.
+    //
+    // Drawn *after* the lighting multiply, which is the whole point of the
+    // section. It used to run before it, so a placement cursor at midnight was
+    // multiplied down to a fifth of its brightness along with the ground — the
+    // affordances faded exactly when the map got hard to read, and the answer
+    // to "can I build here" was dimmest at the hour you most needed to ask it.
+    // These are not lit surfaces. They are the interface, drawn over the world.
     // ------------------------------------------------------------ build cursor
     if (ui.buildType && ui.buildTile) {
       const def = BUILDING_DEFS[ui.buildType];
@@ -1021,32 +1101,8 @@ export class Renderer {
       w.fillRect(cx + 2, cy + 7, 2, 2);
     }
 
-    this.stamp('build cursor');
-    // ------------------------------------------------------------ lighting pass
-    const [ar, ag, ab] = ambientAt(this.hour);
-    const rainDim = 1 - this.rain * 0.25;
-    const l = this.lctx;
-    l.globalCompositeOperation = 'source-over';
-    l.fillStyle = `rgb(${Math.round(ar * rainDim)},${Math.round(ag * rainDim)},${Math.round(ab * rainDim)})`;
-    l.fillRect(0, 0, W, H);
-    if (nightF > 0.05) {
-      l.globalCompositeOperation = 'lighter';
-      for (const pl of this.collectLights(g, camX, camY, W, H)) {
-        const grad = l.createRadialGradient(pl.x, pl.y, 1, pl.x, pl.y, pl.r);
-        grad.addColorStop(0, pl.color);
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        l.globalAlpha = pl.intensity * nightF;
-        l.fillStyle = grad;
-        l.fillRect(pl.x - pl.r, pl.y - pl.r, pl.r * 2, pl.r * 2);
-      }
-      l.globalAlpha = 1;
-      l.globalCompositeOperation = 'source-over';
-    }
-    w.globalCompositeOperation = 'multiply';
-    w.drawImage(this.light, 0, 0);
-    w.globalCompositeOperation = 'source-over';
 
-    this.stamp('lighting');
+    this.stamp('interface');
     // ------------------------------------------------------------ compose to screen
     const s = this.sctx;
     const sw = this.screen.width, sh = this.screen.height;
@@ -1329,6 +1385,68 @@ export class Renderer {
     return `saturate(${sat.toFixed(2)}) hue-rotate(${hue.toFixed(1)}deg) brightness(${bright.toFixed(2)})`;
   }
 
+  /**
+   * Street lighting.
+   *
+   * A paved region went perfectly black between the buildings — the roads were
+   * the one piece of infrastructure with nothing on it after dark, which made
+   * the night read as an unlit field with lit boxes standing in it rather than
+   * as a town.
+   *
+   * `(tx + ty) % LAMP_SPACING` puts a lamp every third tile along a road
+   * whichever way it runs, without needing to know which way that is: hold
+   * either coordinate still and the other one counts. A dirt track gets none —
+   * the class exists to be the cheap thing you lay at the edge of the map, and
+   * lighting it would be the most expensive part of it.
+   *
+   * The heads go into the world buffer and the emissive buffer; the pools of
+   * light are stamped in the lighting pass, from `this.lamps`.
+   */
+  private drawStreetLamps(
+    w: CanvasRenderingContext2D, g: GameState, camX: number, camY: number,
+    x0: number, y0: number, x1: number, y1: number, nightF: number,
+  ): void {
+    this.lamps.length = 0;
+    // Nothing to light by day, and nothing worth drawing at map scale: a lamp
+    // is four pixels, and at 1:4 it is one pixel of haze per three tiles. It
+    // fades out across the same band the other close-up passes use rather than
+    // switching off at a threshold nobody can see coming.
+    const detail = detailAt(this.zoom);
+    if (nightF <= 0.05 || detail <= 0) return;
+    const a = Math.min(1, nightF * 1.3) * detail;
+    // Below 1:1 the viewport grows as the square of how far out you are — at
+    // 0.7 it holds three times the tiles it does at 1:1 — while each lamp is
+    // fading toward nothing and is smaller than a pixel anyway. Thinning them
+    // out over that stretch keeps the count roughly flat across the band the
+    // fade covers, which is the difference between a cost and a stall on a
+    // region that is mostly pavement.
+    const spacing = this.zoom >= 1 ? LAMP_SPACING : LAMP_SPACING * 2;
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        if ((tx + ty) % spacing !== 0) continue;
+        const tile = g.map[ty * g.mapW + tx];
+        if (!tile.road || (tile.roadType ?? 1) < 1) continue;
+        const dx = tx * TILE - camX, dy = ty * TILE - camY;
+        // Post first, head over it. Both sit toward one corner of the tile, so
+        // a run of them lines up along the kerb instead of down the middle of
+        // the carriageway.
+        w.globalAlpha = a * 0.8;
+        w.fillStyle = '#20242e';
+        w.fillRect(dx + 3, dy + 4, 1, 4);
+        w.globalAlpha = a;
+        w.fillStyle = '#ffe7b4';
+        w.fillRect(dx + 2, dy + 2, 3, 2);
+        this.ectx.globalAlpha = a;
+        this.ectx.fillStyle = '#ffe7b4';
+        this.ectx.fillRect(dx + 2, dy + 2, 3, 2);
+        this.emissiveUsed = true;
+        this.lamps.push(dx + 3, dy + 3);
+      }
+    }
+    w.globalAlpha = 1;
+    this.ectx.globalAlpha = 1;
+  }
+
   private collectLights(g: GameState, camX: number, camY: number, W: number, H: number): PointLight[] {
     const out: PointLight[] = [];
     for (const b of g.buildings.values()) {
@@ -1539,6 +1657,34 @@ export class Renderer {
     const maxX = g.mapW * TILE - vw, maxY = g.mapH * TILE - vh;
     this.camX = maxX > 0 ? Math.max(0, Math.min(maxX, this.camX)) : maxX / 2;
     this.camY = maxY > 0 ? Math.max(0, Math.min(maxY, this.camY)) : maxY / 2;
+  }
+
+  /**
+   * One street lamp's pool of light, baked once.
+   *
+   * Deliberately not a `createRadialGradient` per lamp per frame, which is what
+   * the building lights do: a lit street can have forty lamps in view at once
+   * against a couple of dozen buildings, and building the gradient object is
+   * most of what a small light costs. Stamped with `drawImage` in `lighter`
+   * instead — same pool, one allocation for the session.
+   */
+  private makeLampGlow(): HTMLCanvasElement {
+    // A tile and a bit. Wider than this and the pool stops being a lamp and
+    // becomes a wash over the verge either side — the light buffer multiplies,
+    // so a wide pool over grass reads as bright green rather than as lit road.
+    const r = 19;
+    const c = document.createElement('canvas');
+    c.width = r * 2; c.height = r * 2;
+    const ctx = c.getContext('2d')!;
+    const grad = ctx.createRadialGradient(r, r, 1, r, r, r);
+    // Sodium-warm in the middle, and gone well before the edge so two lamps a
+    // few tiles apart read as two lamps rather than one long smear.
+    grad.addColorStop(0, 'rgba(255,224,168,0.9)');
+    grad.addColorStop(0.4, 'rgba(255,206,138,0.24)');
+    grad.addColorStop(1, 'rgba(255,196,120,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, r * 2, r * 2);
+    return c;
   }
 
   private makeCloudShadow(): HTMLCanvasElement {
