@@ -2382,7 +2382,7 @@ written when the tab is hidden.
 
 ---
 
-## Milestone 47 — the list is the button — `HASH`
+## Milestone 47 — the list is the button — `77d2047`
 
 Past Administrations had a *Decisions* button and a *Delete* button on every
 row, side by side, the same size. Opening an administration's decisions is the
