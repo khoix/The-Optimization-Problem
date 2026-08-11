@@ -2197,7 +2197,7 @@ founding roads standing on rock, a 4×4 landing a tile and a half off the pointe
 
 ---
 
-## Milestone 45 — the region at night — `HASH`
+## Milestone 45 — the region at night — `5800ad6`
 
 ### The affordances went out with the lights
 
