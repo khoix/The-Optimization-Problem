@@ -417,7 +417,13 @@ export function newGame(seed = Date.now() % 100000, scenarioId: ScenarioId = 've
     const t = tileAt(g, x, y);
     if (!t || t.terrain === 'water') return;
     t.road = true; t.roadType = 1;
-    if (t.terrain === 'forest') t.terrain = 'grass';
+    // Rock as well as forest. The founding grid is laid straight over whatever
+    // the terrain generator left, and a street sitting on rock could never be
+    // repaved: `canPlace` refuses rock before it ever looks at what is already
+    // there, so the tile reported "clear the rock first" about ground the
+    // player could not see under their own road. It reads as roads not being
+    // upgradeable at all, which is what it was reported as.
+    if (t.terrain === 'forest' || t.terrain === 'rock') t.terrain = 'grass';
   };
   for (const row of [cy - 4, cy, cy + 4]) for (let x = cx - 7; x <= cx + 7; x++) layRoad(x, row);
   for (const col of [cx - 4, cx, cx + 4]) for (let y = cy - 5; y <= cy + 5; y++) layRoad(col, y);

@@ -196,6 +196,12 @@ export function deserialize(env: SaveEnvelope): GameState {
   if (env.locked) g.asi.observer = true;
   // Tiles predating road classes default to Street.
   for (const t of g.map) if (t.roadType === undefined) t.roadType = 1;
+  // Regions founded before roads cleared rock have streets standing on it, and
+  // a road on rock is permanently stuck at whatever class it was laid as:
+  // placement refuses rock without ever looking at the pavement over it. The
+  // rock under an existing road is not visible and not doing anything, so it
+  // goes — which unsticks every founding street in every save already written.
+  for (const t of g.map) if (t.road && t.terrain === 'rock') t.terrain = 'grass';
   // Cities built before roads were a requirement get access stubs rather
   // than going dark on load.
   connectOrphans(g);

@@ -230,6 +230,11 @@ export function connectOrphans(g: GameState): number {
       const t = g.map[y * g.mapW + x];
       if (t.buildingId !== -1 || t.terrain === 'water' || t.road) return;
       t.road = true; t.roadType = 1; laid++;
+      // Whatever this stub is laid over stops being there. It used to pave
+      // straight across rock and leave the rock underneath, which is a tile no
+      // road class can ever replace — `canPlace` refuses rock before it reads
+      // the road already on it.
+      if (t.terrain === 'forest' || t.terrain === 'rock') t.terrain = 'grass';
       touchMap(g, x, y);
     };
     const stepY = Math.sign(ty - cy), stepX = Math.sign(tx - cx);

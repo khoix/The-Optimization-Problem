@@ -496,6 +496,12 @@ body {
 /* Measured, not guessed: the bar reflows when it folds and when the window
    narrows, and any fixed number is right for exactly one of those. */
 .inspector { bottom: calc(var(--bar-h, 130px) + 10px); left: 10px; width: 280px; }
+/* Anchored to the building it describes instead of to the corner. The offsets
+   come from the frame loop as a transform — the position changes with every
+   pan, and left/top would relayout the panel sixty times a second. The corner
+   rule above is still what a narrow screen gets, and what this falls back to
+   if nothing is selected. */
+.inspector.floating { left: 0; top: 0; bottom: auto; will-change: transform; }
 .inspector p { font-size: 11px; margin-bottom: 5px; color: var(--text-dim); }
 .inspector .stats { font-family: var(--mono); }
 .inspector .stat-bad { color: var(--bad); }
@@ -505,6 +511,29 @@ body {
 .small-btn {
   background: #1a2230; color: var(--text); border: 1px solid var(--panel-border);
   padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 11px;
+}
+/* Closing is a corner, not a fourth item in a row that already wraps. Close
+   used to be a full button sitting beside Upgrade — which carries a building
+   name and a price — so the two most consequential actions in the panel got
+   pushed onto a second line by the one that does nothing. */
+.panel-close {
+  position: absolute; top: 4px; right: 4px;
+  width: 26px; height: 26px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: 4px;
+  color: var(--text-dim); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.panel-close:hover { background: #1a2230; color: var(--text); }
+/* Room for it: some names run the width of the panel on their own. */
+.inspector h3 { padding-right: 24px; }
+/* The one control in the inspector observer mode does not grey out — putting
+   down a panel is not an administrative act. */
+body.observer .panel-close { filter: none; opacity: 1; }
+/* Said once, above the road cards, because it is true of all of them. */
+.build-note {
+  font-size: 11px; line-height: 1.45; color: var(--text-dim);
+  border-left: 2px solid var(--panel-border);
+  padding: 2px 0 2px 8px; margin: 0 0 9px;
 }
 /* The one action that grows the region rather than maintaining it. */
 .upgrade-btn { border-color: var(--accent); color: var(--accent); }
@@ -1197,6 +1226,9 @@ body.at-title .guide { padding-bottom: 20px; }
   .small-btn { min-height: 40px; padding-left: 14px; padding-right: 14px; }
   .build-card { min-height: 76px; }
   .flyout-close { min-width: 40px; min-height: 40px; }
+  /* The glyph stays small; what a thumb has to hit does not. */
+  .panel-close { width: 38px; height: 38px; top: 2px; right: 2px; }
+  .inspector h3 { padding-right: 36px; }
   .collapse-btn { min-height: 44px; min-width: 44px; }
   /* The dots are 7px by design and stay that way; the hit area around them
      is not. */

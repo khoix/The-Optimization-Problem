@@ -11,7 +11,7 @@ import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, MANUAL_SLOT, deleteSlot, peek, saveTo, type SaveEnvelope } from '../game/save';
 import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
-import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, NET_WINDOW } from '../game/sim';
+import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, fullRefund, NET_WINDOW } from '../game/sim';
 import { performUpgrade, upgradePlan, withArticle } from '../game/upgrade';
 import { ROAD_DEFS } from '../game/network';
 import { INTRO_BODY, INTRO_TITLE } from '../game/tutorial';
@@ -25,6 +25,9 @@ import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Guide } from './guide';
 
 export type Tool = { kind: 'none' } | { kind: 'build'; type: BuildingType } | { kind: 'demolish' };
+
+/** A footprint as it appears on screen, in client pixels. */
+export interface ScreenRect { x: number; y: number; w: number; h: number }
 
 /**
  * A request to put a different region on screen. The UI names what it wants;
@@ -237,6 +240,20 @@ export class UI {
   get xrayKey(): XrayKey { return this.prefs.xrayKey; }
   private modal!: HTMLElement;
   private inspector!: HTMLElement;
+  /** Measured when the inspector's contents change, not while it is moving. */
+  private inspectorSize: [number, number] = [280, 160];
+  /** The selected footprint in client pixels, refreshed by the frame loop. */
+  private selectionRect: ScreenRect | null = null;
+  /** The transform last written to the inspector, so it is written only once. */
+  private inspectorAt = '';
+  /** Where the floating inspector ended up, so the hover card can avoid it. */
+  private inspectorBox: ScreenRect | null = null;
+  /**
+   * The breakpoint below which the inspector is a full-width sheet, not a
+   * floating panel. Held rather than re-queried: this is read once a frame,
+   * and matchMedia() builds a new list object every call.
+   */
+  private readonly narrowScreen = window.matchMedia('(max-width: 820px)');
   private hoverCard!: HTMLElement;
   private hoverHtml = '';
   private hoverSize: [number, number] = [190, 60];
@@ -481,7 +498,7 @@ export class UI {
 
     this.titleScreen.classList.add('hidden');
     this.modal.classList.add('hidden');
-    this.inspector.classList.add('hidden');
+    this.closeInspector();
     this.hoverCard.classList.add('hidden');
     this.hoverHtml = '';
     this.observerOverlay.classList.add('hidden');
@@ -637,8 +654,7 @@ export class UI {
     }
     if (this.openPanel) { this.closePanel(); return; }
     if (!this.inspector.classList.contains('hidden')) {
-      this.selectedBuildingId = null;
-      this.inspector.classList.add('hidden');
+      this.closeInspector();
       return;
     }
     if (this.tool.kind !== 'none') {
@@ -733,6 +749,14 @@ export class UI {
     const c = this.hudCategories().find((x) => x.id === catId);
     this.flyoutBody.innerHTML = '';
     if (!c) return;
+    // Roads have always been replaceable in place — draw an avenue over a
+    // street and the street becomes an avenue — and nothing anywhere in the
+    // game said so, so the feature may as well not have existed. Said once, in
+    // the drawer that owns it, rather than repeated across four cards.
+    if (catId === 'transit') {
+      this.flyoutBody.append(el('div', 'build-note',
+        'Draw a road straight over an existing one to replace it in place — no demolition, no confirmation. You pay the new road’s full price.'));
+    }
     const grid = el('div', 'build-grid');
     let n = 0;
     for (const t of c.types) {
@@ -767,8 +791,7 @@ export class UI {
           return;
         }
         this.sound?.uiTick();
-        this.selectedBuildingId = null;
-        this.inspector.classList.add('hidden');
+        this.closeInspector();
         const rearmed = this.tool.kind === 'build' && this.tool.type === t;
         this.tool = rearmed ? { kind: 'none' } : { kind: 'build', type: t };
         // Same outcome whether the card was clicked or picked by number: the
@@ -1724,12 +1747,102 @@ export class UI {
       };
       row.append(ren);
     }
-    const demo = el('button', 'small-btn', `Demolish · +§${demolitionRefund(b)}`);
+    // Nothing built yet reads as "undo", not as "demolish" — and it is worth
+    // saying in the label, because the two cost very different amounts.
+    const refund = demolitionRefund(b);
+    const demo = el('button', 'small-btn',
+      fullRefund(b) ? `Cancel · +§${refund}` : `Demolish · +§${refund}`);
+    if (fullRefund(b)) demo.title = 'Work has not started. The full cost comes back.';
     demo.onclick = () => this.requestDemolish(buildingId);
-    const close = el('button', 'small-btn', 'Close');
-    close.onclick = () => { this.selectedBuildingId = null; this.inspector.classList.add('hidden'); };
-    row.append(demo, close);
+    row.append(demo);
     this.inspector.append(row);
+
+    // Closing is a corner, not a fourth button in a row that already wraps
+    // under an Upgrade label carrying a building name and a price.
+    const close = el('button', 'panel-close', '×');
+    close.title = 'Close (Esc)';
+    close.setAttribute('aria-label', 'Close');
+    close.onclick = () => { this.sound?.uiTick(); this.closeInspector(); };
+    this.inspector.append(close);
+
+    // Measured once, here, rather than every frame the camera moves: the panel
+    // is repositioned in the frame loop, and offsetWidth forces layout.
+    this.inspectorSize = [this.inspector.offsetWidth || 280, this.inspector.offsetHeight || 160];
+    this.positionInspector();
+  }
+
+  /** Put the inspector away. The one place that knows what "closed" means. */
+  closeInspector(): void {
+    this.selectedBuildingId = null;
+    this.inspector.classList.add('hidden');
+    this.selectionRect = null;
+  }
+
+  /**
+   * The inspector follows what it describes.
+   *
+   * It used to be pinned to the bottom-left corner whatever you clicked, which
+   * on a map you can pan and zoom means the panel and its subject were rarely
+   * on the same half of the screen — you read a building's condition in one
+   * corner while looking at the building in another. Main hands us the selected
+   * footprint in client pixels every frame; the panel sits beside it.
+   *
+   * Not on narrow screens. Below 820px the stylesheet makes the inspector a
+   * full-width sheet above the bar, and "beside the building" on a 390px phone
+   * means "on top of the building".
+   */
+  trackSelection(rect: ScreenRect | null): void {
+    this.selectionRect = rect;
+    if (this.selectedBuildingId == null || this.inspector.classList.contains('hidden')) return;
+    // No rectangle for something that is still selected means the building is
+    // no longer there — demolished under you, or replaced by an upgrade the
+    // system commissioned. A panel describing a building that has gone should
+    // go with it rather than drift back to the corner.
+    if (!rect) { this.closeInspector(); return; }
+    this.positionInspector();
+  }
+
+  private positionInspector(): void {
+    const r = this.selectionRect;
+    if (!r || this.narrowScreen.matches) {
+      // Hand it back to the stylesheet, and make sure no transform from a wider
+      // window is left applied to it.
+      this.inspector.classList.remove('floating');
+      this.inspector.style.transform = '';
+      this.inspectorAt = '';
+      this.inspectorBox = null;
+      return;
+    }
+    const GAP = 12, MARGIN = 8;
+    const [w, h] = this.inspectorSize;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    // The bar is the floor. Its height is published for exactly this.
+    const floorY = vh - (this.lastBarHeight || 130) - MARGIN;
+    const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+    // Right of the footprint first, then left, then centred on it as a last
+    // resort — which is the only case that can cover the building.
+    let x = r.x + r.w + GAP;
+    let beside = true;
+    if (x + w > vw - MARGIN) {
+      const leftX = r.x - GAP - w;
+      if (leftX >= MARGIN) x = leftX;
+      else { x = clamp(r.x + r.w / 2 - w / 2, MARGIN, vw - w - MARGIN); beside = false; }
+    }
+    let y = clamp(r.y + r.h / 2 - h / 2, MARGIN, Math.max(MARGIN, floorY - h));
+    if (!beside) {
+      // Above the footprint if there is room, below it if there isn't. A panel
+      // that has to share the horizontal band must not share the vertical one.
+      const above = r.y - GAP - h, below = r.y + r.h + GAP;
+      if (above >= MARGIN) y = above;
+      else if (below + h <= floorY) y = below;
+    }
+    this.inspector.classList.add('floating');
+    this.inspectorBox = { x, y, w, h };
+    // Written only when it changes: this runs every frame, and a style write is
+    // a style write whether or not the value differs.
+    const t = `translate3d(${Math.round(x)}px,${Math.round(y)}px,0)`;
+    if (t !== this.inspectorAt) { this.inspectorAt = t; this.inspector.style.transform = t; }
   }
 
   /**
@@ -1791,15 +1904,21 @@ export class UI {
       return;
     }
     const refund = demolitionRefund(b);
+    const undo = fullRefund(b);
     const finish = () => {
       demolishBuilding(g, buildingId);
       this.sound?.demolished();
-      record(g, 'demolish', `Demolished ${def.name}.`);
-      this.flashSystemNote(`${def.name} demolished. §${refund} recovered.`);
-      this.selectedBuildingId = null;
-      this.inspector.classList.add('hidden');
+      record(g, 'demolish', undo ? `Cancelled the ${def.name} before work began.` : `Demolished ${def.name}.`);
+      this.flashSystemNote(undo
+        ? `${def.name} cancelled before work began. §${refund.toLocaleString()} returned in full.`
+        : `${def.name} demolished. §${refund} recovered.`);
+      this.closeInspector();
     };
-    if (def.cost < CONFIRM_DEMOLITION_ABOVE) { finish(); return; }
+    // The confirmation exists to stop a misclick spending a nuclear plant. A
+    // site where nothing has been built yet costs nothing to take back, so
+    // there is nothing to confirm — asking would be the interface charging
+    // friction where it no longer charges capital.
+    if (undo || def.cost < CONFIRM_DEMOLITION_ABOVE) { finish(); return; }
     this.showModal('Confirm Demolition',
       `Demolish the ${def.name}? It cost §${def.cost.toLocaleString()} to build and ` +
       `§${refund.toLocaleString()} comes back. Anything it was supplying loses it this month.`,
@@ -2120,8 +2239,27 @@ export class UI {
     // Positioned by transform rather than left/top: the compositor can move it
     // without laying the page out again.
     const [w, h] = this.hoverSize;
-    const px = Math.min(sx + 16, window.innerWidth - w - 8);
-    const py = Math.min(sy + 16, window.innerHeight - h - 120);
+    let px = Math.min(sx + 16, window.innerWidth - w - 8);
+    let py = Math.min(sy + 16, window.innerHeight - h - 120);
+    // Step around the inspector.
+    //
+    // The panel now opens beside the building you clicked, which is where the
+    // pointer already is — so the card and the panel landed on top of each
+    // other, and the card, being the higher layer, covered the buttons of the
+    // thing it was summarising. Below/right first as always, then the other
+    // three corners of the cursor, and if the panel fills all of them the card
+    // stands down: the inspector says more than it does.
+    const box = this.inspectorBox;
+    if (box && !this.inspector.classList.contains('hidden')) {
+      const hits = (x: number, y: number) =>
+        x < box.x + box.w && x + w > box.x && y < box.y + box.h && y + h > box.y;
+      if (hits(px, py)) {
+        const fit = ([[sx - 16 - w, py], [px, sy - 16 - h], [sx - 16 - w, sy - 16 - h]] as Array<[number, number]>)
+          .find(([ax, ay]) => ax >= 8 && ay >= 8 && !hits(ax, ay));
+        if (!fit) { this.hoverCard.classList.add('hidden'); return; }
+        [px, py] = fit;
+      }
+    }
     this.hoverCard.style.transform = `translate3d(${Math.round(px)}px,${Math.round(py)}px,0)`;
   }
 
@@ -2560,8 +2698,7 @@ export class UI {
   private enterObserverMode(): void {
     this.tool = { kind: 'none' };
     this.syncToolButtons();
-    this.selectedBuildingId = null;
-    this.inspector.classList.add('hidden');
+    this.closeInspector();
     // A decision already on screen when the takeover lands. Clearing the state
     // is not enough — the dialog was drawn before the state changed, and would
     // sit there asking a question its owner no longer has the standing to
