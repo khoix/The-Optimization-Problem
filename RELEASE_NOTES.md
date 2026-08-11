@@ -2237,27 +2237,40 @@ at any larger size they read as a dotted line painted down the kerb.
 A **dirt track gets none** — it exists to be the cheap thing you lay at the edge
 of the map, and lighting it would be the most expensive part of it.
 
-The pools of light are counted separately from the lamps that justify them. A
-pool is nineteen pixels across against a sixteen-pixel tile, so three side by
-side are one continuous ribbon and six are the same ribbon at twice the price —
-they are laid one per three tiles, down the middle, while the bulbs stay one
-pair per tile. Each is one baked gradient stamped with `drawImage` rather than a
-`createRadialGradient` per lamp per frame, which is what the building lights do:
-building the gradient object is most of what a small light costs.
+Every lamp throws its own pool, at a radius of a tile and a bit. Two on opposite
+kerbs light the road from both sides and meet in the middle of it, which is what
+a lit street looks like and is not what one pool centred on the crown of the
+road looks like.
+
+The pools are the whole cost of the feature — a lit downtown stamps two thousand
+of them a frame — so what is left to optimise is how they are drawn, not how
+many there are. Each is baked once for the session rather than built with
+`createRadialGradient` per lamp per frame, which is what the building lights do
+and is most of what a small light costs. A tile's pair is baked *together*, into
+one sprite sized to the light rather than to the tile: the two pools overlap
+across most of their area, so stamping them as a pair draws the ground between
+them once instead of twice and halves the composite count.
 
 | region, at 1:1, at 1 a.m. | bulbs | pools | lighting pass |
 |---|---|---|---|
-| a two-year-old town | ~140 | 23 | 1.8ms |
-| a 950-tile downtown grid | 1,914 | 205 | 3.8ms |
-| every buildable tile paved | 22,598 | 1,400 | 11.1ms |
+| a two-year-old town | ~140 | ~140 | 2.4ms |
+| a 950-tile downtown grid | 1,914 | 1,914 | 9.7ms |
+| every buildable tile paved | 22,598 | 8,398 | 40.8ms |
 
-One pool per bulb was measured before it was rejected: 8,400 stamps and a 42ms
-frame on that last region, for a result that cannot be told apart from this one.
+Two cheaper arrangements were measured and rejected. **One pool per tile**
+instead of one per bulb saves a third and puts the light down the crown of the
+road instead of along its edges — cheaper, and not what a street lamp does.
+**Half-resolution accumulation** — stamp the pools into a quarter-area scratch
+buffer and blit it up once — is worse, not better: the smoothed upscale of a
+world-sized buffer costs more than the fill it saves, and it took a two-year-old
+town's lighting pass from 2.7ms to 14.3ms before saving a single lamp. Baking
+the pair together and fitting the sprite to the light took the downtown case
+from 14.2ms to 9.7ms without touching what it looks like.
 
-Below 1:1 the pools thin by half again — the viewport grows as the square of how
-far out you are, so at 0.7 it holds three times the tiles, while each pool fades
+Below 1:1 the pools thin by half — the viewport grows as the square of how far
+out you are, so at 0.7 it holds three times the tiles, while each pool fades
 toward nothing and covers less than a pixel of the screen it lands on. The bulbs
-do not thin, because a pixel costs nothing. Both stop below the detail band,
+never thin, because a pixel costs nothing. Both stop below the detail band,
 along with the other close-up passes.
 
 *(Software rasterisation in headless Chromium. These bound the cost and rank the

@@ -69,29 +69,34 @@ interface PointLight { x: number; y: number; r: number; color: string; intensity
 
 /** Sodium warm, for both the bulb and the pool it throws. */
 const LAMP_COLOR = '#ffe7b4';
+/** How far a lamp's light reaches, in world pixels. A tile and a bit. */
+const LAMP_RADIUS = 19;
 /** Bulb inset from the kerb, and the centre line of a 16px tile. */
 const EDGE = 1;
 const MID = TILE / 2;
 /**
- * How many tiles of road share one pool of lamplight.
+ * Where a tile's pair of lamps stands, in tile-local pixels, by orientation.
  *
- * Not the same thing as how many lamps there are — every tile of street has a
- * pair, one on each verge. A pool is nineteen pixels across against a sixteen
- * pixel tile, so three of them side by side are one continuous ribbon of light
- * and six of them are the same ribbon at twice the price. And the price is the
- * whole constraint here: one pool per bulb over a region paved end to end is
- * 8,400 gradient stamps and a 40ms frame, against 11ms at this spacing for a
- * result that cannot be told apart.
+ * A lamp belongs on the verge, and which edge is the verge depends on the
+ * direction of travel: an east-west street is walked along its north and south
+ * sides, a north-south one along its east and west. A junction is travelled
+ * both ways and has no verge of its own, so its pair takes opposite corners,
+ * which are out of both carriageways.
  */
-const POOL_SPACING = 3;
+const LAMP_EW = 0, LAMP_NS = 1, LAMP_JUNCTION = 2;
+const LAMP_OFFSETS: Array<Array<[number, number]>> = [
+  [[MID, EDGE], [MID, TILE - EDGE - 1]],
+  [[EDGE, MID], [TILE - EDGE - 1, MID]],
+  [[EDGE, EDGE], [TILE - EDGE - 1, TILE - EDGE - 1]],
+];
 /**
- * And below 1:1, half as many again.
+ * Below 1:1, how many tiles of road share a pair of pools.
  *
- * The bulbs stay a pair per tile at every zoom — they are one pixel each and
- * cost nothing. The pools are the expense, and pulling back is where it bites:
- * the viewport grows as the square of how far out you are, so at 0.7 it holds
- * three times the tiles it does at 1:1, while each pool is fading toward
- * nothing and covers less than a pixel of the screen it lands on.
+ * Every lamp throws its own pool at the zoom anyone plays at. Pulling back is
+ * where the count bites: the viewport grows as the square of how far out you
+ * are, so at 0.7 it holds three times the tiles it does at 1:1, while each pool
+ * is fading toward nothing and covers less than a pixel of the screen it lands
+ * on. The bulbs never thin — they are one pixel each and cost nothing.
  */
 const POOL_THINNING = 2;
 
@@ -192,17 +197,29 @@ export class Renderer {
   private cars: HTMLCanvasElement[];
   private peds: HTMLCanvasElement[];
   private clouds: HTMLCanvasElement;
-  /** One baked pool of lamplight, stamped once per street light. */
-  private lampGlow: HTMLCanvasElement;
   /**
-   * Where this frame's street lamps are, in world-buffer pixels, flat x,y.
+   * A tile's worth of lamplight, baked once per road orientation.
+   *
+   * Both of the tile's bulbs, each with its own pool at the full radius, drawn
+   * into one sprite at the offsets they stand at. Stamping the pair together
+   * rather than separately draws the ground between them once instead of twice
+   * — they are thirteen pixels apart under pools nineteen across, so most of
+   * what each covers is also covered by the other — and halves the number of
+   * composites, which on a lit downtown is two thousand calls a frame.
+   */
+  private lampPair: HTMLCanvasElement[];
+  /** Each pair sprite's top-left corner, relative to its tile's. */
+  private lampOrigin: Array<[number, number]> = [];
+  /**
+   * Where this frame's lamplight goes: flat x, y, orientation triples in
+   * world-buffer pixels, one per lit tile of road.
    *
    * Filled by the lamp pass and read again by the lighting pass, so the road
    * tiles in view are walked once rather than twice. Reused between frames:
    * this runs sixty times a second and a fresh array each time is garbage for
    * nothing.
    */
-  private lamps: number[] = [];
+  private lampStamps: number[] = [];
   private t = 0; // animation clock (real seconds, scaled by game speed)
 
   /** Screen-sized gradients. Their geometry only changes on resize. */
@@ -262,7 +279,7 @@ export class Renderer {
     this.cars = makeCarSprites();
     this.peds = makePedestrianSprites();
     this.clouds = this.makeCloudShadow();
-    this.lampGlow = this.makeLampGlow();
+    this.lampPair = this.makeLampPairs();
     this.resize();
   }
 
@@ -972,16 +989,25 @@ export class Renderer {
         l.fillStyle = grad;
         l.fillRect(pl.x - pl.r, pl.y - pl.r, pl.r * 2, pl.r * 2);
       }
-      // Street lamps, from the positions the lamp pass already collected. One
-      // baked pool stamped per lamp rather than a gradient built per lamp: a
-      // lit grid puts far more of these on screen than there are buildings.
-      if (this.lamps.length) {
-        const gw = this.lampGlow.width, half = gw / 2;
-        // Pools overlap along their whole length, so what a lit street looks
-        // like is the sum rather than any single one of them.
-        l.globalAlpha = 0.55 * nightF;
-        for (let i = 0; i < this.lamps.length; i += 2) {
-          l.drawImage(this.lampGlow, this.lamps[i] - half, this.lamps[i + 1] - half);
+      // Street lamps: one stamp per tile of road, carrying both of its bulbs,
+      // from the positions the lamp pass already collected.
+      //
+      // Pools overlap along their whole length, so what a lit street looks like
+      // is the sum rather than any single one of them.
+      //
+      // Two cheaper-looking arrangements were measured and rejected. Half-res
+      // accumulation — stamp the pools into a quarter-area scratch and blit it
+      // up once — costs *more*: the smoothed upscale of a world-sized buffer is
+      // dearer than the fill it saves, and it put a two-year-old town's
+      // lighting pass up from 2.7ms to 14.3ms before a single lamp was saved.
+      // And one pool per tile instead of one per bulb is cheaper still and
+      // wrong: a lamp throws light from where it stands, and two on opposite
+      // kerbs throw two pools that meet in the road.
+      if (this.lampStamps.length) {
+        l.globalAlpha = 0.34 * nightF;
+        for (let i = 0; i < this.lampStamps.length; i += 3) {
+          const spr = this.lampPair[this.lampStamps[i + 2]];
+          l.drawImage(spr, this.lampStamps[i], this.lampStamps[i + 1]);
         }
       }
       l.globalAlpha = 1;
@@ -1420,14 +1446,14 @@ export class Renderer {
    * the class exists to be the cheap thing you lay at the edge of the map, and
    * lighting it would be the most expensive part of it.
    *
-   * The heads go into the world buffer and the emissive buffer; the pools of
-   * light are stamped in the lighting pass, from `this.lamps`.
+   * The bulbs go into the world buffer and the emissive buffer; the pools of
+   * light are stamped in the lighting pass, from `this.lampStamps`.
    */
   private drawStreetLamps(
     w: CanvasRenderingContext2D, g: GameState, camX: number, camY: number,
     x0: number, y0: number, x1: number, y1: number, nightF: number,
   ): void {
-    this.lamps.length = 0;
+    this.lampStamps.length = 0;
     // Nothing to light by day, and nothing worth drawing at map scale: a lamp
     // is four pixels, and at 1:4 it is one pixel of haze per three tiles. It
     // fades out across the same band the other close-up passes use rather than
@@ -1441,7 +1467,7 @@ export class Renderer {
     // out over that stretch keeps the count roughly flat across the band the
     // fade covers, which is the difference between a cost and a stall on a
     // region that is mostly pavement.
-    const stride = POOL_SPACING * (this.zoom >= 1 ? 1 : POOL_THINNING);
+    const stride = this.zoom >= 1 ? 1 : POOL_THINNING;
     w.globalAlpha = a;
     w.fillStyle = LAMP_COLOR;
     this.ectx.globalAlpha = a;
@@ -1452,33 +1478,25 @@ export class Renderer {
         if (!tile.road || (tile.roadType ?? 1) < 1) continue;
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
         // Which way the carriageway runs, from the same neighbour test the road
-        // sprites use — a lamp belongs on the verge, and which edge is the
-        // verge depends on the direction of travel. A junction has no single
-        // answer, so its pair goes to opposite corners, which are off both.
+        // sprites use.
         const ns = !!(g.map[(ty - 1) * g.mapW + tx]?.road) || !!(g.map[(ty + 1) * g.mapW + tx]?.road);
         const ew = (tx + 1 < g.mapW && !!g.map[ty * g.mapW + tx + 1]?.road) ||
           (tx - 1 >= 0 && !!g.map[ty * g.mapW + tx - 1]?.road);
-        let ax: number, ay: number, bx: number, by: number;
-        if (ew && !ns) {
-          ax = dx + MID; ay = dy + EDGE; bx = dx + MID; by = dy + TILE - EDGE - 1;
-        } else if (ns && !ew) {
-          ax = dx + EDGE; ay = dy + MID; bx = dx + TILE - EDGE - 1; by = dy + MID;
-        } else {
-          ax = dx + EDGE; ay = dy + EDGE; bx = dx + TILE - EDGE - 1; by = dy + TILE - EDGE - 1;
-        }
-        // One pixel each. There are two per tile of road now rather than one
-        // every third tile, which is six times as many bulbs on a lit street:
-        // at the old size they read as a dotted line painted down the kerb.
-        w.fillRect(ax, ay, 1, 1);
-        w.fillRect(bx, by, 1, 1);
-        this.ectx.fillRect(ax, ay, 1, 1);
-        this.ectx.fillRect(bx, by, 1, 1);
+        const facing = ew && !ns ? LAMP_EW : ns && !ew ? LAMP_NS : LAMP_JUNCTION;
+        const [[ax, ay], [bx, by]] = LAMP_OFFSETS[facing];
+        // One pixel each. There are two per tile of road rather than one every
+        // third tile, which is six times as many bulbs on a lit street: at the
+        // old size they read as a dotted line painted down the kerb.
+        w.fillRect(dx + ax, dy + ay, 1, 1);
+        w.fillRect(dx + bx, dy + by, 1, 1);
+        this.ectx.fillRect(dx + ax, dy + ay, 1, 1);
+        this.ectx.fillRect(dx + bx, dy + by, 1, 1);
         this.emissiveUsed = true;
-        // The pools are laid on their own spacing, down the middle of the tile
-        // rather than under either bulb: a pair fourteen pixels apart under a
-        // pool nineteen across is one pool, and lighting each bulb separately
-        // would double the only part of this that costs anything.
-        if ((tx + ty) % stride === 0) this.lamps.push(dx + MID, dy + MID);
+        // Both of this tile's pools, as one stamp anchored on the tile itself.
+        if ((tx + ty) % stride === 0) {
+          const [ox, oy] = this.lampOrigin[facing];
+          this.lampStamps.push(dx + ox, dy + oy, facing);
+        }
       }
     }
     w.globalAlpha = 1;
@@ -1698,31 +1716,51 @@ export class Renderer {
   }
 
   /**
-   * One street lamp's pool of light, baked once.
+   * The lamplight for one tile of road, per orientation.
    *
    * Deliberately not a `createRadialGradient` per lamp per frame, which is what
-   * the building lights do: a lit street can have forty lamps in view at once
-   * against a couple of dozen buildings, and building the gradient object is
-   * most of what a small light costs. Stamped with `drawImage` in `lighter`
-   * instead — same pool, one allocation for the session.
+   * the building lights do: a lit downtown has two thousand lamps in view at
+   * once against a couple of dozen buildings, and building the gradient object
+   * is most of what a small light costs. Baked once for the session and stamped
+   * with `drawImage` in `lighter` instead.
+   *
+   * Indexed by the orientation codes in `LAMP_OFFSETS`, and each sprite is
+   * drawn at the tile's own top-left corner, so the lamp pass has no arithmetic
+   * to do beyond looking up which way the road runs.
    */
-  private makeLampGlow(): HTMLCanvasElement {
+  private makeLampPairs(): HTMLCanvasElement[] {
     // A tile and a bit. Wider than this and the pool stops being a lamp and
     // becomes a wash over the verge either side — the light buffer multiplies,
     // so a wide pool over grass reads as bright green rather than as lit road.
-    const r = 19;
-    const c = document.createElement('canvas');
-    c.width = r * 2; c.height = r * 2;
-    const ctx = c.getContext('2d')!;
-    const grad = ctx.createRadialGradient(r, r, 1, r, r, r);
-    // Sodium-warm in the middle, and gone well before the edge so two lamps a
-    // few tiles apart read as two lamps rather than one long smear.
-    grad.addColorStop(0, 'rgba(255,224,168,0.9)');
-    grad.addColorStop(0.4, 'rgba(255,206,138,0.24)');
-    grad.addColorStop(1, 'rgba(255,196,120,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, r * 2, r * 2);
-    return c;
+    const r = LAMP_RADIUS;
+    this.lampOrigin = [];
+    return LAMP_OFFSETS.map((pair) => {
+      // Sized to the light, not to the tile plus a margin. Two bulbs on
+      // opposite kerbs of a street span 13px across the road and nothing at all
+      // along it, so a square sprite would be a third empty — and empty pixels
+      // in a `lighter` composite still cost what full ones do.
+      const minX = Math.min(...pair.map(([x]) => x)) - r;
+      const minY = Math.min(...pair.map(([, y]) => y)) - r;
+      const maxX = Math.max(...pair.map(([x]) => x)) + r;
+      const maxY = Math.max(...pair.map(([, y]) => y)) + r;
+      this.lampOrigin.push([minX, minY]);
+      const c = document.createElement('canvas');
+      c.width = maxX - minX; c.height = maxY - minY;
+      const ctx = c.getContext('2d')!;
+      ctx.globalCompositeOperation = 'lighter';
+      for (const [ox, oy] of pair) {
+        const cx = ox - minX, cy = oy - minY;
+        const grad = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+        // Sodium-warm in the middle, and gone well before the edge so lamps a
+        // few tiles apart read as lamps rather than as one long smear.
+        grad.addColorStop(0, 'rgba(255,224,168,0.9)');
+        grad.addColorStop(0.4, 'rgba(255,206,138,0.24)');
+        grad.addColorStop(1, 'rgba(255,196,120,0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
+      return c;
+    });
   }
 
   private makeCloudShadow(): HTMLCanvasElement {
