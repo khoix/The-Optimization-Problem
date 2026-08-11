@@ -2428,6 +2428,102 @@ on the first click without asking.
 
 ---
 
+## Milestone 48 — one icon set — `1855dec`
+
+### Two interfaces stapled together
+
+Every mark on the civic bar was a character, and they came from two different
+places. Some were typographic glyphs the UI font drew in the interface's own
+colour — `▣ ✚ ◈ ⚙ § ★ ☺ ✦ ☰ ⚠ ◎ ✕` — and some were colour emoji the operating
+system drew in its own house style: `🛣 🏘 ⚡ 💧 🌳 🏭 📊 🗳 🔔 🗒 💾 📂 ❓ 🏠 👤
+👥 ✊ ⛏`. On one row that reads as five flat grey marks sitting next to a bright
+yellow lightning bolt and a little green tree.
+
+The indicators the bar was meant to agree with were split the same way down the
+middle — `⚡ 💧 🏠 👥 ✊` emoji, `§ ▣ ✚ ★ ☺` not — so this was never "make the
+bar match the indicators". It was one set, for both.
+
+**Thirty-three icons**, in `src/ui/icons.ts`, covering the eight build
+categories, the five panel buttons, the system buttons and the collapse
+chevron, the seven menu items, the action button's two states, the build-card
+stat chips and the ten indicator rows. The guide's HUD figures are real markup
+in the real classes, so they came along with it.
+
+### Drawn, coloured, and not written
+
+Inline SVG on a 16×16 grid. Nothing is fetched and nothing is added to the
+build; this is source, like every other asset in the project.
+
+Not the procedural canvases the map is made of, for two reasons the chrome
+needs: the same icon renders at 18px on the belt, 15px in the menu, 12px in the
+indicators and 9px on a build card and has to hold together at each; and it
+scales to whatever pixel ratio the screen has, which on a phone is two or three.
+
+The house rules, so a later addition looks like it belongs:
+
+- **Filled, not stroked.** At twelve pixels a 1.5px outline is most of the icon,
+  and a mass holds its colour where a line just goes grey. The first draft was
+  line art and read as a set of grey wireframes — technically consistent,
+  visually flat.
+- **Two tones per subject** — a body and a lighter face — so a small mark still
+  has a light side and a dark side. A third only where it carries meaning: a lit
+  window, a status LED, a warm bulb in a data centre.
+- **One palette, eighteen colours, reused.** Thirty-three icons each inventing
+  their own blue is how a set stops looking like a set.
+- **Colour is semantic and agrees with the map and the gauges.** Power is the
+  amber the power gauge uses; water is the cyan of the water gauge and of the
+  river; parks are the green of the canopy; anything the player is about to lose
+  is red. Structural greys are the panel's own steel, so an icon sits on the bar
+  rather than on top of it.
+
+Two knock-on decisions. **Services is a blue cross, not a red one** — Health is
+the red mark now, a heart, and two red medical crosses on one bar is one too
+many. And an icon can no longer be *tinted*, because it has colours of its own:
+the one rule that did that, `.bar-tool.layer-on .tool-ico { color: accent }`, is
+now a drop-shadow in the accent plus a brightness lift. Observer mode drains
+them with `saturate(0.18)`, which is the same thing the system does to
+everything else it inherits.
+
+### Five that had to be redrawn
+
+Rendered at 44px on a sheet before they went anywhere near the bar, and five of
+them did not say what they meant:
+
+| icon | what it read as | what fixed it |
+|---|---|---|
+| road | the numeral three | kerbs in perspective, dashed centre line |
+| industry | a line chart | a ground line, a shed and a chimney |
+| parks | an arrow | a conifer in two tiers, not one triangle |
+| demolish | an umbrella | the handle angled off the pick's head |
+| unrest | the letter T | a loudhailer instead of a placard |
+
+Worth recording as a method: **draw the set large and look at it together before
+wiring any of it up.** Four of those five were unreadable at 44px, which means
+they were never going to work at twelve — and each would have been a separate
+puzzle to notice once it was one small mark among fifteen on a busy bar.
+
+### Verification
+
+24 checks. Against the previous behaviour **22 fail**, and against the line-art
+first draft the six colour checks fail on their own — the set has to be painted
+rather than tinted, with a real palette across warm, green and blue families,
+and the two states that used to recolour an icon have to still visibly reach it. The sweep walks every
+text node under `#app` with each panel opened in turn and a tool in hand,
+looking for the twenty-nine characters that were doing an icon's job — and it
+is deliberately not "any non-ASCII", because the console is full of legitimate
+typography: `§` for currency, `·` as a separator, `−` for a negative, `▮ ▶` for
+the transport, `▲ ▼` on a change chip, `×` on a close control. Those are text
+doing a text job.
+
+> **Three assertions that passed over an absence, again.** "None of them is an
+> empty box" and "every one is hidden from a screen reader" were both true of a
+> build with no icons in it — `0 of 0`, and `every()` over an empty list. And a
+> check that the belt and the indicators draw power the same way reported
+> *"identical"* when both slots held nothing at all. All three are conditioned on
+> there being icons to talk about now.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

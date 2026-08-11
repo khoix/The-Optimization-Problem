@@ -204,6 +204,37 @@ body {
    rows drifting apart as the numbers changed width. */
 .vital-group { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px 12px; }
 .vital { display: flex; align-items: center; gap: 5px; min-width: 0; }
+/* ---------------- the icon set ----------------
+   One drawing style for every mark on the console. Sized in `em` so an icon
+   takes the font size of the slot it lands in — the belt, the menu, the vitals
+   and a build card all set their own, and all of them keep working. Each icon
+   carries its own colours; `currentColor` is only the fallback for a shape
+   that does not name one. */
+.ico {
+  width: 1em; height: 1em;
+  display: inline-block; vertical-align: -0.13em;
+  flex: 0 0 auto;
+  fill: currentColor;
+  stroke: none;
+  /* Colour on a dark panel needs a little separation from it, or a saturated
+     shape at twelve pixels floats. A single-pixel shadow does what an outline
+     would without spending a pixel of the drawing on it. */
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45));
+}
+/* A tool in hand, a layer up: the button is already outlined in the accent and
+   the icon brightens with it. It cannot be recoloured — it has colours of its
+   own now — so it is lifted instead. */
+.bar-tool.layer-on .ico,
+.bar-tool.armed .ico { filter: drop-shadow(0 0 3px var(--accent)) brightness(1.12); }
+/* The system's own aesthetic, once it is running things: colour drains out of
+   the console it inherited. The icons go with it. */
+body.observer .civic-bar .ico,
+body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
+/* A card you cannot afford, a category the region has not unlocked: the icon
+   should read as unavailable rather than as an ordinary coloured mark. */
+.build-card.locked .ico,
+.build-card.unaffordable .ico { filter: saturate(0.3) opacity(0.75); }
+
 .vital-ico { font-size: 12px; width: 14px; text-align: center; opacity: 0.85; }
 .vital-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .vital-num {
@@ -668,7 +699,6 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .legend-key i { width: 9px; height: 9px; border-radius: 2px; display: block; }
 /* The toolbelt button reports that a layer is up, since the panel may be shut. */
 .bar-tool.layer-on { box-shadow: inset 0 0 0 1px var(--accent); }
-.bar-tool.layer-on .tool-ico { color: var(--accent); }
 
 /* ---------------- metric explanations ---------------- */
 /* Every figure on the dashboard can say what it means. Anchored to its row

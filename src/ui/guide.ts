@@ -17,6 +17,7 @@
 import { newGame, placeBuilding, tileAt, MAP_W, MAP_H } from '../game/state';
 import type { GameState } from '../game/types';
 import { Renderer, type OverlayId, type UiRenderState } from '../render/renderer';
+import { icon } from './icons';
 
 interface MapFigure {
   kind: 'map';
@@ -144,12 +145,12 @@ const PAGES: GuidePage[] = [
     figure: {
       kind: 'html',
       html: `<div class="fig-hud">
-        ${fig_gauge('⚡', '412', '500', 82, 'gauge-ok', 'Comfortable — 82% of capacity in use.')}
-        ${fig_gauge('💧', '340', '300', 113, 'gauge-bad', 'Over capacity. Something is about to go dark.')}
+        ${fig_gauge(icon('power'), '412', '500', 82, 'gauge-ok', 'Comfortable — 82% of capacity in use.')}
+        ${fig_gauge(icon('water'), '340', '300', 113, 'gauge-bad', 'Over capacity. Something is about to go dark.')}
         ${fig_rate('4,180', 0.52, 'gauge-ok', 'Capital, gaining — keeping about half of what comes in.')}
         ${fig_rate('1,905', -0.7, 'gauge-bad', 'The same bar, going the other way. This region has months, not years.')}
-        ${fig_meter('☺', 'Trust', 61, '61', 'gauge-ok', 'An indicator, same visual language.')}
-        ${fig_meter('⚠', 'Unrest', 38, '38', 'gauge-warn', 'Inverted: for this one, low is the good end.')}
+        ${fig_meter(icon('trust'), 'Trust', 61, '61', 'gauge-ok', 'An indicator, same visual language.')}
+        ${fig_meter(icon('unrest'), 'Unrest', 38, '38', 'gauge-warn', 'Inverted: for this one, low is the good end.')}
       </div>`,
     },
     caption: 'The gauges, as they appear on the bar.',

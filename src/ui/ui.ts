@@ -21,6 +21,7 @@ import type { OverlayId, XrayKey } from '../render/renderer';
 import { SCENARIOS, SCENARIO_ORDER, type ScenarioId } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
+import { icon } from './icons';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Guide } from './guide';
 
@@ -350,19 +351,19 @@ export class UI {
 
     // ---- right: alerts and system authority, one row, never stacked ----
     const alertsBtn = el('button', 'sys-btn alert-btn');
-    alertsBtn.innerHTML = '<span class="sys-ico">🔔</span><span class="sys-text">Alerts</span>';
+    alertsBtn.innerHTML = `<span class="sys-ico">${icon('alerts')}</span><span class="sys-text">Alerts</span>`;
     alertsBtn.dataset.panel = 'alerts';
     alertsBtn.title = `Alerts (${ACTION_KEYS.alerts})`;
     alertsBtn.onclick = () => this.togglePanel('alerts');
     const overrideBtn = el('button', 'sys-btn override-btn');
-    overrideBtn.innerHTML = '<span class="sys-ico">⚠</span><span class="sys-text">Override</span>';
+    overrideBtn.innerHTML = `<span class="sys-ico">${icon('override')}</span><span class="sys-text">Override</span>`;
     overrideBtn.title = `Manual Override (${ACTION_KEYS.override}) — emergency administrative authority.`;
     overrideBtn.onclick = () => this.manualOverride();
     // Save, load, new, main menu and settings all live in the hamburger now.
     // Sound moved into Settings with the rest of the preferences; a dedicated
     // mute button on the bar was the last of the one-off controls.
     const menuBtn = el('button', 'sys-btn');
-    menuBtn.innerHTML = '<span class="sys-ico">☰</span>';
+    menuBtn.innerHTML = `<span class="sys-ico">${icon('menu')}</span>`;
     menuBtn.title = `Menu (${ACTION_KEYS.menu})`;
     menuBtn.dataset.panel = 'menu';
     menuBtn.onclick = () => this.togglePanel('menu');
@@ -418,7 +419,7 @@ export class UI {
     document.body.classList.toggle('bar-collapsed', this.collapsed);
     const btn = this.civicBar.querySelector<HTMLElement>('.collapse-btn');
     if (btn) {
-      btn.innerHTML = `<span class="sys-ico">${this.collapsed ? '▲' : '▼'}</span>`;
+      btn.innerHTML = `<span class="sys-ico">${icon(this.collapsed ? 'collapse' : 'expand')}</span>`;
       btn.title = this.collapsed ? 'Expand the bar (Tab)' : 'Collapse the bar (Tab)';
     }
     this.syncBarHeight(); // don't wait for the next refresh to reflow the toasts
@@ -579,26 +580,26 @@ export class UI {
     // count; they just live one tap deeper.
     if (window.innerWidth <= COMPACT_WIDTH) {
       const unread = this.unreadAlerts > 0 ? ` (${this.unreadAlerts})` : '';
-      items.push(['🔔', `Alerts${unread}`, () => this.togglePanel('alerts')]);
-      items.push(['⚠', 'Manual Override', () => this.manualOverride()]);
+      items.push([icon('alerts'), `Alerts${unread}`, () => this.togglePanel('alerts')]);
+      items.push([icon('override'), 'Manual Override', () => this.manualOverride()]);
     }
     // Once the administration is over, the decision log is the only thing left
     // worth opening — and it used to be reachable solely from the observer
     // banner, which the player had already dismissed to get here.
     if (this.g.asi.observer) {
-      items.push(['🗒', 'Review Historical Decisions', () => this.showHistory()]);
+      items.push([icon('history'), 'Review Historical Decisions', () => this.showHistory()]);
     }
     items.push(
-      ['💾', 'Save Game', () => this.saveGame()],
-      ['📂', 'Load Game', () => this.showLoadMenu()],
-      ['✦', 'New Simulation', () => this.showScenarioPicker()],
-      ['❓', 'How to Play', () => this.showHowTo()],
-      ['⚙', 'Settings', () => this.showSettings()],
-      ['☰', 'Main Menu', () => this.confirmMainMenu()],
+      [icon('save'), 'Save Game', () => this.saveGame()],
+      [icon('load'), 'Load Game', () => this.showLoadMenu()],
+      [icon('newgame'), 'New Simulation', () => this.showScenarioPicker()],
+      [icon('help'), 'How to Play', () => this.showHowTo()],
+      [icon('settings'), 'Settings', () => this.showSettings()],
+      [icon('menu'), 'Main Menu', () => this.confirmMainMenu()],
     );
-    for (const [icon, label, action] of items) {
+    for (const [mark, label, action] of items) {
       const b = el('button', 'menu-item');
-      b.innerHTML = `<span class="menu-ico">${icon}</span><span>${label}</span>`;
+      b.innerHTML = `<span class="menu-ico">${mark}</span><span>${label}</span>`;
       b.onclick = () => { this.closePanel(); action(); };
       host.append(b);
     }
@@ -730,14 +731,14 @@ export class UI {
         (!BUILDING_DEFS[t].unlockCompute || g.resources.compute >= BUILDING_DEFS[t].unlockCompute));
     const cat = (c: string) => (t: BuildingType) => BUILDING_DEFS[t].category === c;
     return [
-      { id: 'transit', icon: '🛣', label: 'Roads', types: avail((t) => BUILDING_DEFS[t].roadType !== undefined) },
-      { id: 'zoning', icon: '🏘', label: 'Housing', types: avail(cat('zone')) },
-      { id: 'power', icon: '⚡', label: 'Power', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].power > 0) },
-      { id: 'water', icon: '💧', label: 'Water', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].water > 0) },
-      { id: 'compute', icon: '▣', label: 'Data Centers', types: avail(cat('compute')) },
-      { id: 'services', icon: '✚', label: 'Services', types: avail((t) => cat('civic')(t) && BUILDING_DEFS[t].roadType === undefined).concat(avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) >= 0.7)) },
-      { id: 'environment', icon: '🌳', label: 'Parks', types: avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) < 0.7) },
-      { id: 'economy', icon: '🏭', label: 'Economy', types: avail(cat('industry')) },
+      { id: 'transit', icon: icon('road'), label: 'Roads', types: avail((t) => BUILDING_DEFS[t].roadType !== undefined) },
+      { id: 'zoning', icon: icon('housing'), label: 'Housing', types: avail(cat('zone')) },
+      { id: 'power', icon: icon('power'), label: 'Power', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].power > 0) },
+      { id: 'water', icon: icon('water'), label: 'Water', types: avail((t) => cat('power')(t) && BUILDING_DEFS[t].water > 0) },
+      { id: 'compute', icon: icon('compute'), label: 'Data Centers', types: avail(cat('compute')) },
+      { id: 'services', icon: icon('services'), label: 'Services', types: avail((t) => cat('civic')(t) && BUILDING_DEFS[t].roadType === undefined).concat(avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) >= 0.7)) },
+      { id: 'environment', icon: icon('parks'), label: 'Parks', types: avail((t) => cat('amenity')(t) && (BUILDING_DEFS[t].services ?? 0) < 0.7) },
+      { id: 'economy', icon: icon('industry'), label: 'Economy', types: avail(cat('industry')) },
     ];
   }
 
@@ -757,13 +758,13 @@ export class UI {
     }
     const sep = el('div', 'bar-sep');
     this.toolbelt.append(sep);
-    for (const [id, icon, label] of [
-      ['indicators', '📊', 'Indicators'], ['layers', '◈', 'Layers'],
-      ['compute_alloc', '⚙', 'Compute'],
-      ['policies', '§', 'Policies'], ['politics', '🗳', 'Politics'],
+    for (const [id, mark, label] of [
+      ['indicators', icon('indicators'), 'Indicators'], ['layers', icon('layers'), 'Layers'],
+      ['compute_alloc', icon('allocation'), 'Compute'],
+      ['policies', icon('policies'), 'Policies'], ['politics', icon('politics'), 'Politics'],
     ] as Array<[string, string, string]>) {
       const btn = el('button', 'bar-tool');
-      btn.innerHTML = `<span class="tool-ico">${icon}</span><span class="tool-label">${label}</span>` +
+      btn.innerHTML = `<span class="tool-ico">${mark}</span><span class="tool-label">${label}</span>` +
         keyBadge(PANEL_KEYS[id]);
       btn.dataset.panel = id;
       btn.onclick = () => this.togglePanel(id);
@@ -823,13 +824,13 @@ export class UI {
       const affordable = g.resources.capital >= def.cost;
       const btn = el('button', 'build-card' + (locked ? ' locked' : '') + (!affordable && !locked ? ' unaffordable' : ''));
       const stats: string[] = [];
-      if (def.housing) stats.push(`🏠${def.housing}`);
-      if (def.jobs) stats.push(`👤${def.jobs}`);
-      if (def.power) stats.push(`⚡${def.power > 0 ? '+' : ''}${def.power}`);
-      if (def.water) stats.push(`💧${def.water > 0 ? '+' : ''}${def.water}`);
-      if (def.compute) stats.push(`▣+${def.compute}`);
-      if (def.serviceRadius) stats.push(`◎${def.serviceRadius}`);
-      if (def.amenity) stats.push(`★${def.amenity}`);
+      if (def.housing) stats.push(`${icon('housing')}${def.housing}`);
+      if (def.jobs) stats.push(`${icon('jobs')}${def.jobs}`);
+      if (def.power) stats.push(`${icon('power')}${def.power > 0 ? '+' : ''}${def.power}`);
+      if (def.water) stats.push(`${icon('water')}${def.water > 0 ? '+' : ''}${def.water}`);
+      if (def.compute) stats.push(`${icon('compute')}+${def.compute}`);
+      if (def.serviceRadius) stats.push(`${icon('radius')}${def.serviceRadius}`);
+      if (def.amenity) stats.push(`${icon('appeal')}${def.amenity}`);
       // Numbered by position, locked cards included: numbering only what is
       // unlocked would renumber a building the moment the region grew, which
       // breaks the habit exactly when it has been learned. The top right is
@@ -1478,10 +1479,10 @@ export class UI {
   private actionButton(): { icon: string; label: string; key: string; title: string; cancel: boolean } {
     if (this.tool.kind === 'build') {
       const def = BUILDING_DEFS[this.tool.type];
-      return { icon: '✕', label: 'Cancel', key: 'Esc', cancel: true, title: `Put down the ${def.name} (Esc)` };
+      return { icon: icon('cancel'), label: 'Cancel', key: 'Esc', cancel: true, title: `Put down the ${def.name} (Esc)` };
     }
     return {
-      icon: '⛏', label: 'Demolish', key: ACTION_KEYS.demolish, cancel: false,
+      icon: icon('demolish'), label: 'Demolish', key: ACTION_KEYS.demolish, cancel: false,
       title: `Demolish (${ACTION_KEYS.demolish})`,
     };
   }
@@ -2541,20 +2542,20 @@ export class UI {
       `<span class="gauge gauge-rate"><span class="gauge-zero"></span>` +
       `<span class="gauge-fill ${rateCls}" style="left:${flow.net < 0 ? 50 - pct : 50}%;width:${pct}%"></span></span>`,
       `§${Math.round(r.capital).toLocaleString()} in the treasury. ${rateReading}`);
-    gauge(primary, '⚡', 'power', r.powerDemand, r.powerCapacity, 'MW');
-    gauge(primary, '💧', 'water', r.waterDemand, r.waterCapacity, 'ML');
-    gauge(primary, '▣', 'compute', r.computeDemand, r.compute, 'PF');
-    gauge(primary, '🏠', 'housing', g.population, housingCap);
+    gauge(primary, icon('power'), 'power', r.powerDemand, r.powerCapacity, 'MW');
+    gauge(primary, icon('water'), 'water', r.waterDemand, r.waterCapacity, 'ML');
+    gauge(primary, icon('compute'), 'compute', r.computeDemand, r.compute, 'PF');
+    gauge(primary, icon('housing'), 'housing', g.population, housingCap);
 
-    meter(secondary, '☺', 'trust', 'Trust', g.indicators.trust,
+    meter(secondary, icon('trust'), 'trust', 'Trust', g.indicators.trust,
       { reading: `${Math.round(g.indicators.trust)} of 100` });
-    meter(secondary, '✚', 'health', 'Health', g.indicators.health,
+    meter(secondary, icon('health'), 'health', 'Health', g.indicators.health,
       { reading: `${Math.round(g.indicators.health)} of 100` });
-    meter(secondary, '★', 'appeal', 'Appeal', g.attractiveness.overall * 100,
+    meter(secondary, icon('appeal'), 'appeal', 'Appeal', g.attractiveness.overall * 100,
       { reading: `${Math.round(g.attractiveness.overall * 100)} of 100 · migration queue ${Math.max(0, Math.round(g.migrationDemand - g.population)).toLocaleString()}` });
-    meter(secondary, '👥', 'labour', labourLabel, labourGauge,
+    meter(secondary, icon('labour'), 'labour', labourLabel, labourGauge,
       { invert: true, text: labourText, reading: labourReading });
-    meter(secondary, '✊', 'unrest', unrestLabel, g.unrest * 100,
+    meter(secondary, icon('unrest'), 'unrest', unrestLabel, g.unrest * 100,
       { invert: true, suffix: '%', reading: hideNegatives ? 'Nominal' : `${Math.round(g.unrest * 100)}% · ${RESISTANCE_STAGES[g.resistanceStage]}` });
 
     // Primary row survives collapse; secondary row is the first thing hidden.
