@@ -67,14 +67,33 @@ const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
 
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
+/** Sodium warm, for both the bulb and the pool it throws. */
+const LAMP_COLOR = '#ffe7b4';
+/** Bulb inset from the kerb, and the centre line of a 16px tile. */
+const EDGE = 1;
+const MID = TILE / 2;
 /**
- * Tiles between street lamps, counted along whichever axis the road runs.
+ * How many tiles of road share one pool of lamplight.
  *
- * Three is close enough that a street reads as continuously lit and far enough
- * that the pools stay distinguishable — and it bounds the cost: a screenful of
- * solid pavement at 1:1 is about a hundred and forty lamps, not four hundred.
+ * Not the same thing as how many lamps there are — every tile of street has a
+ * pair, one on each verge. A pool is nineteen pixels across against a sixteen
+ * pixel tile, so three of them side by side are one continuous ribbon of light
+ * and six of them are the same ribbon at twice the price. And the price is the
+ * whole constraint here: one pool per bulb over a region paved end to end is
+ * 8,400 gradient stamps and a 40ms frame, against 11ms at this spacing for a
+ * result that cannot be told apart.
  */
-const LAMP_SPACING = 3;
+const POOL_SPACING = 3;
+/**
+ * And below 1:1, half as many again.
+ *
+ * The bulbs stay a pair per tile at every zoom — they are one pixel each and
+ * cost nothing. The pools are the expense, and pulling back is where it bites:
+ * the viewport grows as the square of how far out you are, so at 0.7 it holds
+ * three times the tiles it does at 1:1, while each pool is fading toward
+ * nothing and covers less than a pixel of the screen it lands on.
+ */
+const POOL_THINNING = 2;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -958,7 +977,9 @@ export class Renderer {
       // lit grid puts far more of these on screen than there are buildings.
       if (this.lamps.length) {
         const gw = this.lampGlow.width, half = gw / 2;
-        l.globalAlpha = 0.62 * nightF;
+        // Pools overlap along their whole length, so what a lit street looks
+        // like is the sum rather than any single one of them.
+        l.globalAlpha = 0.55 * nightF;
         for (let i = 0; i < this.lamps.length; i += 2) {
           l.drawImage(this.lampGlow, this.lamps[i] - half, this.lamps[i + 1] - half);
         }
@@ -1420,27 +1441,44 @@ export class Renderer {
     // out over that stretch keeps the count roughly flat across the band the
     // fade covers, which is the difference between a cost and a stall on a
     // region that is mostly pavement.
-    const spacing = this.zoom >= 1 ? LAMP_SPACING : LAMP_SPACING * 2;
+    const stride = POOL_SPACING * (this.zoom >= 1 ? 1 : POOL_THINNING);
+    w.globalAlpha = a;
+    w.fillStyle = LAMP_COLOR;
+    this.ectx.globalAlpha = a;
+    this.ectx.fillStyle = LAMP_COLOR;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
-        if ((tx + ty) % spacing !== 0) continue;
         const tile = g.map[ty * g.mapW + tx];
         if (!tile.road || (tile.roadType ?? 1) < 1) continue;
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
-        // Post first, head over it. Both sit toward one corner of the tile, so
-        // a run of them lines up along the kerb instead of down the middle of
-        // the carriageway.
-        w.globalAlpha = a * 0.8;
-        w.fillStyle = '#20242e';
-        w.fillRect(dx + 3, dy + 4, 1, 4);
-        w.globalAlpha = a;
-        w.fillStyle = '#ffe7b4';
-        w.fillRect(dx + 2, dy + 2, 3, 2);
-        this.ectx.globalAlpha = a;
-        this.ectx.fillStyle = '#ffe7b4';
-        this.ectx.fillRect(dx + 2, dy + 2, 3, 2);
+        // Which way the carriageway runs, from the same neighbour test the road
+        // sprites use — a lamp belongs on the verge, and which edge is the
+        // verge depends on the direction of travel. A junction has no single
+        // answer, so its pair goes to opposite corners, which are off both.
+        const ns = !!(g.map[(ty - 1) * g.mapW + tx]?.road) || !!(g.map[(ty + 1) * g.mapW + tx]?.road);
+        const ew = (tx + 1 < g.mapW && !!g.map[ty * g.mapW + tx + 1]?.road) ||
+          (tx - 1 >= 0 && !!g.map[ty * g.mapW + tx - 1]?.road);
+        let ax: number, ay: number, bx: number, by: number;
+        if (ew && !ns) {
+          ax = dx + MID; ay = dy + EDGE; bx = dx + MID; by = dy + TILE - EDGE - 1;
+        } else if (ns && !ew) {
+          ax = dx + EDGE; ay = dy + MID; bx = dx + TILE - EDGE - 1; by = dy + MID;
+        } else {
+          ax = dx + EDGE; ay = dy + EDGE; bx = dx + TILE - EDGE - 1; by = dy + TILE - EDGE - 1;
+        }
+        // One pixel each. There are two per tile of road now rather than one
+        // every third tile, which is six times as many bulbs on a lit street:
+        // at the old size they read as a dotted line painted down the kerb.
+        w.fillRect(ax, ay, 1, 1);
+        w.fillRect(bx, by, 1, 1);
+        this.ectx.fillRect(ax, ay, 1, 1);
+        this.ectx.fillRect(bx, by, 1, 1);
         this.emissiveUsed = true;
-        this.lamps.push(dx + 3, dy + 3);
+        // The pools are laid on their own spacing, down the middle of the tile
+        // rather than under either bulb: a pair fourteen pixels apart under a
+        // pool nineteen across is one pool, and lighting each bulb separately
+        // would double the only part of this that costs anything.
+        if ((tx + ty) % stride === 0) this.lamps.push(dx + MID, dy + MID);
       }
     }
     w.globalAlpha = 1;

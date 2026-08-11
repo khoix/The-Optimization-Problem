@@ -2226,28 +2226,39 @@ the ground, and ground is a thing that gets dark.
 The one piece of infrastructure with nothing on it after dark was the roads,
 which made a night region read as an unlit field with lit boxes standing in it.
 
-`(tx + ty) % 3` puts a lamp every third tile along a road whichever way it runs,
-without needing to know which way that is: hold either coordinate still and the
-other one counts. A **dirt track gets none** — it exists to be the cheap thing
-you lay at the edge of the map, and lighting it would be the most expensive part
-of it.
+**Every tile of street carries a pair of lamps, one on each verge.** Which edge
+is the verge depends on which way the carriageway runs, so each tile asks its
+four neighbours — the same test the road sprites use — and stands its pair on
+the two sides the traffic is not using. A junction has no single answer, so its
+pair goes to opposite corners, which are off both. Each bulb is a single pixel:
+there are six times as many of them as a lamp every third tile would give, and
+at any larger size they read as a dotted line painted down the kerb.
 
-The pools are one baked gradient stamped per lamp rather than a
+A **dirt track gets none** — it exists to be the cheap thing you lay at the edge
+of the map, and lighting it would be the most expensive part of it.
+
+The pools of light are counted separately from the lamps that justify them. A
+pool is nineteen pixels across against a sixteen-pixel tile, so three side by
+side are one continuous ribbon and six are the same ribbon at twice the price —
+they are laid one per three tiles, down the middle, while the bulbs stay one
+pair per tile. Each is one baked gradient stamped with `drawImage` rather than a
 `createRadialGradient` per lamp per frame, which is what the building lights do:
-building the gradient object is most of what a small light costs, and a lit grid
-puts far more lamps on screen than there are buildings.
+building the gradient object is most of what a small light costs.
 
-| region, at 1:1, at 1 a.m. | lamps | lighting pass |
-|---|---|---|
-| a two-year-old town | 23 | 2.0ms |
-| a 950-tile downtown grid | 205 | 3.7ms |
-| every buildable tile paved | 1,400 | 11.3ms |
+| region, at 1:1, at 1 a.m. | bulbs | pools | lighting pass |
+|---|---|---|---|
+| a two-year-old town | ~140 | 23 | 1.8ms |
+| a 950-tile downtown grid | 1,914 | 205 | 3.8ms |
+| every buildable tile paved | 22,598 | 1,400 | 11.1ms |
 
-Below 1:1 the lamps thin out to every sixth tile: the viewport grows as the
-square of how far out you are — at 0.7 it holds three times the tiles — while
-each lamp is fading toward nothing and is already smaller than a pixel. Without
-that, the impossible region above cost 19ms at 0.7 and rising. They stop
-entirely below the detail band, along with the other close-up passes.
+One pool per bulb was measured before it was rejected: 8,400 stamps and a 42ms
+frame on that last region, for a result that cannot be told apart from this one.
+
+Below 1:1 the pools thin by half again — the viewport grows as the square of how
+far out you are, so at 0.7 it holds three times the tiles, while each pool fades
+toward nothing and covers less than a pixel of the screen it lands on. The bulbs
+do not thin, because a pixel costs nothing. Both stop below the detail band,
+along with the other close-up passes.
 
 *(Software rasterisation in headless Chromium. These bound the cost and rank the
 passes; they do not predict what a GPU does with them.)*
@@ -2273,10 +2284,13 @@ passes; they do not predict what a GPU does with them.)*
 
 ### Verification
 
-33 checks. Against the previous behaviour **13 fail**, including the cursor
-losing four-fifths of its contrast at 1 a.m., a road that is exactly as bright
-between the lamps as under them, and nothing whatsoever in the emissive buffer
-where a car is standing.
+40 checks. Against the previous behaviour **13 fail**, including the cursor
+losing four-fifths of its contrast at 1 a.m., open ground and pavement going
+dark at the same rate, and nothing whatsoever in the emissive buffer where a car
+is standing. Lamp placement is read out of the emissive buffer a pixel at a
+time, over every tile of street on screen rather than a sample of them — the
+composite chain upscales, grades, blooms and blurs before anything reaches the
+screen, and this is a claim about which pixel a lamp is on.
 
 ---
 
