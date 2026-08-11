@@ -6,7 +6,7 @@ import { canDemolish } from './game/asi';
 import { UI, type ScreenRect, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
-import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, provideView, releaseSlots, saveTo, type SavedView } from './game/save';
+import { AUTO_SLOT, MANUAL_SLOTS, consumeBootFlag, freeManualSlot, loadFrom, newestSave, peek, provideView, releaseSlots, savedGames, saveTo, type SavedView } from './game/save';
 import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS } from './game/events';
@@ -34,7 +34,10 @@ const bootFlag = consumeBootFlag();
 const wantsMenu = bootFlag === 'menu' || bootFlag === null;
 const isNew = bootFlag === 'new' || bootFlag?.startsWith('new:');
 const scenarioChoice = (bootFlag?.startsWith('new:') ? bootFlag.slice(4) : 'verdant') as ScenarioId;
-const bootSlot = bootFlag ?? AUTO_SLOT;
+// A boot with no flag lands on the title screen and loads nothing, so this only
+// matters when the flag names a slot; the fallback is the newest save of any
+// kind, which is what Continue means.
+const bootSlot = bootFlag ?? newestSave()?.slot ?? AUTO_SLOT;
 const bootView = isNew || wantsMenu ? null : peek(bootSlot)?.view ?? null;
 const g = (isNew || wantsMenu ? null : loadFrom(bootSlot)) ?? newGame(undefined, scenarioChoice);
 // A menu backdrop is scenery, not an administration: it must never autosave
@@ -86,8 +89,17 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
   window.addEventListener(ev, armAudio);
 }
 // Coming back to the tab can leave the context suspended behind us.
+//
+// And leaving it is the commonest way a session ends. The autosave writes once
+// a game year, which at 1× is several minutes of real time — a tab closed from
+// a phone's app switcher, or a laptop shut, loses everything since. Hiding the
+// tab is the last moment anything is guaranteed to run, so it writes then too.
+// The autosave slot only, never a manual one: those are the player's bookmarks
+// and closing a tab is not a decision to spend one.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) sound.init();
+  if (!document.hidden) { sound.init(); return; }
+  if (atMenu || g.tick === 0) return;
+  saveTo(AUTO_SLOT, g);
 });
 
 const ui = new UI(app, g, (s) => { g.speed = s; });
@@ -184,6 +196,7 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   // The save layer, so a harness can write and read a slot without going
   // through the menu to do it.
   saveTo, peek, MANUAL_SLOT: 'top:save',
+  MANUAL_SLOTS, AUTO_SLOT, savedGames, newestSave, freeManualSlot,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 

@@ -10,8 +10,22 @@ import { connectOrphans } from './network';
 
 const SAVE_VERSION = 1;
 
-export const MANUAL_SLOT = 'top:save';
+/**
+ * The three manual slots, in the order they get filled.
+ *
+ * Three, and never overwritten in place. Saving used to mean putting the region
+ * you had over the top of the region you saved an hour ago, so the act of
+ * making a checkpoint destroyed the last one — and the moment you wanted a
+ * checkpoint was usually the moment before something you were not sure about,
+ * which is exactly when losing the previous one hurts.
+ *
+ * `top:save` stays first so that every manual save already on disk is still
+ * there, in the slot it was written to.
+ */
+export const MANUAL_SLOTS = ['top:save', 'top:save2', 'top:save3'] as const;
 export const AUTO_SLOT = 'top:autosave';
+/** Every slot the game writes, autosave first. */
+export const ALL_SLOTS: readonly string[] = [AUTO_SLOT, ...MANUAL_SLOTS];
 export const BOOT_FLAG = 'top:boot'; // 'load:<slot>' consumed once at startup
 
 /** Where the camera was, so a resumed region opens where it was left. */
@@ -229,12 +243,53 @@ export function deleteSlot(slot: string): void {
  * envelope carries no run identity, so the state inside it is asked.
  */
 export function releaseSlots(g: GameState): void {
-  for (const slot of [AUTO_SLOT, MANUAL_SLOT]) {
+  for (const slot of ALL_SLOTS) {
     const env = peek(slot);
     if (!env) continue;
     const runId = (env.state as { runId?: number }).runId;
     if (runId === undefined || runId === g.runId) deleteSlot(slot);
   }
+}
+
+/** An occupied slot, with enough to describe it without opening the region. */
+export interface SlotInfo {
+  slot: string;
+  /** False for the autosave, which the game writes on its own schedule. */
+  manual: boolean;
+  env: SaveEnvelope;
+}
+
+/**
+ * Every save there is, newest first.
+ *
+ * The one list the menus are built from, so a slot cannot be offered by Load
+ * and forgotten by Continue, which is exactly how Continue came to mean "the
+ * autosave" rather than "where you were".
+ */
+export function savedGames(): SlotInfo[] {
+  const out: SlotInfo[] = [];
+  for (const slot of ALL_SLOTS) {
+    const env = peek(slot);
+    if (env) out.push({ slot, manual: slot !== AUTO_SLOT, env });
+  }
+  return out.sort((a, b) => b.env.savedAt - a.env.savedAt);
+}
+
+/**
+ * What Continue opens: the most recent save of any kind.
+ *
+ * It used to be the autosave, full stop — so a player who saved deliberately
+ * and then quit was offered the autosave from up to a year of game time
+ * earlier, and the save they had just made by hand was reachable only through
+ * a menu they had no reason to open.
+ */
+export function newestSave(): SlotInfo | null {
+  return savedGames()[0] ?? null;
+}
+
+/** The first manual slot with nothing in it, or null when all three are taken. */
+export function freeManualSlot(): string | null {
+  return MANUAL_SLOTS.find((s) => peek(s) === null) ?? null;
 }
 
 export function peek(slot: string): SaveEnvelope | null {
