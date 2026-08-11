@@ -2011,36 +2011,30 @@ export class UI {
    * want in order to displace a region you did.
    */
   /**
-   * One save, as a row you press.
+   * A row you press, with an optional corner X.
    *
-   * The row is the button. A row with a *Load* button on it asks the player to
-   * find the small control inside the large obvious one they were already
-   * pointing at — and then puts *Delete* beside it, the same size, the same
-   * weight, one target away from the action they wanted. So the row does the
-   * safe thing when pressed anywhere, and the destructive one is a corner X:
-   * small, out of the way, and impossible to hit by aiming at the row.
+   * The row is the button. A row with an *Open* or a *Load* button on it asks
+   * the player to find the small control inside the large obvious one they were
+   * already pointing at — and then puts *Delete* beside it, the same size, the
+   * same weight, one target away from the action they wanted. So the row does
+   * the safe thing when pressed anywhere, and the destructive one is a corner
+   * X: small, out of the way, and impossible to hit by aiming at the row.
+   *
+   * One helper for every list in the game that works this way — saves, and the
+   * archived administrations — so the shape cannot drift apart between them.
    */
-  private slotRowHtml(s: SlotInfo, deletable = true): string {
-    const when = new Date(s.env.savedAt).toLocaleString();
-    const year = Math.floor(s.env.tick / 12) + 1;
-    const lock = s.env.locked ? '<span class="save-flag">observer · permanently locked</span>'
-      : s.env.ended ? '<span class="save-flag">administration terminated</span>' : '';
-    return `<div class="save-row" role="button" tabindex="0" data-slot="${s.slot}">
-      <span class="save-what"><b>${s.manual ? 'Manual save' : 'Autosave'}</b> · Year ${year} ·
-        pop ${s.env.population.toLocaleString()}
-        <small>${when}</small>${lock}</span>
-      ${deletable ? `<button class="panel-close row-x" data-del="${s.slot}" aria-label="Delete this save" title="Delete this save">×</button>` : ''}
+  private rowHtml(id: string, body: string, del?: string): string {
+    return `<div class="save-row" role="button" tabindex="0" data-row="${id}">
+      <span class="save-what">${body}</span>
+      ${del ? `<button class="panel-close row-x" data-del="${id}" aria-label="${del}" title="${del}">×</button>` : ''}
     </div>`;
   }
 
-  /** Hook up rows built by `slotRowHtml`: press the row, or its corner X. */
-  private wireSlotRows(onPick: (s: SlotInfo) => void, onDelete?: (s: SlotInfo) => void): void {
-    const all = savedGames();
-    const find = (slot: string) => all.find((s) => s.slot === slot);
+  /** Hook up rows built by `rowHtml`: press the row, or press its corner X. */
+  private wireRows(onPick: (id: string) => void, onDelete?: (id: string) => void): void {
     for (const row of this.modal.querySelectorAll<HTMLElement>('.save-row')) {
-      const s = find(row.dataset.slot!);
-      if (!s) continue;
-      const go = () => onPick(s);
+      const id = row.dataset.row!;
+      const go = () => onPick(id);
       row.onclick = go;
       // A row that answers to a pointer must answer to a keyboard.
       row.onkeydown = (ev: KeyboardEvent) => {
@@ -2049,11 +2043,33 @@ export class UI {
         go();
       };
     }
+    if (!onDelete) return;
     for (const b of this.modal.querySelectorAll<HTMLElement>('[data-del]')) {
-      const s = find(b.dataset.del!);
-      if (!s || !onDelete) continue;
-      b.onclick = (ev) => { ev.stopPropagation(); onDelete(s); };
+      // The X is inside the row, and the row loads what the X is about to
+      // delete. Without this it would do both.
+      b.onclick = (ev) => { ev.stopPropagation(); onDelete(b.dataset.del!); };
     }
+  }
+
+  private slotRowHtml(s: SlotInfo, deletable = true): string {
+    const when = new Date(s.env.savedAt).toLocaleString();
+    const year = Math.floor(s.env.tick / 12) + 1;
+    const lock = s.env.locked ? '<span class="save-flag">observer · permanently locked</span>'
+      : s.env.ended ? '<span class="save-flag">administration terminated</span>' : '';
+    return this.rowHtml(s.slot,
+      `<b>${s.manual ? 'Manual save' : 'Autosave'}</b> · Year ${year} ·
+        pop ${s.env.population.toLocaleString()}
+        <small>${when}</small>${lock}`,
+      deletable ? 'Delete this save' : undefined);
+  }
+
+  /** `wireRows`, resolved back to the save each row stands for. */
+  private wireSlotRows(onPick: (s: SlotInfo) => void, onDelete?: (s: SlotInfo) => void): void {
+    const all = savedGames();
+    const find = (slot: string) => all.find((s) => s.slot === slot);
+    this.wireRows(
+      (id) => { const s = find(id); if (s) onPick(s); },
+      onDelete ? (id) => { const s = find(id); if (s) onDelete(s); } : undefined);
   }
 
   /**
@@ -2103,28 +2119,41 @@ export class UI {
       this.showModal('Past Administrations', 'Nothing on record yet.', [back]);
       return;
     }
+    // The row is the button, as in the Load menu. An administration's decisions
+    // are the only thing kept of it and the only reason to open the list at
+    // all, so pressing the administration opens them — a *Decisions* button was
+    // a second, smaller target for the thing the row was already for.
     const rows = list.map((r) => {
       const years = Math.floor(r.tick / 12);
       const how = r.kind === 'observer' ? 'Outlived by the system' : 'Terminated';
-      return `<div class="save-row" data-run="${r.runId}">
-        <span class="save-what"><b>${r.scenarioName}</b> · ${years} year${years === 1 ? '' : 's'} ·
+      return this.rowHtml(String(r.runId),
+        `<b>${r.scenarioName}</b> · ${years} year${years === 1 ? '' : 's'} ·
           peak population ${r.peakPopulation.toLocaleString()}
-          <small>${how} — ${r.cause}</small></span>
-        <button class="small-btn run-open" data-run="${r.runId}">Decisions</button>
-        <button class="small-btn run-del" data-run="${r.runId}">Delete</button>
-      </div>`;
+          <small>${how} — ${r.cause}</small>`,
+        'Delete this record');
     }).join('');
     this.showModal('Past Administrations',
-      `<p class="hint">Each of these ended. The decisions that got them there are kept.</p>${rows}`, [back]);
-    for (const b of this.modal.querySelectorAll<HTMLElement>('.run-open')) {
-      b.onclick = () => {
-        const rec = list.find((r) => String(r.runId) === b.dataset.run);
-        if (rec) this.showRecord(rec, fromTitle);
-      };
-    }
-    for (const b of this.modal.querySelectorAll<HTMLElement>('.run-del')) {
-      b.onclick = () => { deleteRecord(Number(b.dataset.run)); this.showArchive(fromTitle); };
-    }
+      '<p class="hint">Each of these ended. Open one to read every decision that got it there.</p>' + rows,
+      [back]);
+    const find = (id: string) => list.find((r) => String(r.runId) === id);
+    this.wireRows(
+      (id) => { const rec = find(id); if (rec) this.showRecord(rec, fromTitle); },
+      (id) => {
+        const rec = find(id);
+        if (!rec) return;
+        const years = Math.floor(rec.tick / 12);
+        // It used to go on the first click, with nothing asked. The record is
+        // the only thing that outlives an administration, and there is no
+        // second copy of it anywhere.
+        this.showModal('Delete Record',
+          `Delete the record of ${rec.scenarioName}? ${years} year${years === 1 ? '' : 's'}, ` +
+          `peak population ${rec.peakPopulation.toLocaleString()}. ` +
+          'Every decision it made goes with it, and nothing else keeps them.',
+          [
+            { label: 'Delete', action: () => { deleteRecord(rec.runId); this.showArchive(fromTitle); } },
+            { label: 'Keep it', action: () => this.showArchive(fromTitle) },
+          ]);
+      });
   }
 
   /** One archived administration: how it ended, then everything it decided. */

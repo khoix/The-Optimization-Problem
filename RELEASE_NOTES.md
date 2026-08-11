@@ -2382,6 +2382,52 @@ written when the tab is hidden.
 
 ---
 
+## Milestone 47 — the list is the button — `77d2047`
+
+Past Administrations had a *Decisions* button and a *Delete* button on every
+row, side by side, the same size. Opening an administration's decisions is the
+only thing the panel is for and the only reason to be in it — so the row asked
+the player to find a small target inside the large obvious one they were already
+pointing at, and then put the irreversible option next to it.
+
+The row **is** the button now. Press it anywhere and it opens that
+administration's decisions. Delete is a corner **X**: 6.5% of the row's width,
+against a *Delete* button that was a column of its own.
+
+This is the same row the Load menu got in M46, from the same helper — one
+`rowHtml`/`wireRows` pair, so the two lists cannot drift apart. Both carry
+`role="button"` and `tabindex`, and answer Enter and Space; a row that answers
+to a pointer must answer to a keyboard.
+
+> **A fix that came with it.** Deleting a record used to happen on the first
+> click with nothing asked. The decision log is the only thing that outlives an
+> administration and there is no second copy of it anywhere, so it asks now, and
+> names the administration it is about to lose.
+
+### The rule, stated once
+
+**A row is a button. The destructive action on it is a corner X, never a sibling
+button competing with the row's own affordance.** M44 put the inspector's Close
+in the corner, M46 built the Load menu to it, and this applies it to the last
+list that was not. Anything list-shaped added after this starts here.
+
+### Verification
+
+26 checks. Against the previous behaviour **23 fail**, including six buttons
+inside three rows, rows with no role and no key, and a delete that goes through
+on the first click without asking.
+
+> **Four of these first passed against a build with no X at all.** "Nothing was
+> deleted while the question is open", "one dialog on screen, not two",
+> "declining keeps the record" and "it names what it is about to lose" were all
+> true of a build where the X was never there to press, nothing was clicked and
+> nothing happened. Each is now conditioned on the click having actually landed.
+> That is the same failure mode this history keeps recording — an assertion that
+> passes over an absence — and it is the one that gets past a reader most easily,
+> because the sentence is true.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
