@@ -2107,6 +2107,96 @@ ignores the administrator entirely.
 
 ---
 
+## Milestone 44 — placing things, and unplacing them — `HASH`
+
+Five complaints from one session of play, all of them about the moment a
+decision is made or taken back.
+
+### The roads that could never be upgraded
+
+Reported as *"road upgrades don't work."* They do. What did not work was the
+founding grid: `layRoad` cleared forest out of the way and said nothing about
+rock, so on some seeds the town opened with streets standing **on top of rock**
+— and `canPlace` refuses rock before it ever looks at the pavement already
+there. The tile answered *"clear the rock first"* about ground the player could
+not see, on a road they did not lay.
+
+| seed | founding road tiles on rock | upgradeable |
+|---|---|---|
+| 1212 | 16 of 69 | 53 of 69 |
+| 7777 | 1 of 69 | 68 of 69 |
+| 303 / 404 / 606 | 0 | all |
+
+Which is why it read as intermittent. The founding grid clears rock now, the
+emergency access stubs laid on load do too, and **every save already written is
+repaired on the way in**: rock underneath an existing road is not visible and is
+not doing anything, so it goes.
+
+### The cursor is in the middle of the building now
+
+The anchor was the footprint's top-left tile, so a 4×4 arcology grew down and to
+the right of the pointer — you aimed at a corner that is not drawn, three tiles
+from the thing you were looking at. It is centred in **world pixels rather than
+tiles**, because half the buildings in this game have an even footprint and an
+even footprint has no centre tile; rounding the world position puts the snap line
+down the middle of the span instead of leaning the same way forever. A 1×1 still
+lands exactly where you clicked.
+
+### Grace for a misclick
+
+A foundation with no work done on it is a decision, not a structure. Demolishing
+one now returns **the full price**, and does not ask first — the confirmation
+exists to stop a misclick spending a nuclear plant, and there is no nuclear plant
+to spend. The button says *Cancel* rather than *Demolish* while that is true. One
+month of work later, the ordinary 35% scrap rate and the ordinary confirmation
+are both back.
+
+### A road drawn over a road says so
+
+Paving over has always been an upgrade and nothing in the game ever said it, so
+the feature may as well not have existed. The road drawer says it once, above the
+cards. The placement cursor has a third state to go with it: green places, red
+refuses, and **amber replaces** — the same amber that already means clearing
+ground you own.
+
+### The inspector opens beside the structure
+
+It was pinned to the bottom-left corner whatever you clicked, which on a map you
+can pan and zoom means reading a building's condition in one corner while looking
+at the building in another. It sits next to the footprint now, on whichever side
+has the room, clear of the civic bar, and it **follows the camera** — the panel
+describes a building, not a corner of the screen. Below 820px it stays the
+full-width sheet it already was: on a 390px phone, "beside the building" means
+"on top of the building".
+
+And *Close* is an **X in the top right**, out of an action row that was already
+wrapping under an Upgrade label carrying a building name and a price — the one
+button that does nothing was pushing the two that matter onto a second line. It
+is the one control observer mode does not grey out. Putting down a panel is not
+an administrative act.
+
+### Verification
+
+53 checks. Against the previous behaviour **24 fail**, including sixteen
+founding roads standing on rock, a 4×4 landing a tile and a half off the pointer,
+§0 back from a foundation nobody had broken ground on, and a panel that stayed at
+`left: 10px` while the building it described slid 120px across the screen.
+
+> **Fixes found while testing.** Moving the inspector next to the building put it
+> exactly where the pointer already was, so the hover card — the higher layer —
+> covered the Upgrade and Demolish buttons of the panel it was summarising. The
+> card steps around it now, and stands down entirely if there is nowhere to go.
+> A selection whose building disappears underneath it closes the panel rather than
+> letting it fall back to the corner.
+>
+> **And one in the harness.** The placement checks hardcoded a 3×3 school. The
+> school is 3×2, so the probe reported the game off by a tile when the tile it was
+> wrong about was its own. Footprints are read from the definitions now — the same
+> class of error as M31's `TILE = 24`, and caught the same way: by asking why a
+> figure that should have been exact was off by exactly one.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

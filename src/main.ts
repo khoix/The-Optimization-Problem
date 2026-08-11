@@ -3,7 +3,7 @@ import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBui
 import { simTick } from './game/sim';
 import { Renderer, type DemolishPreview, type UiRenderState } from './render/renderer';
 import { canDemolish } from './game/asi';
-import { UI, type SessionRequest } from './ui/ui';
+import { UI, type ScreenRect, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS } from './game/buildings';
 import { AUTO_SLOT, consumeBootFlag, loadFrom, peek, provideView, releaseSlots, saveTo, type SavedView } from './game/save';
@@ -258,11 +258,36 @@ canvas.addEventListener('pointerdown', (ev) => {
   if (ev.button === 0) actAt(ev.clientX, ev.clientY);
 });
 
+/**
+ * Where a footprint lands when the cursor is at this world point.
+ *
+ * The anchor is the footprint's top-left tile, and it used to be simply the
+ * tile under the cursor: a 4×4 arcology grew down and to the right of the
+ * pointer, so placing one meant aiming at a corner that isn't drawn, three
+ * tiles from the thing you were looking at.
+ *
+ * Centred in world pixels rather than in tiles, because half the buildings in
+ * the game have an even footprint and an even footprint has no centre tile.
+ * Rounding the world position puts the snap line down the middle of the span —
+ * a 2×2 sits left of the cursor on the left half of a tile and right of it on
+ * the right half — instead of leaning the same way forever.
+ */
+function anchorAt(type: keyof typeof BUILDING_DEFS, wx: number, wy: number): [number, number] {
+  const def = BUILDING_DEFS[type];
+  return [Math.round(wx / TILE - def.w / 2), Math.round(wy / TILE - def.h / 2)];
+}
+
 /** The left-click / tap action, in one place so both paths agree. */
 function actAt(clientX: number, clientY: number): void {
   const t = tileFromClient(clientX, clientY);
   if (ui.tool.kind === 'build') {
-    if (t) tryBuild(ui.tool.type, t[0], t[1]);
+    // The cursor has to be on the map; the footprint it anchors may hang off
+    // the edge, and canPlace is what refuses that.
+    if (t) {
+      const [wx, wy] = renderer.screenToWorld(clientX - canvasRect.left, clientY - canvasRect.top);
+      const [ax, ay] = anchorAt(ui.tool.type, wx, wy);
+      tryBuild(ui.tool.type, ax, ay);
+    }
     if (ui.tool.kind === 'build' && isRoadType(ui.tool.type)) roadPainting = true;
   } else if (ui.tool.kind === 'demolish') {
     if (t) demolishTile(t[0], t[1], false);
@@ -422,7 +447,8 @@ function applyCursor(): void {
   // gesture that asks for it by name.
   ui.showHover(!touchMode || longPressing ? hoverTile : null, cursorX, cursorY);
   if (!dragging && roadPainting && hoverTile && ui.tool.kind === 'build') {
-    tryBuild(ui.tool.type, hoverTile[0], hoverTile[1], true);
+    const [ax, ay] = anchorAt(ui.tool.type, wx, wy);
+    tryBuild(ui.tool.type, ax, ay, true);
   }
   if (!dragging && demolishDragging && hoverTile && ui.tool.kind === 'demolish') {
     demolishTile(hoverTile[0], hoverTile[1], true);
@@ -601,11 +627,37 @@ function demolishPreview(): DemolishPreview | null {
   return null;
 }
 
+/**
+ * The selected building's footprint in client pixels, so the inspector can sit
+ * next to what it describes.
+ *
+ * Recomputed every frame rather than at selection: the camera is the thing the
+ * player moves most, and a panel that pointed at where a building used to be
+ * would be worse than the corner it used to live in.
+ */
+function selectionRect(id: number | null = ui.selectedBuildingId): ScreenRect | null {
+  if (id == null) return null;
+  const b = g.buildings.get(id);
+  if (!b) return null;
+  const def = BUILDING_DEFS[b.type];
+  const z = renderer.zoom;
+  return {
+    x: (b.x * TILE - renderer.camX) * z + canvasRect.left,
+    y: (b.y * TILE - renderer.camY) * z + canvasRect.top,
+    w: def.w * TILE * z,
+    h: def.h * TILE * z,
+  };
+}
+
 function selectTile(t: [number, number] | null): void {
   if (!t) return;
   const tile = tileAt(g, t[0], t[1]);
-  if (tile && tile.buildingId !== -1) ui.showInspector(tile.buildingId);
-  else { ui.selectedBuildingId = null; }
+  if (tile && tile.buildingId !== -1) {
+    // Where it goes before it is shown, so it opens beside the building rather
+    // than opening in the corner and jumping there on the next frame.
+    ui.trackSelection(selectionRect(tile.buildingId));
+    ui.showInspector(tile.buildingId);
+  } else { ui.selectedBuildingId = null; }
 }
 
 // ---------------------------------------------------------------- main loop
@@ -652,10 +704,20 @@ function frame(now: number): void {
   renderer.update(g, dt, mul);
   sound.update(g, dt, renderer.nightFactor(), renderer.rain, renderer.snowing);
 
+  const buildType = ui.tool.kind === 'build' ? ui.tool.type : null;
+  // Not cached alongside hoverTile: the anchor depends on the footprint as well
+  // as the pointer, and picking a bigger building off a card moves it without
+  // the mouse having gone anywhere.
+  const buildTile = buildType && hoverWorld ? anchorAt(buildType, hoverWorld[0], hoverWorld[1]) : null;
   const uiState: UiRenderState = {
     hoverTile,
-    buildType: ui.tool.kind === 'build' ? ui.tool.type : null,
-    canPlaceHere: hoverTile && ui.tool.kind === 'build' ? canPlace(g, ui.tool.type, hoverTile[0], hoverTile[1]) : false,
+    buildType,
+    buildTile,
+    canPlaceHere: buildType && buildTile ? canPlace(g, buildType, buildTile[0], buildTile[1]) : false,
+    // A road drawn over a road is a replacement, not a new tile, and the cursor
+    // says so — green reads as "goes here", which is true but not the news.
+    buildReplaces: !!(buildType && buildTile && isRoadType(buildType) &&
+      (tileAt(g, buildTile[0], buildTile[1])?.road ?? false)),
     demolish: demolishPreview(),
     selectedBuildingId: ui.selectedBuildingId,
     overlay: ui.overlay,
@@ -663,6 +725,7 @@ function frame(now: number): void {
     xrayRadial: xrayHeld,
   };
   renderer.render(g, uiState);
+  ui.trackSelection(selectionRect());
 
   uiAccum += dt;
   if (uiAccum > 0.25) { uiAccum = 0; ui.refresh(); }

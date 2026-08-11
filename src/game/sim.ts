@@ -35,8 +35,25 @@ export function buildingCondition(b: Building): number {
  */
 export const DEMOLITION_REFUND = 0.35;
 
+/**
+ * Nothing has been built yet, so nothing has been spent yet.
+ *
+ * A foundation with no work done on it is a decision, not a structure — and the
+ * commonest way to make one is to line up several while the clock is paused and
+ * notice on the third that the second is in the wrong place. Charging a third of
+ * the price to take back a click that has not yet moved a shovel is a tax on
+ * misreading the map, and the map is deliberately hard to read.
+ *
+ * The instant the first month's work lands, the ordinary scrap rate applies.
+ */
+export function fullRefund(b: Building): boolean {
+  return b.progress <= 0;
+}
+
 export function demolitionRefund(b: Building): number {
-  return Math.round(BUILDING_DEFS[b.type].cost * DEMOLITION_REFUND * buildingCondition(b));
+  const def = BUILDING_DEFS[b.type];
+  if (fullRefund(b)) return def.cost;
+  return Math.round(def.cost * DEMOLITION_REFUND * buildingCondition(b));
 }
 
 /** Demolish and credit the refund. Returns what came back. */

@@ -44,7 +44,14 @@ export interface UiRenderState {
   /** The x-ray key is held: open a window around the cursor. */
   xrayRadial: boolean;
   buildType: BuildingType | null;
+  /**
+   * Where the footprint would be anchored — its top-left tile, which for
+   * anything bigger than 1×1 is not the tile under the cursor.
+   */
+  buildTile: [number, number] | null;
   canPlaceHere: boolean;
+  /** The placement replaces something already there: a road over a road. */
+  buildReplaces: boolean;
   /** Null unless the demolish tool is in hand over something it can address. */
   demolish: DemolishPreview | null;
   selectedBuildingId: number | null;
@@ -896,13 +903,13 @@ export class Renderer {
 
     this.stamp('diagnostics');
     // ------------------------------------------------------------ build cursor
-    if (ui.buildType && ui.hoverTile) {
+    if (ui.buildType && ui.buildTile) {
       const def = BUILDING_DEFS[ui.buildType];
-      const dx = ui.hoverTile[0] * TILE - camX, dy = ui.hoverTile[1] * TILE - camY;
+      const dx = ui.buildTile[0] * TILE - camX, dy = ui.buildTile[1] * TILE - camY;
       const spr = this.buildings.get(ui.buildType);
       // Utilities preview the area they would serve.
       if (def.serviceRadius) {
-        this.drawServiceArea(w, ui.hoverTile[0], ui.hoverTile[1], def.w, def.h, def.serviceRadius,
+        this.drawServiceArea(w, ui.buildTile[0], ui.buildTile[1], def.w, def.h, def.serviceRadius,
           camX, camY, def.power > 0 ? 'power' : 'water');
       }
       // The ghost previews the mass it will actually occupy — lifted, with its
@@ -920,9 +927,16 @@ export class Renderer {
       }
       if (spr) w.drawImage(spr.albedo, grx, gry);
       w.globalAlpha = 1;
-      w.fillStyle = ui.canPlaceHere ? 'rgba(110,220,130,0.3)' : 'rgba(220,80,80,0.4)';
+      // Three answers, not two: goes here, replaces what is here, or won't.
+      // Amber is already the colour of changing ground the player owns — it is
+      // what clearing rock uses — so a road laid over a road borrows it rather
+      // than reading as a fresh tile.
+      const [cFill, cLine] = !ui.canPlaceHere ? ['rgba(220,80,80,0.4)', '#dc5050']
+        : ui.buildReplaces ? ['rgba(224,170,72,0.32)', '#e0aa48']
+          : ['rgba(110,220,130,0.3)', '#6edc82'];
+      w.fillStyle = cFill;
       w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
-      w.strokeStyle = ui.canPlaceHere ? '#6edc82' : '#dc5050';
+      w.strokeStyle = cLine;
       w.strokeRect(dx + 0.5, dy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
     }
     // --------------------------------------------------------- demolish cursor

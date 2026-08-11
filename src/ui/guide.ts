@@ -462,7 +462,8 @@ export class Guide {
       this.renderer.rain = 0;
       this.renderer.hour = p.figure.hour;
       const ui: UiRenderState = {
-        hoverTile: null, buildType: null, canPlaceHere: false, demolish: null, selectedBuildingId: null,
+        hoverTile: null, buildType: null, buildTile: null, canPlaceHere: false, buildReplaces: false,
+        demolish: null, selectedBuildingId: null,
         overlay: p.figure.overlay ?? null, cursorWorld: null, xrayRadial: false,
       };
       this.renderer.render(this.scene, ui);
