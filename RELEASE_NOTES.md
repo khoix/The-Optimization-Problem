@@ -2107,7 +2107,7 @@ ignores the administrator entirely.
 
 ---
 
-## Milestone 44 — placing things, and unplacing them — `HASH`
+## Milestone 44 — placing things, and unplacing them — `c9262ae`
 
 Five complaints from one session of play, all of them about the moment a
 decision is made or taken back.
