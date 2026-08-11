@@ -153,11 +153,19 @@ body {
 /* A row that is one thing plus the two verbs that apply to it. The label takes
    whatever width is left; the buttons keep theirs, because a Delete that moves
    about is a Delete somebody presses by accident. */
+/* The row is the button. Pressing it anywhere does the safe thing — load this
+   save, open this administration's decisions — and the destructive action is a
+   corner X rather than a second button of equal weight sitting one target away
+   from the one the player wanted. */
 .save-row {
   display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
-  padding: 8px 10px; border: 1px solid var(--panel-border); border-radius: 5px;
+  padding: 8px 34px 8px 10px; border: 1px solid var(--panel-border); border-radius: 5px;
   background: rgba(20, 26, 38, 0.6);
+  position: relative; cursor: pointer; text-align: left; width: 100%;
 }
+.save-row:hover { background: rgba(32, 42, 60, 0.75); border-color: var(--accent); }
+.save-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.save-row .row-x { top: 50%; right: 6px; transform: translateY(-50%); }
 .save-what { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; }
 .save-what small { display: block; color: var(--text-dim); font-size: 10px; }
 .save-flag {
@@ -165,7 +173,8 @@ body {
   text-transform: uppercase; color: var(--mid);
 }
 .save-row .small-btn { flex: 0 0 auto; }
-.save-del, .run-del { color: var(--bad); }
+.row-x:hover { background: rgba(220, 80, 80, 0.18); color: var(--bad); }
+.run-del { color: var(--bad); }
 .rec-cause { font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
 
 /* politics summary */
@@ -1229,6 +1238,8 @@ body.at-title .guide { padding-bottom: 20px; }
   /* The glyph stays small; what a thumb has to hit does not. */
   .panel-close { width: 38px; height: 38px; top: 2px; right: 2px; }
   .inspector h3 { padding-right: 36px; }
+  /* Room for the bigger target, so it does not sit over the row's own text. */
+  .save-row { padding-right: 46px; }
   .collapse-btn { min-height: 44px; min-width: 44px; }
   /* The dots are 7px by design and stay that way; the hit area around them
      is not. */

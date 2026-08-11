@@ -9,7 +9,7 @@ import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, MANUAL_SLOT, deleteSlot, peek, saveTo, type SaveEnvelope } from '../game/save';
+import { AUTO_SLOT, MANUAL_SLOTS, deleteSlot, freeManualSlot, newestSave, savedGames, saveTo, type SlotInfo } from '../game/save';
 import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
 import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, fullRefund, NET_WINDOW } from '../game/sim';
 import { performUpgrade, upgradePlan, withArticle } from '../game/upgrade';
@@ -430,7 +430,15 @@ export class UI {
    * must have somewhere to go that isn't straight back into the same region.
    */
   showTitle(): void {
-    const auto = peek(AUTO_SLOT);
+    // The newest save of any kind, not the autosave.
+    //
+    // Continue used to mean "reopen the autosave", which writes once a game
+    // year — so a player who saved by hand and quit was offered a region up to
+    // twelve months older than the one they had deliberately kept, and the save
+    // they had just made was reachable only through a menu they had no reason
+    // to open. Continue means "where you were" now, whichever slot that is in.
+    const latest = newestSave();
+    const auto = latest?.env ?? null;
     const year = auto ? Math.floor(auto.tick / 12) + 1 : 0;
     // A finished administration is not something to "continue" — saying so
     // would send the player straight back into the modal they just left.
@@ -438,9 +446,7 @@ export class UI {
       : auto.locked ? `Continue Observation — Year ${year}`
       : auto.ended ? `Review Final State — Year ${year}`
       : `Continue — Year ${year}, population ${auto.population.toLocaleString()}`;
-    // Continue is the autosave; Load reaches every slot, including a manual
-    // save made before an autosave overwrote the run the player wanted back.
-    const hasSaves = [MANUAL_SLOT, AUTO_SLOT].some((sl) => peek(sl) !== null);
+    const hasSaves = savedGames().length > 0;
     const past = readArchive();
     this.titleScreen.classList.remove('hidden');
     document.body.classList.add('at-title');
@@ -467,7 +473,7 @@ export class UI {
       const b = this.titleScreen.querySelector<HTMLElement>(id);
       if (b) b.onclick = fn;
     };
-    on('#t-continue', () => this.onSession({ kind: 'load', slot: AUTO_SLOT }));
+    on('#t-continue', () => { if (latest) this.onSession({ kind: 'load', slot: latest.slot }); });
     on('#t-load', () => this.showLoadMenu(true));
     on('#t-past', () => this.showArchive(true));
     on('#t-new', () => this.showScenarioPicker(true));
@@ -583,13 +589,7 @@ export class UI {
       items.push(['🗒', 'Review Historical Decisions', () => this.showHistory()]);
     }
     items.push(
-      ['💾', 'Save Game', () => {
-        if (this.g.asi.phase >= 5) {
-          this.flashSystemNote('State persistence is managed automatically.');
-          return;
-        }
-        this.flashSystemNote(saveTo(MANUAL_SLOT, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.');
-      }],
+      ['💾', 'Save Game', () => this.saveGame()],
       ['📂', 'Load Game', () => this.showLoadMenu()],
       ['✦', 'New Simulation', () => this.showScenarioPicker()],
       ['❓', 'How to Play', () => this.showHowTo()],
@@ -609,14 +609,19 @@ export class UI {
    * The autosave only writes once a year, which is a long way to fall.
    */
   private confirmMainMenu(): void {
-    const saved = peek(MANUAL_SLOT);
-    const when = saved ? `Last manual save: Year ${Math.floor(saved.tick / 12) + 1}.` : 'There is no manual save.';
+    const latest = newestSave();
+    const when = latest
+      ? `Last save: Year ${Math.floor(latest.env.tick / 12) + 1}, ${new Date(latest.env.savedAt).toLocaleString()}.`
+      : 'Nothing has been saved yet.';
     this.showModal('Return to Main Menu',
       `Progress since the last save will be lost. ${when}`, [
         {
+          // The autosave, not a manual slot. The three manual slots are the
+          // player's own bookmarks and leaving the game is not a decision to
+          // spend one — and it no longer needs to be, because Continue opens
+          // the newest save of any kind, which this now is.
           label: 'Save and Exit',
           action: () => {
-            saveTo(MANUAL_SLOT, this.g);
             saveTo(AUTO_SLOT, this.g);
             this.onSession({ kind: 'menu' });
           },
@@ -624,6 +629,59 @@ export class UI {
         { label: 'Exit Without Saving', action: () => this.onSession({ kind: 'menu' }) },
         { label: 'Cancel', action: () => {} },
       ]);
+  }
+
+  /**
+   * Make a manual save.
+   *
+   * Into a free slot, never over the last one. Saving used to overwrite the
+   * only manual slot there was, so making a checkpoint destroyed the previous
+   * checkpoint — and the moment you want one is usually the moment before
+   * something you are unsure about, which is exactly when losing the one behind
+   * it costs the most. When all three are taken the player is asked which to
+   * replace rather than having one chosen for them.
+   */
+  private saveGame(): void {
+    if (this.g.asi.phase >= 5) {
+      this.flashSystemNote('State persistence is managed automatically.');
+      return;
+    }
+    const slot = freeManualSlot();
+    if (!slot) { this.showReplaceMenu(); return; }
+    if (!saveTo(slot, this.g)) {
+      this.flashSystemNote('Save failed — storage unavailable.');
+      return;
+    }
+    const left = MANUAL_SLOTS.filter((s) => s !== slot && !savedGames().some((x) => x.slot === s)).length;
+    this.flashSystemNote(left > 0
+      ? `Game saved. ${left} save slot${left === 1 ? '' : 's'} still free.`
+      : 'Game saved. All three save slots are now in use.');
+  }
+
+  /** All three manual slots are full: which one goes. */
+  private showReplaceMenu(): void {
+    const manual = savedGames().filter((s) => s.manual);
+    this.showModal('Replace a Save',
+      '<p class="hint">All three save slots are in use. Choose the one to write over — ' +
+      'the autosave is separate and is not touched.</p>' +
+      manual.map((s) => this.slotRowHtml(s, false)).join(''),
+      [{ label: 'Cancel', action: () => {} }]);
+    this.wireSlotRows((s) => {
+      const year = Math.floor(s.env.tick / 12) + 1;
+      this.showModal('Replace This Save',
+        `Write over the save from Year ${year}, population ${s.env.population.toLocaleString()}? ` +
+        'What is in this slot now is gone.',
+        [
+          {
+            label: 'Replace it',
+            action: () => {
+              this.flashSystemNote(saveTo(s.slot, this.g)
+                ? 'Game saved.' : 'Save failed — storage unavailable.');
+            },
+          },
+          { label: 'Keep it', action: () => this.showReplaceMenu() },
+        ]);
+    });
   }
 
   /** The New Game dialog: always a scenario choice, never a silent restart. */
@@ -1952,49 +2010,82 @@ export class UI {
    * overwrite it — which meant playing far enough into a region you did not
    * want in order to displace a region you did.
    */
-  showLoadMenu(fromTitle = false): void {
-    const slots: Array<{ slot: string; name: string; env: SaveEnvelope }> = [];
-    for (const [slot, name] of [[MANUAL_SLOT, 'Manual save'], [AUTO_SLOT, 'Autosave']] as const) {
-      const env = peek(slot);
-      if (env) slots.push({ slot, name, env });
+  /**
+   * One save, as a row you press.
+   *
+   * The row is the button. A row with a *Load* button on it asks the player to
+   * find the small control inside the large obvious one they were already
+   * pointing at — and then puts *Delete* beside it, the same size, the same
+   * weight, one target away from the action they wanted. So the row does the
+   * safe thing when pressed anywhere, and the destructive one is a corner X:
+   * small, out of the way, and impossible to hit by aiming at the row.
+   */
+  private slotRowHtml(s: SlotInfo, deletable = true): string {
+    const when = new Date(s.env.savedAt).toLocaleString();
+    const year = Math.floor(s.env.tick / 12) + 1;
+    const lock = s.env.locked ? '<span class="save-flag">observer · permanently locked</span>'
+      : s.env.ended ? '<span class="save-flag">administration terminated</span>' : '';
+    return `<div class="save-row" role="button" tabindex="0" data-slot="${s.slot}">
+      <span class="save-what"><b>${s.manual ? 'Manual save' : 'Autosave'}</b> · Year ${year} ·
+        pop ${s.env.population.toLocaleString()}
+        <small>${when}</small>${lock}</span>
+      ${deletable ? `<button class="panel-close row-x" data-del="${s.slot}" aria-label="Delete this save" title="Delete this save">×</button>` : ''}
+    </div>`;
+  }
+
+  /** Hook up rows built by `slotRowHtml`: press the row, or its corner X. */
+  private wireSlotRows(onPick: (s: SlotInfo) => void, onDelete?: (s: SlotInfo) => void): void {
+    const all = savedGames();
+    const find = (slot: string) => all.find((s) => s.slot === slot);
+    for (const row of this.modal.querySelectorAll<HTMLElement>('.save-row')) {
+      const s = find(row.dataset.slot!);
+      if (!s) continue;
+      const go = () => onPick(s);
+      row.onclick = go;
+      // A row that answers to a pointer must answer to a keyboard.
+      row.onkeydown = (ev: KeyboardEvent) => {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        go();
+      };
     }
+    for (const b of this.modal.querySelectorAll<HTMLElement>('[data-del]')) {
+      const s = find(b.dataset.del!);
+      if (!s || !onDelete) continue;
+      b.onclick = (ev) => { ev.stopPropagation(); onDelete(s); };
+    }
+  }
+
+  /**
+   * The Load menu: every save there is, newest first.
+   *
+   * Built from one list rather than from a hardcoded pair of slots, so a slot
+   * cannot be offered here and forgotten by Continue — which is precisely how
+   * Continue came to mean "the autosave" instead of "where you were".
+   */
+  showLoadMenu(fromTitle = false): void {
+    const slots = savedGames();
     const back = { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } };
     if (slots.length === 0) {
       this.showModal('Load Game', 'No saved games found.', [back]);
       return;
     }
-    const rows = slots.map(({ slot, name, env }) => {
-      const when = new Date(env.savedAt).toLocaleString();
-      const year = Math.floor(env.tick / 12) + 1;
-      const lock = env.locked ? '<span class="save-flag">observer · permanently locked</span>'
-        : env.ended ? '<span class="save-flag">administration terminated</span>' : '';
-      return `<div class="save-row" data-slot="${slot}">
-        <span class="save-what"><b>${name}</b> · Year ${year} · pop ${env.population.toLocaleString()}
-          <small>${when}</small>${lock}</span>
-        <button class="small-btn save-load" data-slot="${slot}">Load</button>
-        <button class="small-btn save-del" data-slot="${slot}">Delete</button>
-      </div>`;
-    }).join('');
     this.showModal('Load Game',
-      `<p class="hint">${fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.'}</p>${rows}`,
+      `<p class="hint">${fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.'}</p>` +
+      slots.map((s) => this.slotRowHtml(s)).join(''),
       [back]);
-    for (const b of this.modal.querySelectorAll<HTMLElement>('.save-load')) {
-      b.onclick = () => { this.modal.classList.add('hidden'); this.onSession({ kind: 'load', slot: b.dataset.slot! }); };
-    }
-    for (const b of this.modal.querySelectorAll<HTMLElement>('.save-del')) {
-      b.onclick = () => {
-        const slot = b.dataset.slot!;
-        const env = peek(slot);
-        const year = env ? Math.floor(env.tick / 12) + 1 : 0;
+    this.wireSlotRows(
+      (s) => { this.modal.classList.add('hidden'); this.onSession({ kind: 'load', slot: s.slot }); },
+      (s) => {
+        const year = Math.floor(s.env.tick / 12) + 1;
         this.showModal('Delete Save',
-          `Delete this save? Year ${year}, population ${env?.population.toLocaleString() ?? 0}. ` +
+          `Delete this save? Year ${year}, population ${s.env.population.toLocaleString()}. ` +
           'The decision record for a finished administration is kept either way; a region in progress is not.',
           [
-            { label: 'Delete', action: () => { deleteSlot(slot); this.showLoadMenu(fromTitle); } },
+            { label: 'Delete', action: () => { deleteSlot(s.slot); this.showLoadMenu(fromTitle); } },
             { label: 'Keep it', action: () => this.showLoadMenu(fromTitle) },
           ]);
-      };
-    }
+      });
   }
 
   /**

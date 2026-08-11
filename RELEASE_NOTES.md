@@ -2307,6 +2307,81 @@ screen, and this is a claim about which pixel a lamp is on.
 
 ---
 
+## Milestone 46 — the saves you actually made — `54ebd64`
+
+### Continue meant "the autosave"
+
+It reopened `top:autosave`, which writes once a game year. So a player who saved
+deliberately and then quit was offered a region up to twelve months older than
+the one they had just kept by hand — and the save they had made was reachable
+only through a menu they had no reason to open, because Continue was right
+there and looked like the answer.
+
+Continue is now **the newest save of any kind**, whichever slot it is in. One
+list — `savedGames()`, sorted by `savedAt` — is what Continue, the Load menu and
+the exit dialog all read, so a slot cannot be offered by one and forgotten by
+another, which is exactly how this happened.
+
+### Three manual saves, and none of them overwrite each other
+
+There was one manual slot, and saving wrote over it. Making a checkpoint
+destroyed the previous checkpoint — and the moment you want a checkpoint is
+usually the moment before something you are unsure about, which is precisely
+when losing the one behind it costs the most.
+
+Three slots, filled in turn. `top:save` stays first, so every manual save
+already on disk is still in the slot it was written to. When all three are
+taken the game **asks which to replace** and writes nothing until it is
+answered; it does not quietly drop the oldest.
+
+*Save and Exit* writes the autosave rather than spending a manual slot. Leaving
+the game is not a decision to burn a bookmark, and it no longer has to be —
+Continue picks up the autosave now if it is the newest thing there is.
+
+### The row is the button
+
+The Load menu is built from the list, newest first, with the year, the
+population and the timestamp on each row. Each row **is** the control: press it
+anywhere and it loads.
+
+It used to carry a *Load* button and a *Delete* button, side by side, the same
+size — which asks the player to find a small target inside the large obvious one
+they were already pointing at, and then puts the destructive option one target
+away from the thing they wanted. Delete is a corner **X** now: small, out of the
+way, and impossible to hit by aiming at the row. It still asks before it acts.
+Rows carry `role="button"` and `tabindex`, and answer Enter and Space, because a
+row that answers to a pointer must answer to a keyboard.
+
+### Autosave when the tab goes away
+
+The autosave wrote once a game year — several minutes of real time at 1× — and
+that was the only thing standing between a closed tab and a lost afternoon.
+Hiding the tab is the last moment anything is guaranteed to run, so it writes
+then too. The autosave slot only; the manual three are the player's.
+
+### Verification
+
+26 checks. Against the previous behaviour **19 fail**, including Continue
+offering Year 1 for a save made in Year 5, three saves in a row leaving one
+save on disk, a Load menu that lists two slots out of four, and nothing at all
+written when the tab is hidden.
+
+> **Two in the harness.** The fixture region was left with `gameOver` set after
+> its last tick, so every save it wrote came back flagged `ended` and the title
+> screen offered *"Review Final State"* — with a termination modal over the
+> button the probe was trying to press. And the run-ownership check ended its
+> second administration while the game sat at the menu, where `atMenu` is true
+> and by design nothing that happens is an administration, so no slot was ever
+> released and the probe reported the wrong thing failing.
+>
+> **And one about counterfactuals.** The file originally read the save list
+> through `__api.savedGames()`, a function written in this milestone — so
+> running it against the previous build threw before the first assertion. It
+> reads localStorage directly now. A probe that cannot run against the code it
+> is meant to distinguish from proves nothing about it.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
