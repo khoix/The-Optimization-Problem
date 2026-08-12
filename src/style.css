@@ -877,7 +877,11 @@ body.reduced-motion * { animation: none !important; transition: none !important;
      sits in the middle of its own card rather than lining up with the first
      line of the prose beside it, whatever length that prose wraps to. */
   .region-card { padding: 9px 44px 9px 9px; gap: 9px; }
-  .region-map { width: 62px; height: 62px; }
+  /* A third bigger than it was. At 62px a 112-tile map is under six tiles to
+     the millimetre and the river was a thread; the space comes out of the
+     description, which wraps a line further and is the less important half of
+     the card. */
+  .region-map { width: 83px; height: 83px; }
   .region-desc { font-size: 10.5px; }
 }
 

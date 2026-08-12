@@ -2607,6 +2607,13 @@ level with the middle of the prose. That was the wrong thing to optimise: the
 map is what the card is about, and it belongs in the middle of the card
 regardless of how long the sentence beside it runs.
 
+**The map was too small to be worth showing.** 62px for a 112-tile region is
+under six tiles to the millimetre; Verdant's river was a thread and the
+founding town was a smudge, which makes the picture decorative rather than
+informative — the one thing it was added not to be. Now 83px, a third bigger.
+The space comes out of the description, which wraps a line further, and the
+description is the half of the card that was already prose.
+
 **Rerolling scrolled the list back to the top.** Reroll rebuilt the whole
 dialog, which resets `.modal-body`'s scroll — so on a phone, where the four
 cards are taller than the 50vh the dialog gets and the last one sits below the
@@ -2619,13 +2626,16 @@ no scroll reset, and the finger stays on the control it just pressed.
 
 ### Verification
 
-49 checks; **33 fail** against the pre-M49 build, and the seven mobile checks
-on their own catch **four** against the version with the picker already in it.
+51 checks; **33 fail** against the pre-M49 build, and the nine mobile checks
+on their own catch **five** against the version with the picker already in it.
 The scroll check is conditioned on the list actually being scrolled past 40px
 before the press, and the centring check only counts cards with more than 20px
 of vertical slack — a map centred in a card exactly its own height is centred
 by arithmetic rather than by CSS, and would have gone on passing through the
-whole bug.
+whole bug. The enlarged map is paired with a check that nothing it displaced
+went anywhere: a flex child that will not shrink pushes the overflow sideways
+instead of reporting it, so the text column is measured for width and every
+fact chip for spill past the card's right edge.
 
 > **Two probes that could not tell what they were claiming.** The cache check
 > timed `showScenarioPicker` twice — but the second call rebuilds the DOM and
