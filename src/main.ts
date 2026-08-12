@@ -14,7 +14,7 @@ import { rawDeltas } from './game/preview';
 import { performUpgrade, upgradePlan, UPGRADE_PATH } from './game/upgrade';
 import { unlockedBetween } from './game/buildings';
 import { invalidateNetwork, roadNetwork } from './game/network';
-import { regionThumbnail } from './ui/thumbnail';
+import { isCached, openingSeed, regionThumbnail } from './ui/thumbnail';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -85,7 +85,14 @@ const sound = new Soundscape();
  * change — with no way back if we have already unhooked. init() is a no-op
  * once running, so the standing cost is a function call per click.
  */
-const armAudio = (): void => sound.init();
+/**
+ * Exported for the boot screen, which collects the gesture this needs.
+ *
+ * The listeners below still stand: this is the one call that is *known* to
+ * follow a real press, and everything after it is the safety net for a
+ * context that gets suspended later.
+ */
+export const armAudio = (): void => sound.init();
 for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
   window.addEventListener(ev, armAudio);
 }
@@ -205,6 +212,12 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   // The scenario picker's thumbnails, so their cost and their cache can be
   // measured rather than inferred from how long a dialog takes to open.
   regionThumbnail,
+  // The seeds the boot screen surveyed and whether it kept them, so "the
+  // picker opens on kept pictures" can be measured rather than assumed.
+  openingSeed, isCached,
+  // The boot screen's promise, checkable: did the tap actually start the audio.
+  soundRunning: () => sound.running,
+  armAudio,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
