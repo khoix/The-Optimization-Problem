@@ -22,6 +22,7 @@ import { SCENARIOS, SCENARIO_ORDER, type ScenarioId } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
 import { icon } from './icons';
+import { regionThumbnail, rollSeed } from './thumbnail';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Guide } from './guide';
 
@@ -38,7 +39,15 @@ export interface ScreenRect { x: number; y: number; w: number; h: number }
 export type SessionRequest =
   | { kind: 'menu' }
   | { kind: 'load'; slot: string }
-  | { kind: 'new'; scenario: ScenarioId };
+  | {
+      kind: 'new'; scenario: ScenarioId;
+      /**
+       * The seed the picker was showing. Absent means "roll one" — which is
+       * what every caller did before the picker started showing the map it
+       * was about to hand over.
+       */
+      seed?: number;
+    };
 
 /** Corner badge naming a button's key, so the belt teaches its own shortcuts. */
 const keyBadge = (k: string | undefined) =>
@@ -685,19 +694,75 @@ export class UI {
     });
   }
 
-  /** The New Game dialog: always a scenario choice, never a silent restart. */
+  /**
+   * The seed each region is currently offering.
+   *
+   * Held across a redraw so rerolling one card does not reshuffle the other
+   * three, and held across reopening the picker so backing out and coming
+   * back does not silently swap the region you were about to take.
+   */
+  private pickerSeeds = new Map<ScenarioId, number>();
+
+  /**
+   * The New Game dialog: always a scenario choice, never a silent restart.
+   *
+   * Four buttons of prose, once — `${name} — ${desc}` on a full-width row, the
+   * plainest surface in the game and the first decision anybody makes. It is
+   * four cards now, and the card carries the two things the prose could not:
+   *
+   *   - **The region itself.** Drawn by the map generator from the seed this
+   *     card is holding, so Verdant's river, Sunbelt's rock and Coastal's
+   *     ocean edge are visible before you commit rather than described. The
+   *     seed is *pinned*: press the card and you get that map, not another one
+   *     rolled after you chose. Reroll deals a different one.
+   *   - **The pressures, as figures.** "Precious little water" is a sentence;
+   *     ×0.55 on the water icon is the number the simulation actually uses.
+   */
   showScenarioPicker(fromTitle = false): void {
+    for (const id of SCENARIO_ORDER) {
+      if (!this.pickerSeeds.has(id)) this.pickerSeeds.set(id, rollSeed());
+    }
+    const cards = SCENARIO_ORDER.map((id) => {
+      const s = SCENARIOS[id];
+      const seed = this.pickerSeeds.get(id)!;
+      // Only what makes this region different. A ×1.00 on every card is four
+      // numbers that say nothing and one more thing to read past.
+      const facts = [
+        `<span class="fact">§${s.startCapital.toLocaleString()}</span>`,
+        `<span class="fact">${icon('jobs')}${s.startPopulation}</span>`,
+        s.waterFactor !== 1
+          ? `<span class="fact ${s.waterFactor < 1 ? 'fact-hard' : 'fact-easy'}">${icon('water')}×${s.waterFactor.toFixed(2)}</span>` : '',
+        s.solarFactor !== 1
+          ? `<span class="fact ${s.solarFactor < 1 ? 'fact-hard' : 'fact-easy'}">${icon('power')}×${s.solarFactor.toFixed(2)}</span>` : '',
+        s.agedStart ? '<span class="fact fact-hard">aging plant</span>' : '',
+        s.extraIndustry ? '<span class="fact">legacy industry</span>' : '',
+      ].filter(Boolean).join('');
+      return `<div class="region-card" role="button" tabindex="0" data-row="${id}">
+        <img class="region-map" src="${regionThumbnail(id, seed)}" alt="" draggable="false">
+        <span class="region-body">
+          <b class="region-name">${s.name}</b>
+          <span class="region-desc">${s.desc}</span>
+          <span class="region-facts">${facts}</span>
+        </span>
+        <button class="panel-close row-x region-reroll" data-del="${id}"
+          aria-label="Another ${s.name}" title="Another ${s.name}">${icon('reroll')}</button>
+      </div>`;
+    }).join('');
+
     this.showModal('Begin New Simulation',
-      'Choose a region. Each has its own terrain, economy, politics — and its own shape of the problem. The autosave will be overwritten as the new game progresses.',
-      [
-        ...SCENARIO_ORDER.map((id) => ({
-          label: `${SCENARIOS[id].name} — ${SCENARIOS[id].desc}`,
-          action: () => this.onSession({ kind: 'new', scenario: id }),
-        })),
-        // Cancelling out of the picker must not strand the player on a blank
-        // map: if the title screen sent them here, the title screen gets them back.
-        { label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } },
-      ]);
+      '<p class="hint">Four regions, four shapes of the same problem. The map on each card is the ' +
+      'one you will get — press it to take the post, or deal a different one.</p>' + cards,
+      // Cancelling out of the picker must not strand the player on a blank
+      // map: if the title screen sent them here, the title screen gets them back.
+      [{ label: fromTitle ? 'Back' : 'Cancel', action: () => { if (fromTitle) this.showTitle(); } }],
+      -1, 'regions');
+    this.wireRows(
+      (id) => this.onSession({ kind: 'new', scenario: id as ScenarioId, seed: this.pickerSeeds.get(id as ScenarioId) }),
+      (id) => {
+        this.pickerSeeds.set(id as ScenarioId, rollSeed());
+        this.sound?.uiTick();
+        this.showScenarioPicker(fromTitle);
+      });
   }
 
   /**
@@ -2033,7 +2098,10 @@ export class UI {
 
   /** Hook up rows built by `rowHtml`: press the row, or press its corner X. */
   private wireRows(onPick: (id: string) => void, onDelete?: (id: string) => void): void {
-    for (const row of this.modal.querySelectorAll<HTMLElement>('.save-row')) {
+    // Keyed on the attribute rather than on a class, so a list that is laid
+    // out differently — the region cards are not save rows — still gets the
+    // same behaviour from the same place.
+    for (const row of this.modal.querySelectorAll<HTMLElement>('[data-row]')) {
       const id = row.dataset.row!;
       const go = () => onPick(id);
       row.onclick = go;
