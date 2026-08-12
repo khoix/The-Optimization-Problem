@@ -86,8 +86,8 @@ const steps: Step[] = [
 ];
 
 /**
- * How long the title takes to land: the last letter's delay plus its own
- * duration, plus the tagline arriving under it.
+ * How long the title takes to land: the last of twenty-two letters starts at
+ * 834ms and takes 640ms to settle, and the rule under it finishes at 1600ms.
  *
  * The prompt waits for this as well as for the work, and on any machine built
  * this decade the work is the shorter of the two — nine steps finish in about

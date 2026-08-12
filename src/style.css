@@ -1398,6 +1398,9 @@ body.at-title .guide { padding-bottom: 20px; }
 }
 .boot.going { opacity: 0; pointer-events: none; }
 .boot.going .boot-stage { transform: translateY(-10px); transition: transform 460ms ease; }
+/* Its resting transform is the horizontal centring, so the exit has to carry
+   it rather than replace it. */
+.boot.going .boot-foot { transform: translate(-50%, -10px); transition: transform 460ms ease; }
 /* The map underneath is being drawn while this is up; nothing else should be. */
 body.booting { overflow: hidden; }
 
@@ -1461,27 +1464,33 @@ body.booting { overflow: hidden; }
 }
 @keyframes boot-rule { to { transform: scaleX(1); } }
 
-.boot-tag {
-  color: var(--text); font-size: clamp(12px, 2.6vw, 15px); line-height: 1.6;
-  margin-top: clamp(12px, 2.2vw, 18px); letter-spacing: 0.3px;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.95);
-  animation: boot-rise 760ms cubic-bezier(0.16, 0.84, 0.3, 1) 1020ms both;
-}
-.boot-tag span { color: var(--asi); }
 @keyframes boot-rise { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+/* The footer is horizontally centred by a transform, so it needs its own
+   entrance — `boot-rise` would animate to `transform: none` and drop it half a
+   width to the right on the way in. */
+@keyframes boot-rise-x {
+  from { opacity: 0; transform: translate(-50%, 9px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
 
 /* ---- the bar ---- */
-/* A fixed height on the footer, because the prompt replaces the status line and
-   a shorter element would drag the whole title down the screen at the exact
-   moment the player is being asked to press something. */
+/* Anchored to the bottom rather than stacked under the title, so the title is
+   centred on the screen rather than centred on the screen *minus the loading
+   bar*. With the loader in the flow the whole block balanced around its own
+   middle and the title sat seventy pixels high, which is the sort of thing
+   that looks like a mistake without ever looking like anything in particular.
+   A fixed height on the footer, because the prompt replaces the status line and
+   a shorter element would move the loader at the exact moment the player is
+   being asked to press something. */
 .boot-foot {
-  margin: clamp(26px, 5vw, 46px) auto 0; width: min(340px, 82%);
-  min-height: 62px;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: clamp(34px, 11vh, 104px);
+  width: min(340px, 82%); min-height: 62px;
   /* First thing in, ahead of the title it sits under. The work starts on the
      frame after this paints, and a loading bar that fades in at 320ms on a
      machine that finishes loading at 400ms is a loading bar nobody ever sees
      move. */
-  animation: boot-rise 380ms ease 40ms both;
+  animation: boot-rise-x 380ms ease 40ms both;
 }
 .boot-bar {
   height: 2px; border-radius: 2px; overflow: hidden;
@@ -1529,15 +1538,13 @@ body.booting { overflow: hidden; }
    same rules for the people who asked for them in their operating system. */
 .boot.settled .boot-ch,
 .boot.settled .boot-rule,
-.boot.settled .boot-tag,
 .boot.settled .boot-foot { animation: none; }
 .boot.settled .boot-ch { opacity: 1; color: #fff; transform: none; filter: none; }
 .boot.settled .boot-scan { display: none; }
 .boot.settled .boot-rule { transform: scaleX(1); }
-.boot.settled .boot-tag,
-.boot.settled .boot-foot { opacity: 1; transform: none; }
+.boot.settled .boot-foot { opacity: 1; transform: translateX(-50%); }
 @media (prefers-reduced-motion: reduce) {
-  .boot-ch, .boot-scan, .boot-rule, .boot-tag, .boot-foot, .boot-begin {
+  .boot-ch, .boot-scan, .boot-rule, .boot-foot, .boot-begin {
     animation: none;
   }
   .boot-ch { opacity: 1; color: #fff; transform: none; filter: none; }
@@ -1554,7 +1561,6 @@ body.booting { overflow: hidden; }
    in 380px of height, and the thing that gets pushed off is the prompt. */
 @media (max-height: 460px) {
   .boot-lg { font-size: clamp(24px, 6.4vw, 38px); }
-  .boot-tag { font-size: 11.5px; margin-top: 9px; }
   .boot-rule { margin-top: 9px; }
-  .boot-foot { margin-top: 16px; min-height: 56px; }
+  .boot-foot { bottom: 18px; min-height: 56px; }
 }

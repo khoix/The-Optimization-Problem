@@ -34,15 +34,19 @@
           <span class="boot-scan" aria-hidden="true"></span>
         </h1>
         <p class="boot-rule" aria-hidden="true"></p>
-        <p class="boot-tag">Every decision is reasonable.<br><span>That is the problem.</span></p>
-        <div class="boot-foot">
-          <div class="boot-bar" role="progressbar" aria-label="Loading"
-               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="boot-bar">
-            <i id="boot-fill"></i>
-          </div>
-          <p class="boot-status"><span id="boot-step">Starting up</span><span id="boot-pct">0%</span></p>
-          <button id="boot-begin" class="boot-begin" hidden>Tap to Begin</button>
+      </div>
+      <!-- Outside `.boot-stage` on purpose: the stage is centred on the screen
+           and carries the title, and the loader is positioned against the
+           screen itself. Left inside, its `bottom` would resolve against the
+           stage — which is only as tall as the words in it — and put the
+           loading bar across the middle of the title. -->
+      <div class="boot-foot">
+        <div class="boot-bar" role="progressbar" aria-label="Loading"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="boot-bar">
+          <i id="boot-fill"></i>
         </div>
+        <p class="boot-status"><span id="boot-step">Starting up</span><span id="boot-pct">0%</span></p>
+        <button id="boot-begin" class="boot-begin" hidden>Tap to Begin</button>
       </div>
     </div>
     <script type="module" src="/src/boot.ts"></script>
