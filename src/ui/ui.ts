@@ -759,9 +759,17 @@ export class UI {
     this.wireRows(
       (id) => this.onSession({ kind: 'new', scenario: id as ScenarioId, seed: this.pickerSeeds.get(id as ScenarioId) }),
       (id) => {
-        this.pickerSeeds.set(id as ScenarioId, rollSeed());
+        const sid = id as ScenarioId;
+        this.pickerSeeds.set(sid, rollSeed());
         this.sound?.uiTick();
-        this.showScenarioPicker(fromTitle);
+        // Swap the picture where it stands rather than rebuilding the dialog.
+        // Nothing else on the card depends on the seed — the facts come from
+        // the scenario — and a rebuild throws away the scroll position, which
+        // on a phone means pressing reroll on the third card scrolls you back
+        // to the first one, away from the map you just asked to see.
+        const img = this.modal.querySelector<HTMLImageElement>(`[data-row="${sid}"] .region-map`);
+        if (img) img.src = regionThumbnail(sid, this.pickerSeeds.get(sid)!);
+        else this.showScenarioPicker(fromTitle);
       });
   }
 
