@@ -158,16 +158,30 @@ body {
    corner X rather than a second button of equal weight sitting one target away
    from the one the player wanted. */
 .save-row {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
-  padding: 8px 34px 8px 10px; border: 1px solid var(--panel-border); border-radius: 5px;
-  background: rgba(20, 26, 38, 0.6);
+  display: flex; align-items: center; gap: 11px; margin-bottom: 7px;
+  padding: 9px 36px 9px 15px; border: 1px solid var(--panel-border); border-radius: 5px;
+  background: rgba(16, 22, 33, 0.82);
   position: relative; cursor: pointer; text-align: left; width: 100%;
+  overflow: hidden;
+  transition: background 140ms ease, border-color 140ms ease;
 }
-.save-row:hover { background: rgba(32, 42, 60, 0.75); border-color: var(--accent); }
-.save-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The same lit edge the menu's rows carry, for the same reason: one language
+   for "a row you can press", from the console through every list behind it. */
+.save-row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--panel-border);
+  transition: background 140ms ease;
+}
+.save-row:hover { background: rgba(26, 36, 53, 0.92); border-color: #3d5a7a; }
+.save-row:hover::before { background: var(--accent); }
+.save-row:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
 .save-row .row-x { top: 50%; right: 6px; transform: translateY(-50%); }
-.save-what { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; }
-.save-what small { display: block; color: var(--text-dim); font-size: 10px; }
+.save-what { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.45; }
+/* The label and the figures on one line, the figures pushed to the end of it —
+   a save is a thing and a set of numbers about the thing, not a sentence. */
+.save-line { display: flex; align-items: baseline; gap: 10px; }
+.save-line .tb-label { flex: 1; min-width: 0; font-weight: 600; }
+.save-what small { display: block; color: var(--text-dim); font-size: 10px; margin-top: 2px; }
 .save-flag {
   display: inline-block; margin-top: 3px; font-size: 9px; letter-spacing: 0.8px;
   text-transform: uppercase; color: var(--mid);
@@ -748,20 +762,29 @@ body.at-title .modal { padding-bottom: 0; }
 /* ---------------- settings & shortcuts ---------------- */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
 .set-row {
-  display: flex; align-items: center; gap: 12px; padding: 9px 2px;
-  border-bottom: 1px solid var(--panel-border);
+  display: flex; align-items: center; gap: 12px; padding: 10px 4px;
+  border-bottom: 1px solid rgba(44, 54, 72, 0.55);
 }
 .set-row:last-child { border-bottom: none; }
 .set-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .set-text b { font-size: 11.5px; font-weight: 600; }
 .set-text small { color: var(--text-dim); font-size: 10.5px; line-height: 1.4; }
 .set-toggle, .set-opt {
-  padding: 5px 12px; font-size: 10.5px; font-family: var(--mono); cursor: pointer;
-  color: var(--text-dim); background: rgba(255, 255, 255, 0.04);
+  padding: 6px 12px; font-size: 10.5px; font-family: var(--mono); cursor: pointer;
+  letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--text-dim); background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--panel-border); border-radius: 3px;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
-.set-toggle { min-width: 52px; }
-.set-toggle.on, .set-opt.on { color: #fff; border-color: var(--accent); background: rgba(90, 168, 232, 0.2); }
+.set-toggle:hover, .set-opt:hover { color: var(--text); border-color: #3d5a7a; }
+.set-toggle { min-width: 54px; }
+/* On is the ASI's colour rather than the accent blue: every "this is currently
+   doing something" light in this game is that colour. */
+.set-toggle.on, .set-opt.on {
+  color: #eaf7ff; border-color: rgba(122, 233, 255, 0.5);
+  background: rgba(122, 233, 255, 0.14);
+  box-shadow: 0 0 10px rgba(122, 233, 255, 0.18) inset;
+}
 .set-seg { display: flex; gap: 4px; }
 
 .key-list { display: flex; flex-direction: column; gap: 1px; }
@@ -922,6 +945,52 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   border-radius: 8px; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
 }
 .modal-box h2 { font-size: 16px; margin-bottom: 10px; }
+
+/* ---- the console at rest ----
+   Every dialog reachable from the main menu is part of that screen rather than
+   an interruption of it, so they share its frame: the same panel, the same two
+   corner brackets, the same letterspaced header over the same hairline.
+
+   Scoped to `body.at-title` on purpose. The dialogs that arrive *during* play
+   — a decision, an election, a reclassification — are interruptions and should
+   go on looking like one; restyling those out from under a player mid-game is
+   a different milestone and a different argument. */
+body.at-title .modal-box {
+  position: relative;
+  background: linear-gradient(to bottom, rgba(9, 13, 21, 0.94), rgba(6, 9, 15, 0.97));
+  border-color: rgba(44, 54, 72, 0.9);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+}
+body.at-title .modal-box::before,
+body.at-title .modal-box::after {
+  content: ''; position: absolute; width: 15px; height: 15px;
+  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
+}
+body.at-title .modal-box::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+body.at-title .modal-box::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+/* The header, in the mark's own idiom at dialog scale, with the hairline that
+   runs under every title in this game. */
+body.at-title .modal-box > h2 {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.24em; text-indent: 0.24em;
+  text-transform: uppercase; color: #fff; text-align: center;
+  margin-bottom: 0; padding-bottom: 13px;
+}
+body.at-title .modal-box > h2::after {
+  content: ''; display: block; height: 1px; width: min(200px, 62%); margin: 12px auto 0;
+  background: linear-gradient(to right, transparent, var(--asi), transparent);
+  opacity: 0.7;
+}
+/* The promotion dialog keeps its gold rule and its own colour: it is the one
+   piece of good news in the game and it has earned an exception. */
+body.at-title .modal-box.promotion::before,
+body.at-title .modal-box.promotion::after { display: none; }
+/* The line of explanation under a centred header belongs under the middle of
+   it, not hanging off the left. */
+body.at-title .modal-box .hint,
+body.at-title .modal-box .rec-cause {
+  text-align: center; margin: 12px auto 14px; max-width: 340px; line-height: 1.5;
+}
+body.at-title .modal-box .rec-cause { color: var(--text); margin-bottom: 4px; }
 /* The one dialog in this game that is good news.
    A civic dashboard would absolutely put a gold rule on this, so it does. */
 .modal-box.promotion {
@@ -1060,11 +1129,24 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .hist-date { color: var(--text-dim); font-family: var(--mono); font-size: 10px; margin-right: 6px; }
 .modal-choices { display: flex; flex-direction: column; gap: 6px; }
 .choice-btn {
-  background: #1a2436; color: var(--text); border: 1px solid #34405a;
-  padding: 8px 12px; cursor: pointer; border-radius: 5px; font-size: 12px; text-align: left;
+  position: relative; overflow: hidden;
+  background: rgba(16, 22, 33, 0.9); color: var(--text); border: 1px solid var(--panel-border);
+  padding: 9px 13px 9px 15px; cursor: pointer; border-radius: 5px;
+  font-size: 12.5px; text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
 }
-.choice-btn:hover { background: #24314a; border-color: var(--accent); }
-.choice-btn.recommended { border-color: var(--asi); }
+.choice-btn::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--panel-border);
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.choice-btn:hover { background: rgba(26, 36, 53, 0.95); border-color: #3d5a7a; }
+.choice-btn:hover::before { background: var(--accent); }
+.choice-btn:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
+.choice-btn.recommended { border-color: rgba(122, 233, 255, 0.4); color: #fff; }
+.choice-btn.recommended::before {
+  background: var(--asi); box-shadow: 0 0 12px rgba(122, 233, 255, 0.6);
+}
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
 .chip {
   font-size: 10px; font-family: var(--mono); padding: 1px 6px; border-radius: 8px;
@@ -1183,10 +1265,23 @@ body.observer #game { cursor: default; }
 body.at-title .guide { padding-bottom: 20px; }
 .guide:focus { outline: none; }
 .guide-box {
+  position: relative;
   width: min(880px, 96vw); max-height: 100%; display: flex; flex-direction: column;
-  background: #111725; border: 1px solid #34405a; border-radius: 9px;
+  background: linear-gradient(to bottom, rgba(12, 17, 27, 0.98), rgba(8, 11, 18, 0.99));
+  border: 1px solid rgba(44, 54, 72, 0.9); border-radius: 9px;
   box-shadow: 0 18px 64px rgba(0, 0, 0, 0.7); overflow: hidden;
 }
+/* The walkthrough is a different shape from a dialog — a figure, a page and a
+   pager — but it is reached from the same screen, so it wears the same corners.
+   They sit inside the box rather than on its edge because this one clips its
+   own overflow to keep the illustration inside the rounded border. */
+.guide-box::before,
+.guide-box::after {
+  content: ''; position: absolute; width: 15px; height: 15px; z-index: 2;
+  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
+}
+.guide-box::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+.guide-box::after { bottom: 0; right: 0; border-left: 0; border-top: 0; }
 /* The illustration. A fixed aspect keeps the page from jumping as the reader
    moves between a map figure and an HTML one. */
 .guide-figure {
@@ -1212,7 +1307,17 @@ body.at-title .guide { padding-bottom: 20px; }
   background: #0d121d; border-bottom: 1px solid #232c40; font-style: italic;
 }
 .guide-text { padding: 18px 22px 4px; overflow-y: auto; }
-.guide-title { font-size: 19px; font-weight: 600; color: #fff; margin-bottom: 10px; }
+/* The page's own heading, in the console's idiom at reading scale — bigger
+   than a dialog header because there is a paragraph under it, not a list. */
+.guide-title {
+  font-size: 15px; font-weight: 600; color: #fff; margin-bottom: 14px;
+  letter-spacing: 0.16em; text-indent: 0.16em; text-transform: uppercase;
+}
+.guide-title::after {
+  content: ''; display: block; height: 1px; width: 120px; margin-top: 11px;
+  background: linear-gradient(to right, var(--asi), transparent);
+  opacity: 0.6;
+}
 .guide-body { font-size: 13px; line-height: 1.62; color: #b8c2d4; }
 .guide-body p { margin-bottom: 11px; }
 .guide-body b { color: var(--text); font-weight: 600; }

@@ -2118,10 +2118,16 @@ export class UI {
    * One helper for every list in the game that works this way — saves, and the
    * archived administrations — so the shape cannot drift apart between them.
    */
-  private rowHtml(id: string, body: string, del?: string): string {
+  private rowHtml(id: string, r: {
+    icon?: string; label: string; meta?: string; sub?: string; flag?: string; del?: string;
+  }): string {
     return `<div class="save-row" role="button" tabindex="0" data-row="${id}">
-      <span class="save-what">${body}</span>
-      ${del ? `<button class="panel-close row-x" data-del="${id}" aria-label="${del}" title="${del}">×</button>` : ''}
+      ${r.icon ? `<span class="tb-ico">${r.icon}</span>` : ''}
+      <span class="save-what">
+        <span class="save-line"><b class="tb-label">${r.label}</b>${r.meta ? `<span class="tb-meta">${r.meta}</span>` : ''}</span>
+        ${r.sub ? `<small>${r.sub}</small>` : ''}${r.flag ?? ''}
+      </span>
+      ${r.del ? `<button class="panel-close row-x" data-del="${id}" aria-label="${r.del}" title="${r.del}">×</button>` : ''}
     </div>`;
   }
 
@@ -2154,11 +2160,14 @@ export class UI {
     const year = Math.floor(s.env.tick / 12) + 1;
     const lock = s.env.locked ? '<span class="save-flag">observer · permanently locked</span>'
       : s.env.ended ? '<span class="save-flag">administration terminated</span>' : '';
-    return this.rowHtml(s.slot,
-      `<b>${s.manual ? 'Manual save' : 'Autosave'}</b> · Year ${year} ·
-        pop ${s.env.population.toLocaleString()}
-        <small>${when}</small>${lock}`,
-      deletable ? 'Delete this save' : undefined);
+    return this.rowHtml(s.slot, {
+      icon: icon(s.manual ? 'save' : 'history'),
+      label: s.manual ? 'Manual save' : 'Autosave',
+      meta: `Year ${year} · pop ${s.env.population.toLocaleString()}`,
+      sub: when,
+      flag: lock,
+      del: deletable ? 'Delete this save' : undefined,
+    });
   }
 
   /** `wireRows`, resolved back to the save each row stands for. */
@@ -2224,11 +2233,19 @@ export class UI {
     const rows = list.map((r) => {
       const years = Math.floor(r.tick / 12);
       const how = r.kind === 'observer' ? 'Outlived by the system' : 'Terminated';
-      return this.rowHtml(String(r.runId),
-        `<b>${r.scenarioName}</b> · ${years} year${years === 1 ? '' : 's'} ·
-          peak population ${r.peakPopulation.toLocaleString()}
-          <small>${how} — ${r.cause}</small>`,
-        'Delete this record');
+      return this.rowHtml(String(r.runId), {
+        // The mark says which of the two endings this was, before the words
+        // do. `override` for the one where the system outlived you — it is the
+        // control that stopped answering — and the ballot box for the other,
+        // because an administration ending is a political fact whatever the
+        // cause was. A loudhailer was the first choice and it was wrong: it
+        // says "unrest", and these end in bankruptcy and collapse too.
+        icon: icon(r.kind === 'observer' ? 'override' : 'politics'),
+        label: r.scenarioName,
+        meta: `${years}y · peak ${r.peakPopulation.toLocaleString()}`,
+        sub: `${how} — ${r.cause}`,
+        del: 'Delete this record',
+      });
     }).join('');
     this.showModal('Past Administrations',
       '<p class="hint">Each of these ended. Open one to read every decision that got it there.</p>' + rows,
