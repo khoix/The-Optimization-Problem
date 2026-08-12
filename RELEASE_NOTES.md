@@ -3033,6 +3033,95 @@ server, since the whole point is that they used to differ.
 
 ---
 
+## Milestone 54 — the main menu — `aec31b6`
+
+### Two screens, one game
+
+[M50](#milestone-50--the-boot-screen--1889699) made the first thing anybody
+sees a poster: a region founding itself behind a stacked, letterspaced title.
+What it handed over to was a centred paragraph with six grey pills under it.
+They did not look like the same game, and the second one did not look like
+anything in particular.
+
+So the menu is now the instrument that poster hands you. Same mark, same
+hairline, same mono face for figures — but as a panel with controls on it,
+because that is what it is.
+
+### The copy
+
+> Govern a growing region in a time of AI. Every decision is reasonable.
+> **That's the problem.**
+
+One line, replacing two. The old screen had a tagline (*"Every decision is
+reasonable. / That is the problem."*) **and** a paragraph under it (*"Govern a
+growing region — housing, power, water, work, and the computing infrastructure
+everyone keeps asking you to approve."*), which is the premise stated twice
+with the second one longer. The punchline keeps the ASI's colour and its own
+line; the rest is balanced rather than left to break where it lands, because
+at this measure the natural wrap put "Every" alone at the end of a line.
+
+### The controls are rows
+
+An icon from [M48](#milestone-48--one-icon-set--1855dec)'s set, what the row
+does, and — where there is one — the figure that row is about:
+
+| | label | figure |
+|---|---|---|
+| resume | Continue | `Year 4 · pop 1,240` |
+| load | Load Save | |
+| history | Past Administrations | `2` |
+| newgame | Begin New Simulation | |
+| help | How to Play | |
+| settings | Settings | |
+
+*Continue — Year 4, population 1,240* was one long sentence on a screen where
+every other control is two words. The year and the population are **about** the
+save rather than part of the instruction, so they sit apart from it, in the
+mono face the rest of the console puts numbers in.
+
+Every row carries a dim left edge that lights on hover, and the primary row is
+*lit* rather than being the only row with an edge at all — the difference
+should read as emphasis, not as a different kind of control. Where there is no
+save, the emphasis moves to *Begin New Simulation*, because a screen whose
+primary action is absent has no primary action.
+
+**One new icon**, `resume`, in the set's own two-tone idiom: Continue is
+neither loading a file nor starting a game, and it was the one mark M48 had no
+reason to draw.
+
+### And around it
+
+A faint instrument panel with two corner brackets rather than four — a panel,
+not a frame — a department name over the title, and a **lighter** vignette than
+before, so the region still reads behind the console describing it. The region
+is the first thing seen and the last; covering it with a solid card would be
+the wrong promise.
+
+### Verification
+
+27 checks; **11 fail** against the previous build.
+
+The figure on the Continue row is compared against the save it will open
+rather than against a plausible-looking string, and the emphasis is checked in
+both states — with a save and without.
+
+> **A landscape layout that did not fit.** At 740×380 only three of six rows
+> were on screen and the rows had shrunk to 35px. The department name is
+> dropped and the rows go two abreast where there is width to spend; the card
+> centres with `margin-block: auto` rather than `align-items: center`, because
+> centring a flex item taller than its container clips the top of it instead of
+> scrolling to it — which is the failure this was trying to avoid in the first
+> place.
+
+> **A probe that blamed the wrong thing.** The seeded archive records left out
+> `peakPopulation`, which the archive renders with `.toLocaleString()` — so
+> pressing *Past Administrations* threw, no dialog opened, and the check
+> reported it as a layout problem. A probe that seeds half a record tests half
+> a screen. In the same pass: a check whose detail string was a hardcoded
+> label, so a failure printed the name of the screen it had *not* opened.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

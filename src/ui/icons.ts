@@ -68,7 +68,7 @@ export type IconId =
   // system controls
   | 'alerts' | 'override' | 'menu' | 'collapse' | 'expand'
   // menu items
-  | 'history' | 'save' | 'load' | 'newgame' | 'help' | 'settings'
+  | 'history' | 'save' | 'load' | 'newgame' | 'help' | 'settings' | 'resume'
   // the action button
   | 'demolish' | 'cancel' | 'reroll'
   // readouts
@@ -146,6 +146,11 @@ const PATHS: Record<IconId, string> = {
   expand: `<path fill="${C.steelLit}" d="M8 11.6L2.4 6l1.9-1.9L8 7.8l3.7-3.7L13.6 6z"/>`,
 
   // ---- menu items -------------------------------------------------------
+  // The only mark this set was missing: the menu's Continue, which is neither
+  // loading a file nor starting a game. Same two tones as everything else.
+  resume: `<circle cx="8" cy="8" r="6.6" fill="${C.cyanDeep}"/>`
+    + `<circle cx="8" cy="8" r="5.2" fill="${C.cyan}"/>`
+    + `<path fill="${C.ink}" d="M6.4 4.8l4.6 3.2-4.6 3.2z"/>`,
   history: `<path fill="${C.steel}" d="M5.4 2.8h8.8v1.8H5.4zM5.4 7.1h8.8v1.8H5.4zM5.4 11.4h8.8v1.8H5.4z"/>`
     + `<circle cx="2.6" cy="3.7" r="1.5" fill="${C.cyan}"/>`
     + `<circle cx="2.6" cy="8" r="1.5" fill="${C.amber}"/>`

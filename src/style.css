@@ -579,14 +579,22 @@ body.observer .panel-close { filter: none; opacity: 1; }
 .upgrade-btn.locked { border-color: var(--panel-border); color: var(--text-dim); }
 .asi-tag { color: var(--asi); font-size: 10px; font-family: var(--mono); }
 
-/* ---------------- title screen ---------------- */
-/* Over the live map: the region is the first thing seen, and the last. */
+/* ---------------- title screen ----------------
+   The console, at rest.
+
+   This screen and the boot screen are the same piece of design: the boot
+   screen is the poster and this is the instrument it hands over to. So the
+   title keeps its stacked, letterspaced treatment, the hairline under it is
+   the same hairline, and the figures are in the same mono face the rest of
+   the game puts numbers in. What is different is that this one is a panel
+   with controls on it, because that is what it is. */
 .title-screen {
   position: absolute; inset: 0; z-index: 45;
   display: flex; align-items: center; justify-content: center;
+  padding: 20px;
   background:
-    radial-gradient(ellipse 46% 58% at 50% 46%, rgba(6, 9, 15, 0.9), rgba(6, 9, 15, 0) 72%),
-    linear-gradient(to bottom, rgba(6, 9, 15, 0.55), rgba(6, 9, 15, 0.86));
+    radial-gradient(ellipse 52% 60% at 50% 48%, rgba(5, 8, 13, 0.86), rgba(5, 8, 13, 0.28) 74%),
+    linear-gradient(to bottom, rgba(5, 8, 13, 0.7), rgba(5, 8, 13, 0.4) 42%, rgba(5, 8, 13, 0.86));
 }
 /* The title screen sits *below* the modal layer so its own dialogs — How to
    Play, Settings, the scenario picker — open over it normally. The game chrome
@@ -598,41 +606,144 @@ body.at-title .vitals-dock,
 body.at-title .flyout,
 body.at-title .inspector { display: none !important; }
 body.at-title .modal { padding-bottom: 0; }
-.title-card { width: min(520px, 88vw); text-align: center; }
-.title-card h1 {
-  font-size: 38px; font-weight: 600; letter-spacing: 0.5px; color: #fff;
-  text-shadow: 0 3px 24px rgba(0, 0, 0, 0.7);
+
+/* A panel over the region rather than text floating on it. Faint enough that
+   the map still reads through it — the region is the first thing seen and the
+   last, and covering it with a solid card would be the wrong promise. */
+.title-card {
+  position: relative;
+  width: min(440px, 100%);
+  padding: 26px 22px 22px;
+  text-align: center;
+  border: 1px solid rgba(44, 54, 72, 0.75);
+  border-radius: 8px;
+  background: linear-gradient(to bottom, rgba(9, 13, 21, 0.72), rgba(6, 9, 15, 0.86));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
 }
-/* The hook, in two beats. The second line is the one that has to land, so it
-   gets the weight and the first gets the setup. */
+/* Two corner brackets rather than four: an instrument panel, not a frame. */
+.title-card::before,
+.title-card::after {
+  content: ''; position: absolute; width: 15px; height: 15px;
+  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
+}
+.title-card::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.title-card::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+/* The institution, named once and quietly. The joke of this game is that all
+   of it is procedurally reasonable, and a console with a department name on it
+   is where that starts. */
+.title-eyebrow {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 2.2px;
+  text-transform: uppercase; color: var(--text-dim);
+  margin-bottom: 16px;
+}
+
+/* The mark, in the boot screen's own treatment at a size that leaves room for
+   six controls underneath it. */
+.title-mark { display: block; font-weight: 600; }
+.tm-sm {
+  display: block; font-size: 11px; letter-spacing: 0.62em; text-indent: 0.62em;
+  color: var(--text-dim); font-weight: 500; margin-bottom: 3px;
+}
+.tm-lg {
+  display: block; color: #fff;
+  font-size: clamp(25px, 7vw, 34px); letter-spacing: 0.05em; text-indent: 0.05em;
+  line-height: 1.08; text-shadow: 0 4px 26px rgba(0, 0, 0, 0.85);
+}
+.title-rule {
+  height: 1px; width: min(220px, 70%); margin: 15px auto 0;
+  background: linear-gradient(to right, transparent, var(--asi), transparent);
+  opacity: 0.7;
+}
+
+/* The hook. One sentence about the job and one about the catch, and the catch
+   is the line that has to land, so it gets the colour. */
 .title-tag {
-  color: var(--text); font-size: 15px; line-height: 1.55; margin: 14px 0 0;
-  letter-spacing: 0.2px; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  color: var(--text); font-size: 12.5px; line-height: 1.6;
+  margin: 15px auto 22px; max-width: 350px; letter-spacing: 0.1px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+  /* Balanced rather than left to fall where it lands: the copy is two
+     sentences and a punchline, and at this measure the natural break put
+     "Every" alone at the end of the first line. */
+  text-wrap: balance;
 }
 .title-tag span { color: var(--asi); }
-/* And then plainly: what this actually is, for somebody who has never seen it. */
-.title-what {
-  color: #a8b2c6; font-size: 11.5px; line-height: 1.6; margin: 14px auto 26px;
-  max-width: 430px; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+
+/* ---- the controls ---- */
+.title-actions { display: flex; flex-direction: column; gap: 7px; }
+/* A row, not a pill: an icon, what it does, and — where there is one — the
+   figure that row is about. Left-aligned because a list of six centred labels
+   is six things to re-find the start of. */
+.title-btn {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 11px 13px 11px 15px; text-align: left; cursor: pointer;
+  color: var(--text); font-size: 12.5px;
+  background: rgba(16, 22, 33, 0.82);
+  border: 1px solid var(--panel-border); border-radius: 5px;
+  position: relative; overflow: hidden;
+  transition: background 140ms ease, border-color 140ms ease;
 }
+/* The lit edge. Dim on every row, so the primary one is brighter rather than
+   the only one with an edge at all — the difference should read as emphasis,
+   not as a different kind of control. */
+.title-btn::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--panel-border);
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.title-btn:hover { background: rgba(26, 36, 53, 0.92); border-color: #3d5a7a; }
+.title-btn:hover::before { background: var(--accent); }
+.title-btn:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
+.title-btn.primary { border-color: rgba(122, 233, 255, 0.4); color: #fff; }
+.title-btn.primary::before {
+  background: var(--asi); box-shadow: 0 0 12px rgba(122, 233, 255, 0.6);
+}
+.title-btn.primary:hover { border-color: var(--asi); background: rgba(28, 44, 62, 0.94); }
+
+.tb-ico { display: inline-flex; align-items: center; font-size: 15px; flex: 0 0 auto; }
+.tb-label { flex: 1; min-width: 0; letter-spacing: 0.15px; }
+/* Figures in the mono face, like every other figure in the game. */
+.tb-meta {
+  font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+  letter-spacing: 0.6px; white-space: nowrap;
+}
+.title-btn.primary .tb-meta { color: #9fd8ee; }
+
 .title-hint {
   color: var(--text-dim); font-size: 11px; line-height: 1.5; margin-top: 15px;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
 }
 .title-hint b { color: var(--text); font-weight: 600; }
-.title-card h1::after {
-  content: ''; display: block; width: 54px; height: 1px; margin: 16px auto 0;
-  background: linear-gradient(to right, transparent, var(--panel-border), transparent);
-}
-.title-actions { display: flex; flex-direction: column; gap: 8px; }
-.title-btn {
-  padding: 11px 16px; font-size: 12.5px; color: var(--text); cursor: pointer;
-  background: rgba(20, 26, 38, 0.9); border: 1px solid var(--panel-border); border-radius: 4px;
-}
-.title-btn:hover { border-color: var(--accent); background: rgba(30, 40, 58, 0.95); }
-.title-btn.primary { border-color: var(--accent); color: #fff; }
+.title-note { color: var(--text-dim); font-size: 10.5px; margin-top: 14px; line-height: 1.5; }
 
-.title-note { color: var(--text-dim); font-size: 10.5px; margin-top: 16px; line-height: 1.5; }
+@media (max-width: 620px) {
+  .title-card { padding: 22px 16px 18px; }
+  .title-tag { font-size: 12px; margin-bottom: 18px; }
+}
+/* Landscape on a phone. The mark, the copy and six rows do not fit in 380px of
+   height stacked, and the first attempt at this made the screen scroll — which
+   put Settings and How to Play below the fold on the one screen where every
+   control should be in front of you.
+   `margin-block: auto` rather than `align-items: center`, because centring a
+   flex item taller than its container clips the top of it instead of
+   scrolling to it, and that is the failure this is trying to avoid. */
+@media (max-height: 520px) {
+  .title-screen { align-items: flex-start; overflow-y: auto; }
+  .title-card { margin-block: auto; }
+  /* The department name is the first thing to go: it is flavour, and the
+     controls are not. */
+  .title-eyebrow { display: none; }
+  .tm-lg { font-size: clamp(20px, 5vw, 26px); }
+  .title-rule { margin-top: 10px; }
+  .title-tag { margin: 10px auto 14px; font-size: 11.5px; }
+}
+/* And where there is width to spend instead, the rows go two abreast rather
+   than shrinking to a size a thumb cannot find. Reading order is unchanged:
+   the grid fills along the row, which is the order they are written in. */
+@media (max-height: 520px) and (min-width: 620px) {
+  .title-card { width: min(560px, 100%); }
+  .title-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 8px; }
+}
 
 /* ---------------- settings & shortcuts ---------------- */
 .settings-list { display: flex; flex-direction: column; gap: 2px; }
