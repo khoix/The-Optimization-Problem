@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # A hung browser should cost a few minutes, not a few hours.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,5 +17,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx tsc
+      - run: npm run check
       - run: npm run build
+      # Chromium only: every suite drives one browser, and installing three
+      # would treble the slowest step in this job for no extra coverage.
+      - run: npx playwright install --with-deps chromium
+      # `--no-build` because the step above already built it, and the suites
+      # test the build rather than a rebuild of it.
+      - run: npm test -- --no-build

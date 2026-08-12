@@ -1,5 +1,5 @@
 import type { CorpId, GameEvent, GameState, GroupId } from './types';
-import { notify, record } from './state';
+import { notify, record, setAllocation } from './state';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -65,7 +65,7 @@ export const EVENTS: GameEvent[] = [
     choices: [
       {
         label: 'Approve it',
-        effect: (g) => { ind(g, 'health', 6); ind(g, 'agency', -4); g.resources.data += 300; g.humanExpertise = clamp01(g.humanExpertise - 0.03); g.alloc.healthcare = Math.min(1, g.alloc.healthcare + 0.05); return 'Outcomes improve immediately. The radiology department quietly shrinks.'; },
+        effect: (g) => { ind(g, 'health', 6); ind(g, 'agency', -4); g.resources.data += 300; g.humanExpertise = clamp01(g.humanExpertise - 0.03); setAllocation(g, 'healthcare', g.alloc.healthcare + 0.05); return 'Outcomes improve immediately. The radiology department quietly shrinks.'; },
       },
       {
         label: 'Refuse record access',

@@ -1,15 +1,15 @@
 import './style.css';
-import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, tileAt, touchMap, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
-import { simTick } from './game/sim';
+import { newGame, bridgeSpans, canPlace, clearRock, isRoadType, notify, placeBuilding, record, setAllocation, tileAt, touchMap, MAX_BRIDGE_SPAN, ROCK_CLEAR_COST, MAP_W, MAP_H } from './game/state';
+import { simTick, tierOf } from './game/sim';
 import { Renderer, type DemolishPreview, type UiRenderState } from './render/renderer';
 import { canDemolish } from './game/asi';
 import { UI, type ScreenRect, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
-import { BUILDING_DEFS } from './game/buildings';
+import { BUILDING_DEFS, TIER_NAMES } from './game/buildings';
 import { AUTO_SLOT, MANUAL_SLOTS, consumeBootFlag, freeManualSlot, loadFrom, newestSave, peek, provideView, releaseSlots, savedGames, saveTo, type SavedView } from './game/save';
 import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
-import { EVENTS } from './game/events';
+import { EVENTS, resolveEvent } from './game/events';
 import { rawDeltas } from './game/preview';
 import { performUpgrade, upgradePlan, UPGRADE_PATH } from './game/upgrade';
 import { unlockedBetween } from './game/buildings';
@@ -201,13 +201,22 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   clearRock, bridgeSpans, ROCK_CLEAR_COST, MAX_BRIDGE_SPAN,
   demolishPreview, TILE, BUILDING_DEFS, newGame, touchMap,
   upgradePlan, performUpgrade, UPGRADE_PATH, unlockedBetween,
+  // The region class, so a harness can respect the same build-menu gates the
+  // player is held to instead of placing things the menu would not offer.
+  tierOf, TIER_NAMES,
+  // The compute sliders' one mutator, so a harness moves the allocation the
+  // same way the panel does — including paying for the move out of the other
+  // sectors, which is the invariant an event used to break.
+  setAllocation,
   // Exposed so a harness can swap in a seeded region the way startSession
   // does: the road network is cached against the state object, and a swap
   // that mutates it in place leaves a stale entry behind.
   invalidateNetwork,
   // The save layer, so a harness can write and read a slot without going
-  // through the menu to do it.
-  saveTo, peek, MANUAL_SLOT: 'top:save',
+  // through the menu to do it. `loadFrom` reads the slot back the way a boot
+  // does — through localStorage and the real deserializer — so a round-trip
+  // test measures the format players actually get, not an in-memory copy.
+  saveTo, loadFrom, peek, MANUAL_SLOT: 'top:save',
   MANUAL_SLOTS, AUTO_SLOT, savedGames, newestSave, freeManualSlot,
   // The scenario picker's thumbnails, so their cost and their cache can be
   // measured rather than inferred from how long a dialog takes to open.
@@ -218,6 +227,10 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   // The boot screen's promise, checkable: did the tap actually start the audio.
   soundRunning: () => sound.running,
   armAudio,
+  // Answering the mail. A harness that ticks a thousand months without this
+  // stalls on the first decision and then never sees another event, which is
+  // most of the simulation going untested.
+  resolveEvent,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 

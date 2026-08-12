@@ -3191,6 +3191,147 @@ the submenus.
 
 ---
 
+## Milestone 56 — the tests come into the repo — `63f2457`
+
+### They existed and they were not yours
+
+Twelve verification suites, roughly three hundred checks, every one of them
+counterfactualled against the build before it — and none of them were in the
+repository. They lived in a scratch directory outside it. Every milestone's
+verification was one container reclamation away from being lost, and from the
+outside this project looked untested, because effectively it was: CI ran `tsc`
+and `vite build` and asserted nothing whatever about behaviour.
+
+An outside review of the repo reported this as "no test script yet". That
+undersold it. The tests existed; they just were not the project's.
+
+### The runner
+
+`test/` now holds 11 suites and **299 checks**. `test/run.mjs` builds, serves
+the build on 4173 and the dev server on 4174, drives each suite through a real
+browser, and exits non-zero if any of them fails.
+
+Two servers because one suite needs both. M53's entire subject is that the dev
+server and the build behaved differently, and the only way to assert they agree
+is to look at both.
+
+```
+npm run check      # types only
+npm test           # build, serve, drive every suite
+npm test -- m54    # one of them
+```
+
+CI runs both, installs chromium, and carries a 25-minute ceiling so a hung
+browser costs minutes rather than hours.
+
+### Three things that only worked on one machine
+
+| what | why it mattered |
+|---|---|
+| every suite exited `0` regardless of result | a file printing a wall of red still reported success — the runner, and CI behind it, would have called it green |
+| two suites hardcoded the absolute repo path | they run from their own module URL now |
+| every suite named `/opt/pw-browsers/chromium` | that path exists in one container and nowhere else; Playwright resolves its own browser now, with `PLAYWRIGHT_CHROMIUM` as an override |
+
+The first is the one worth dwelling on. A suite that cannot report failure is
+not a test, it is a log — and eleven of them had been that way for the whole
+project, which only never mattered because a human read the output every time.
+
+### Verification
+
+> **A runner that has only ever been seen to pass is not evidence of
+> anything.** Deleted the `text-transform: uppercase` from the dialog header,
+> reran: m55 reported six red checks with the measured value beside each, the
+> suite exited 1, and the runner exited 1. Then restored it and confirmed
+> 11 of 11 suites and 299 of 299 checks green.
+
+---
+
+## Milestone 57 — the simulation's own invariants
+
+Eleven suites had been driving the interface. None of them had ever asked the
+simulation underneath it a question: does a thousand months of play produce a
+number that is not a number, does a quantity documented as 0..1 stay there, does
+a save come back the same region, does the same seed play the same game twice.
+
+`test/suites/m57.mjs` asks all of it, and found two bugs on the first run.
+
+### What it checks
+
+| | |
+|---|---|
+| **A** | no `NaN` and no `Infinity` anywhere in the state after 1,000 months, in all four scenarios — a depth-first walk of the whole object graph that reports the *path* to the first bad number |
+| **B** | every bounded quantity inside its bounds, every month: seven indicators 0–100, six ratios 0–1, allocation summing to 1, group shares summing to 1, phase an integer 0–6, `jobsFilled ≤ jobsTotal`, `population ≤ peakPopulation`, no negative capacity or demand |
+| **C** | the ledger's lines summing to the totals printed beside them — worst relative gap across 4,000 months is 8.6e-15, which is float addition order and nothing else |
+| **D** | save → load returning the identical region, and the format being *idempotent*: a second round trip changes nothing, because the packing quantises rather than drifts |
+| **E** | the ASI phase never going backwards, while the emergence behind it falls in dozens of months — a check that watched the emergence would be watching the wrong number |
+| **F** | the road network agreeing with the map: no component id on a tile with no road, no road tile unlabelled, and no two adjacent road tiles in different components |
+| **G** | the same seed and scenario producing a byte-identical region after 220 months, and a different seed producing a different one |
+
+Plus building footprints and the tiles under them pointing at each other, in
+both directions.
+
+### Fixed — a compute allocation that added up to 105%
+
+The allocation is six fractions of one pool. The sliders have always rebalanced
+when you move one — take 5% for healthcare and the other five sectors pay for
+it. The hospital diagnostic-AI event granted healthcare "a dedicated compute
+allocation" by adding `0.05` and rebalancing nothing, so from that month on the
+panel showed six percentages summing to 105 and every sector drew slightly more
+compute than the region produced. It stayed wrong until the player next touched
+a slider.
+
+There is now one `setAllocation` in `state.ts`, and the sliders and the event
+both go through it.
+
+### Fixed — loading a save quietly edited the region
+
+`connectOrphans` lays a free access road to any workplace or home that has no
+road frontage. It exists for cities built before roads were a requirement, and
+it ran on **every** load. So loading a save was not a read: a house the player
+had deliberately cut off came back connected, a region the administrator had
+built at phase 6 came back with roads nobody laid, and `mapVersion` came back
+bumped.
+
+The invariant suite found it as a save that did not round-trip — the map that
+went in was not the map that came out. The repair is a save version: `SAVE_VERSION`
+is 2, `peek` accepts anything from 1 up rather than demanding an exact match, and
+the stub repair runs only for version 1. Every save already written still loads,
+and still gets repaired. Nothing this build writes is edited on the way back in.
+
+### The region has to be played
+
+The first draft ticked an untouched valley for a thousand months, which
+exercised almost nothing: no construction, no utilities, no events, and an
+emergence curve that never left phase 0. So the suite carries a deterministic
+administrator — every decision derived from the seed and the *month*, never from
+a counter of its own, which is what lets a loaded save keep playing the same game
+as the region it was copied from.
+
+Getting it to survive took four attempts, and each failure was informative:
+
+| attempt | what happened |
+|---|---|
+| road grown by extending a random tile | deadlocked at 38 buildings every time — the buildings took every tile the road touched, and then the road had nowhere left to go |
+| streets on a lattice, building as fast as it could find frontage | every scenario dead of cascading outages by month 28 |
+| utilities kept ahead of demand | survived, but rotating through each event's choices took the deliberately self-destructive option a third of the time and every region was dissolved by unrest before month 80 |
+| takes the offered option every time | all four scenarios run the full thousand months and reach phase 6 |
+
+That last one is the game's own thesis played straight, and it is the only
+answering policy that survives. The regions it produces reach 1,200–6,000
+residents, 680–810 buildings, ~4,000 road tiles in 5–12 components, and
+administrative lockout between month 215 and month 376.
+
+### Verification
+
+> Restored both bugs — the event's bare `+= 0.05` and the unconditional
+> `connectOrphans` — rebuilt, reran. The bounds check reported
+> `t19: alloc sums to 1.050000, not 1`; the round-trip check reported the
+> `scalars` and `terrain` sections changing. Two red, and the suite and the
+> runner both exited 1. Restored the fixes and confirmed **12 of 12 suites,
+> 350 of 350 checks**.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

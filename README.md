@@ -76,6 +76,19 @@ Four starting regions, each a different shape of the same trap:
 - **Rustbelt Revival** — declining industrial city: aged infrastructure, thin coffers, a large displaced-worker bloc; automation-weighted emergence
 - **Azure Coast** — wealthy, organized, land-poor; research-weighted emergence
 
+## Tests
+
+```
+npm run check   # types
+npm test        # build, serve, and drive a browser through every suite
+```
+
+`test/` holds one suite per milestone — roughly 330 assertions — each driving a
+real browser against the **built** game rather than a mock or a dev build. Each
+prints every assertion with the value it measured beside it. See
+[test/README.md](test/README.md) for the rules they were written under, most of
+which came from a test that was green and wrong.
+
 ## Development history
 
 [`RELEASE_NOTES.md`](RELEASE_NOTES.md) documents every milestone in order — what

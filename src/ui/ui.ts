@@ -7,7 +7,7 @@ import type { BuildingType, GameState, Notification, PolicyId, Severity } from '
 import { BUILDING_DEFS, BUILD_MENU_ORDER, TIER_NAMES } from '../game/buildings';
 import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
-import { notify, record, bridgeSpans, ROCK_CLEAR_COST } from '../game/state';
+import { notify, record, bridgeSpans, setAllocation, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
 import { AUTO_SLOT, MANUAL_SLOTS, deleteSlot, freeManualSlot, newestSave, savedGames, saveTo, type SlotInfo } from '../game/save';
 import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
@@ -1739,16 +1739,7 @@ export class UI {
   }
 
   private applyAllocation(changed: keyof GameState['alloc'], value: number): void {
-    const g = this.g;
-    const keys = Object.keys(g.alloc) as Array<keyof GameState['alloc']>;
-    const oldOthers = keys.filter((k) => k !== changed).reduce((s, k) => s + g.alloc[k], 0);
-    g.alloc[changed] = Math.max(0, Math.min(1, value));
-    const rest = 1 - g.alloc[changed];
-    if (oldOthers > 0) {
-      for (const k of keys) if (k !== changed) g.alloc[k] = (g.alloc[k] / oldOthers) * rest;
-    } else {
-      for (const k of keys) if (k !== changed) g.alloc[k] = rest / (keys.length - 1);
-    }
+    setAllocation(this.g, changed, value);
   }
 
   private syncAllocDisplays(): void {
