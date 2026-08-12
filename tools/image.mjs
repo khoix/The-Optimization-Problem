@@ -1,16 +1,16 @@
-// Reading a PNG, and resizing one well.
+// Reading a PNG, resizing one well, and writing one back.
 //
-// The icon is now a supplied master image rather than something this repo
-// draws, but the three sizes it ships at still have to come from somewhere:
-// 180 for iOS, 32 and 16 for tabs. Handing the browser one large PNG and
-// letting it scale is how a detailed icon turns to soup in a tab strip, and
-// scaling with a naive box filter is only slightly better.
+// The icon is a supplied master image rather than something this repo draws,
+// but the three sizes it ships at still have to come from somewhere: 180 for
+// iOS, 32 and 16 for tabs. Handing the browser one large PNG and letting it
+// scale is how a detailed icon turns to soup in a tab strip, and scaling with
+// a naive box filter is only slightly better.
 //
-// So: a PNG decoder, a Lanczos-3 resampler that works in linear light on
-// premultiplied alpha, and nothing else. Node's zlib does the inflating.
+// So: a PNG decoder, a resampler that works in linear light on premultiplied
+// alpha, and an encoder. Node's zlib does the inflating and the deflating.
 // Still zero dependencies.
 
-import { inflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 
 // ------------------------------------------------------------------- colour
 const S2L = new Float32Array(256);
@@ -260,4 +260,97 @@ export function edgeColour(rgba, w, h) {
   for (let y = 0; y < h; y++) { take(0, y); take(w - 1, y); }
   if (!n) return '#000000';
   return '#' + [r / n, g / n, b / n].map((v) => toSrgb(v).toString(16).padStart(2, '0')).join('');
+}
+
+// -------------------------------------------------------------------- encode
+const CRC = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = -1;
+  for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+function chunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([len, body, crc]);
+}
+
+/**
+ * 8-bit RGBA, non-interlaced, with the row filter chosen per row.
+ *
+ * The filter choice is the whole of PNG's compression story and it is not
+ * optional on a photographic image: one fixed filter across a picture with
+ * gradients, bevels and glow left the master at 820KB, and letting each row
+ * pick from all five by the standard minimum-sum-of-absolute-differences
+ * heuristic takes it to a fraction of that for the same pixels.
+ */
+export function encodePng(width, height, rgba) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;    // bit depth
+  ihdr[9] = 6;    // colour type: RGBA
+  // 10, 11 and 12 are compression, filter and interlace method: all zero, and
+  // all three are the only values PNG defines.
+
+  const bpp = 4;
+  const stride = width * bpp;
+  const raw = Buffer.alloc((stride + 1) * height);
+  const cand = [Buffer.alloc(stride), Buffer.alloc(stride), Buffer.alloc(stride),
+    Buffer.alloc(stride), Buffer.alloc(stride)];
+  let prev = Buffer.alloc(stride);
+  const line = Buffer.alloc(stride);
+
+  for (let y = 0; y < height; y++) {
+    for (let i = 0; i < stride; i++) line[i] = rgba[y * stride + i];
+    let best = 0, bestScore = Infinity;
+    for (let f = 0; f < 5; f++) {
+      let score = 0;
+      for (let i = 0; i < stride; i++) {
+        const a = i >= bpp ? line[i - bpp] : 0;
+        const b = prev[i];
+        const c = i >= bpp ? prev[i - bpp] : 0;
+        let v;
+        switch (f) {
+          case 0: v = line[i]; break;
+          case 1: v = line[i] - a; break;
+          case 2: v = line[i] - b; break;
+          case 3: v = line[i] - ((a + b) >> 1); break;
+          default: {
+            const pp = a + b - c;
+            const pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c);
+            v = line[i] - (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+          }
+        }
+        cand[f][i] = v & 0xff;
+        // Signed magnitude: bytes near zero either way compress, which is what
+        // the heuristic is actually looking for.
+        score += cand[f][i] < 128 ? cand[f][i] : 256 - cand[f][i];
+      }
+      if (score < bestScore) { bestScore = score; best = f; }
+    }
+    raw[y * (stride + 1)] = best;
+    cand[best].copy(raw, y * (stride + 1) + 1);
+    line.copy(prev);
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
 }
