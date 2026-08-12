@@ -452,29 +452,47 @@ export class UI {
     const year = auto ? Math.floor(auto.tick / 12) + 1 : 0;
     // A finished administration is not something to "continue" — saying so
     // would send the player straight back into the modal they just left.
-    const resumeLabel = !auto ? null
-      : auto.locked ? `Continue Observation — Year ${year}`
-      : auto.ended ? `Review Final State — Year ${year}`
-      : `Continue — Year ${year}, population ${auto.population.toLocaleString()}`;
     const hasSaves = savedGames().length > 0;
     const past = readArchive();
     this.titleScreen.classList.remove('hidden');
     document.body.classList.add('at-title');
+    // A row is a button, and the label is what it does — the year and the
+    // population are *about* the save rather than part of the instruction, so
+    // they sit apart from it in the mono face the rest of the console uses for
+    // figures. "Continue — Year 4, population 1,240" was one long sentence
+    // where every other control in the game is two words.
+    const resume = !auto ? null
+      : auto.locked ? { label: 'Continue Observation', meta: `Year ${year}` }
+      : auto.ended ? { label: 'Review Final State', meta: `Year ${year}` }
+      : { label: 'Continue', meta: `Year ${year} · pop ${auto.population.toLocaleString()}` };
+
+    const row = (id: string, mark: string, label: string, meta = '', primary = false): string =>
+      `<button id="${id}" class="title-btn${primary ? ' primary' : ''}">
+        <span class="tb-ico">${mark}</span>
+        <span class="tb-label">${label}</span>
+        ${meta ? `<span class="tb-meta">${meta}</span>` : ''}
+      </button>`;
+
     this.titleScreen.innerHTML = `
       <div class="title-card">
-        <h1>The Optimization Problem</h1>
-        <p class="title-tag">Every decision is reasonable.<br><span>That is the problem.</span></p>
-        <p class="title-what">Govern a growing region — housing, power, water, work, and
-          the computing infrastructure everyone keeps asking you to approve.</p>
+        <p class="title-eyebrow">Regional Administration Console</p>
+        <h1 class="title-mark" aria-label="The Optimization Problem">
+          <span class="tm-sm" aria-hidden="true">THE</span>
+          <span class="tm-lg" aria-hidden="true">OPTIMIZATION</span>
+          <span class="tm-lg" aria-hidden="true">PROBLEM</span>
+        </h1>
+        <p class="title-rule" aria-hidden="true"></p>
+        <p class="title-tag">Govern a growing region in a time of AI. Every decision is
+          reasonable.<br><span>That&rsquo;s the problem.</span></p>
         <div class="title-actions">
-          ${resumeLabel ? `<button id="t-continue" class="title-btn primary">${resumeLabel}</button>` : ''}
-          ${hasSaves ? '<button id="t-load" class="title-btn">Load Save</button>' : ''}
-          ${past.length ? `<button id="t-past" class="title-btn">Past Administrations (${past.length})</button>` : ''}
-          <button id="t-new" class="title-btn${resumeLabel ? '' : ' primary'}">Begin New Simulation</button>
-          <button id="t-how" class="title-btn">How to Play</button>
-          <button id="t-settings" class="title-btn">Settings</button>
+          ${resume ? row('t-continue', icon('resume'), resume.label, resume.meta, true) : ''}
+          ${hasSaves ? row('t-load', icon('load'), 'Load Save') : ''}
+          ${past.length ? row('t-past', icon('history'), 'Past Administrations', String(past.length)) : ''}
+          ${row('t-new', icon('newgame'), 'Begin New Simulation', '', !resume)}
+          ${row('t-how', icon('help'), 'How to Play')}
+          ${row('t-settings', icon('settings'), 'Settings')}
         </div>
-        ${resumeLabel || hasSaves || past.length ? '' :
+        ${resume || hasSaves || past.length ? '' :
           '<p class="title-hint">New here? <b>How to Play</b> is a short walk through the region before you take it on.</p>'}
         ${auto?.locked ? '<p class="title-note">The saved administration ended in observer mode. It can be watched, but not resumed.</p>' : ''}
         ${auto?.ended ? '<p class="title-note">The saved administration was terminated. It can be reviewed, but not continued.</p>' : ''}
