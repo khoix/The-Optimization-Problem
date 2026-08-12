@@ -14,6 +14,13 @@
     <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png" />
+    <!--
+      The boot screen's own stylesheet, inlined here by a plugin in
+      vite.config.ts. It is the one screen that has to be styled by the same
+      response that delivers it: everything else can wait for a <link>, but a
+      screen whose whole job is to be on paint immediately cannot.
+    -->
+    <!--boot-css-->
   </head>
   <body class="booting">
     <div id="app">
