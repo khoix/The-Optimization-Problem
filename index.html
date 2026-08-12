@@ -3,13 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a0e16" />
     <title>The Optimization Problem</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23131926'/><rect x='3' y='3' width='10' height='10' fill='%233a3e4a'/><rect x='5' y='11' width='2' height='1' fill='%234aa8ff'/><rect x='8' y='11' width='2' height='1' fill='%237ae9ff'/></svg>" />
   </head>
-  <body>
+  <body class="booting">
     <div id="app">
       <canvas id="game"></canvas>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <!--
+      The boot screen is markup rather than something the script builds, and it
+      is above `#app` in the document so it is on screen before a single module
+      has been parsed. Everything the loading bar is counting happens after
+      this paints; building the screen that says "loading" out of the thing
+      being loaded is the one arrangement guaranteed to show the player a blank
+      page for exactly as long as the wait lasts.
+
+      The title is real text with a real label. `boot.ts` splits the words into
+      per-letter spans to animate them, and marks the result hidden from
+      assistive technology — the accessible name comes from the heading.
+    -->
+    <div id="boot" class="boot">
+      <canvas id="boot-city" class="boot-city" aria-hidden="true"></canvas>
+      <div class="boot-veil" aria-hidden="true"></div>
+      <div class="boot-stage">
+        <h1 class="boot-title" aria-label="The Optimization Problem">
+          <span class="boot-line boot-sm" data-split>THE</span>
+          <span class="boot-line boot-lg" data-split>OPTIMIZATION</span>
+          <span class="boot-line boot-lg" data-split>PROBLEM</span>
+          <span class="boot-scan" aria-hidden="true"></span>
+        </h1>
+        <p class="boot-rule" aria-hidden="true"></p>
+        <p class="boot-tag">Every decision is reasonable.<br><span>That is the problem.</span></p>
+        <div class="boot-foot">
+          <div class="boot-bar" role="progressbar" aria-label="Loading"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="boot-bar">
+            <i id="boot-fill"></i>
+          </div>
+          <p class="boot-status"><span id="boot-step">Starting up</span><span id="boot-pct">0%</span></p>
+          <button id="boot-begin" class="boot-begin" hidden>Tap to Begin</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/boot.ts"></script>
   </body>
 </html>

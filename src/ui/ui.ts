@@ -22,7 +22,7 @@ import { SCENARIOS, SCENARIO_ORDER, type ScenarioId } from '../game/scenarios';
 import { previewChoice } from '../game/preview';
 import { EXPLAIN } from './explain';
 import { icon } from './icons';
-import { regionThumbnail, rollSeed } from './thumbnail';
+import { openingSeed, regionThumbnail, rollSeed } from './thumbnail';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type Prefs } from './prefs';
 import { Guide } from './guide';
 
@@ -720,7 +720,10 @@ export class UI {
    */
   showScenarioPicker(fromTitle = false): void {
     for (const id of SCENARIO_ORDER) {
-      if (!this.pickerSeeds.has(id)) this.pickerSeeds.set(id, rollSeed());
+      // `openingSeed`, not a fresh roll: these are the four the boot screen
+      // drew, so the dialog opens on four kept pictures rather than founding
+      // four regions while the player is looking at it.
+      if (!this.pickerSeeds.has(id)) this.pickerSeeds.set(id, openingSeed(id));
     }
     const cards = SCENARIO_ORDER.map((id) => {
       const s = SCENARIOS[id];

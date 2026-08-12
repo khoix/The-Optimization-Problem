@@ -83,3 +83,25 @@ export function regionThumbnail(scenario: ScenarioId, seed: number): string {
 export function rollSeed(): number {
   return Math.floor(Math.random() * 100000);
 }
+
+/**
+ * The seed each region is holding when the picker first opens.
+ *
+ * Decided here rather than in the picker so the boot screen can draw those
+ * four maps while the player is reading the title. A cache keyed on scenario
+ * *and* seed is no use to anyone if the two sides roll their own numbers: the
+ * boot screen would found four regions nobody is ever shown, and the picker
+ * would still hitch on the way open. Rerolling still asks for a fresh seed —
+ * that one is a miss on purpose, and it is one region rather than four.
+ */
+const opening = new Map<ScenarioId, number>();
+export function openingSeed(id: ScenarioId): number {
+  let s = opening.get(id);
+  if (s === undefined) { s = rollSeed(); opening.set(id, s); }
+  return s;
+}
+
+/** Whether this region and seed have already been drawn. For measurement. */
+export function isCached(scenario: ScenarioId, seed: number): boolean {
+  return cache.has(`${scenario}:${seed}`);
+}

@@ -6,8 +6,8 @@
 import type { Building, BuildingType, GameState } from '../game/types';
 import { BUILDING_DEFS } from '../game/buildings';
 import {
-  TILE, makeTerrain, makeRoads, makeBuildingSprites, makeConstructionSprite,
-  makeCarSprites, makePedestrianSprites, type TerrainSprites, type Sprite,
+  TILE, terrainSprites, roadSprites, buildingSprites, makeConstructionSprite,
+  carSprites, pedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
 import { computeConnectivity, computeCoverage, covered } from '../game/network';
@@ -273,11 +273,13 @@ export class Renderer {
   constructor(screen: HTMLCanvasElement) {
     this.screen = screen;
     this.sctx = screen.getContext('2d')!;
-    this.terrain = makeTerrain();
-    this.roads = makeRoads();
-    this.buildings = makeBuildingSprites();
-    this.cars = makeCarSprites();
-    this.peds = makePedestrianSprites();
+    // The kept copies, not fresh ones: the boot screen has usually drawn these
+    // already, and the guide's second Renderer must not pay for them twice.
+    this.terrain = terrainSprites();
+    this.roads = roadSprites();
+    this.buildings = buildingSprites();
+    this.cars = carSprites();
+    this.peds = pedestrianSprites();
     this.clouds = this.makeCloudShadow();
     this.lampPair = this.makeLampPairs();
     this.resize();

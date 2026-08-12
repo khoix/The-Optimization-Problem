@@ -883,3 +883,33 @@ export function makePedestrianSprites(): HTMLCanvasElement[] {
   }
   return out;
 }
+
+// Kept copies ---------------------------------------------------------------
+//
+// Every atlas above is drawn once and then only ever read from — `drawImage`
+// sources, never draw targets — so there is no reason for two of anything.
+// Until now there were: the guide builds a second Renderer for its walkthrough
+// scene, and paid for the whole set again to do it.
+//
+// The reason they are here rather than inlined into the Renderer's constructor
+// is the boot screen. It draws these while the player is reading the title, and
+// the Renderer built afterwards has to get *those* canvases rather than an
+// identical second set — otherwise the loading bar is measuring work that gets
+// thrown away, which is a worse lie than not having a loading bar.
+
+let _terrain: TerrainSprites | null = null;
+let _roads: HTMLCanvasElement[][] | null = null;
+let _buildings: Map<BuildingType, Sprite> | null = null;
+let _cars: HTMLCanvasElement[] | null = null;
+let _peds: HTMLCanvasElement[] | null = null;
+
+export function terrainSprites(): TerrainSprites { return (_terrain ??= makeTerrain()); }
+export function roadSprites(): HTMLCanvasElement[][] { return (_roads ??= makeRoads()); }
+export function buildingSprites(): Map<BuildingType, Sprite> { return (_buildings ??= makeBuildingSprites()); }
+export function carSprites(): HTMLCanvasElement[] { return (_cars ??= makeCarSprites()); }
+export function pedestrianSprites(): HTMLCanvasElement[] { return (_peds ??= makePedestrianSprites()); }
+
+/** True once every atlas has been drawn. The boot bar's last honest word. */
+export function spritesReady(): boolean {
+  return !!(_terrain && _roads && _buildings && _cars && _peds);
+}
