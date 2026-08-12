@@ -2807,6 +2807,83 @@ passes any check that only asks where the title is.
 
 ---
 
+## Milestone 51 — the icon — `7df5fb8`
+
+### A screenshot of itself
+
+There was no `apple-touch-icon`, so a page saved to an iOS home screen got
+whatever iOS falls back to — a thumbnail of the page as it happened to look.
+The favicon was an inline SVG data URI of a grey box with two lit windows in
+it: fine, and no relation to anything the game had looked like since.
+
+### One artwork
+
+A city block plan cut down the middle: four columns of blocks, cold on the two
+that the sweep has been through and warm on the two it has not, with the ASI's
+own colour on the street between them. It is [M50](#milestone-50--the-boot-screen--1889699)'s
+sweep stopped halfway and cropped square, which makes the icon the same picture
+as the thing the player sees three seconds later.
+
+### The one picture that cannot be drawn at load
+
+Every other image in this project is generated at run time. This one cannot
+be: `apple-touch-icon` has to be a real PNG at a real URL, because iOS ignores
+SVG in that slot and ignores `data:` URIs.
+
+So it is drawn at **build** time instead, in `tools/icon.mjs` — forty lines of
+rectangles on an eleven-unit grid, over a PNG encoder written on top of Node's
+own `zlib`. Still zero dependencies, and still *source*: what is committed
+alongside the PNGs is the code that produces them, not a binary somebody drew
+once and nobody can now change.
+
+**Three sizes, each drawn at its own resolution** rather than resampled down
+from the largest — 180 for iOS, 32 and 16 for tabs. This is pixel art on an
+eleven-unit grid; a 180px icon resampled to 16 is a grey smear where the
+streets used to be. 1,218 bytes for the set. `prebuild` regenerates them, so
+the files cannot drift from the drawing.
+
+### Two layouts that did not survive being looked at
+
+M48's rule, applied again: draw it large, and look at it at the size it will
+actually be seen.
+
+| layout | what was wrong |
+|---|---|
+| 4×4 blocks of 3 units | at 16px, three-pixel squares with one-pixel gaps — a texture, not a town |
+| 3×3 with the sweep through the middle column | left that column a one-unit sliver of warm beside a one-unit sliver of cold, which reads as a gap at every size |
+
+The third puts the sweep on a street with two whole columns either side, and
+tints the roofs as well as the windows — on the boot screen the architecture is
+identical either side of the line and only the light changes, which is the
+point being made *there*. At sixteen pixels a lit window is one pixel, and one
+pixel cannot be relied on to say which half of the icon it is in.
+
+### Verification
+
+24 checks; **all 24 fail** against the previous build.
+
+The encoder is written from the PNG spec, so every measurement goes through the
+browser's own image pipeline rather than through a second parser of mine — one
+that would happily agree with my encoder about a malformed file. The three
+files are decoded with `img.decode()`, drawn to a canvas, and read back: size,
+alpha, the colour of each corner, the mean of each half, and the brightest
+column. The Apple icon is checked for full opacity and square corners, because
+a transparent icon is composited onto black by iOS and a source with its own
+rounded corners gets rounded a second time by the home screen mask.
+
+> **A 200 that was not the file.** `apple-touch-icon.png is served` was written
+> as `res.ok` and would have passed on the build with no icons in it at all:
+> the preview server answers an unknown path with `index.html` and a cheerful
+> 200. It checks the content type now.
+
+> **And a byte comparison, which is the only thing that catches the real
+> risk.** A committed binary is the one asset here that can quietly stop
+> matching the source claiming to produce it — nothing breaks, nothing fails to
+> build, the icon is just silently out of date. Each PNG is regenerated from
+> `icon.mjs` and compared byte for byte with the file on disk.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
