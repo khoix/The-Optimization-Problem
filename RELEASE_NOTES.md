@@ -2807,7 +2807,7 @@ passes any check that only asks where the title is.
 
 ---
 
-## Milestone 51 — the icon — `7df5fb8`
+## Milestone 51 — the icon — `7df5fb8` · `614b67e`
 
 ### A screenshot of itself
 
@@ -2816,71 +2816,107 @@ whatever iOS falls back to — a thumbnail of the page as it happened to look.
 The favicon was an inline SVG data URI of a grey box with two lit windows in
 it: fine, and no relation to anything the game had looked like since.
 
-### One artwork
+### The artwork is supplied
 
-A city block plan cut down the middle: four columns of blocks, cold on the two
-that the sweep has been through and warm on the two it has not, with the ASI's
-own colour on the street between them. It is [M50](#milestone-50--the-boot-screen--1889699)'s
-sweep stopped halfway and cropped square, which makes the icon the same picture
-as the thing the player sees three seconds later.
+It is not generated. Two attempts were, and both were rejected for good
+reason, and the record of them is the useful part of this entry:
 
-### The one picture that cannot be drawn at load
+1. **Pixel art** — a city block plan on an eleven-unit grid, flat fills, hard
+   edges, drawn to match the map. The map is pixel art because a map is a grid
+   of tiles. An icon is not, and next to the icons it sits beside on a home
+   screen this one looked like a missing asset.
+2. **The same plan rendered properly** — signed distance fields, gradients,
+   real glow, supersampled and filtered down in linear light. Better, and
+   still a picture of four rounded rectangles.
 
-Every other image in this project is generated at run time. This one cannot
-be: `apple-touch-icon` has to be a real PNG at a real URL, because iOS ignores
-SVG in that slot and ignores `data:` URIs.
+The icon now ships from `assets/icon-master.png`, and `tools/icon.mjs` is gone.
 
-So it is drawn at **build** time instead, in `tools/icon.mjs` — forty lines of
-rectangles on an eleven-unit grid, over a PNG encoder written on top of Node's
-own `zlib`. Still zero dependencies, and still *source*: what is committed
-alongside the PNGs is the code that produces them, not a binary somebody drew
-once and nobody can now change.
+### Which changed what the tooling is for
 
-**Three sizes, each drawn at its own resolution** rather than resampled down
-from the largest — 180 for iOS, 32 and 16 for tabs. This is pixel art on an
-eleven-unit grid; a 180px icon resampled to 16 is a grey smear where the
-streets used to be. 1,218 bytes for the set. `prebuild` regenerates them, so
-the files cannot drift from the drawing.
+The job stopped being *draw an icon* and became *take one image and produce the
+sizes it ships at properly*, which is a different and more demanding piece of
+code. `tools/image.mjs` holds all of it:
 
-### Two layouts that did not survive being looked at
+- **A PNG decoder** over Node's `zlib`: all five row filters, greyscale, RGB
+  and palette, with or without alpha, at 8 or 16 bits.
+- **A resampler**, separable, working in linear light on premultiplied alpha.
+  Both of those are usually skipped and both are visible when they are:
+  averaging sRGB darkens every edge, and averaging un-premultiplied colour lets
+  transparent pixels bleed their colour into the visible ones, which is where
+  the grey halo around a resized logo comes from.
+- **An encoder** that picks a row filter per scanline by the standard
+  minimum-sum heuristic. On flat rectangles that is worth nothing; on a
+  rendered image with gradients and glow it took the master from 820KB to
+  715KB before a single pixel was resized.
 
-M48's rule, applied again: draw it large, and look at it at the size it will
-actually be seen.
+Zero dependencies still. The only thing the repository cannot decode is the
+webp the master arrived as, and that conversion was done once, by hand, rather
+than made a build step.
 
-| layout | what was wrong |
-|---|---|
-| 4×4 blocks of 3 units | at 16px, three-pixel squares with one-pixel gaps — a texture, not a town |
-| 3×3 with the sweep through the middle column | left that column a one-unit sliver of warm beside a one-unit sliver of cold, which reads as a gap at every size |
+> **Mitchell–Netravali, not Lanczos-3 — and that was measured, not preferred.**
+> Lanczos overshoots at a hard edge. On small bright lights over a dark ground
+> that puts a dark ring around every one of them, and at an eleven-to-one
+> reduction the rings are a third of the icon. Both filters are kept so the
+> comparison can be redone on the next master.
 
-The third puts the sweep on a street with two whole columns either side, and
-tints the roofs as well as the windows — on the boot screen the architecture is
-identical either side of the line and only the light changes, which is the
-point being made *there*. At sixteen pixels a lit window is one pixel, and one
-pixel cannot be relied on to say which half of the icon it is in.
+### Three sizes, and where the master lives
+
+180 for iOS, 32 and 16 for tabs, each resized from the master rather than from
+the size above it, and each a real file rather than one PNG the browser is left
+to scale down. **44.6KB for the set.**
+
+The master is kept at 512, not the 1254 it arrived at. That was measured too: a
+180 resized from 512 differs from one resized straight from 1254 by **0.17
+levels out of 255**, which is not worth half a megabyte in the repository. It
+sits in `assets/` rather than `public/`, so it is a working file and not
+something served to every visitor.
+
+`prebuild` regenerates `public/` from the master, so the shipped files cannot
+drift from it.
+
+### What iOS needs
+
+An `apple-touch-icon` has to be a real PNG at a real URL: iOS ignores SVG in
+that slot and ignores `data:` URIs. It also composites transparency onto black
+and *then* applies its own corner mask, so a source with its own rounded
+corners and transparent surround ends up with a dark wedge inside each corner
+on the home screen. The supplied master is square, full bleed and fully opaque,
+so nothing needed flattening — the flatten path stays in `make-icons` so a
+future master that is not cannot quietly ship broken.
 
 ### Verification
 
-24 checks; **all 24 fail** against the previous build.
+24 checks; all of them fail against the build before M51.
 
-The encoder is written from the PNG spec, so every measurement goes through the
-browser's own image pipeline rather than through a second parser of mine — one
-that would happily agree with my encoder about a malformed file. The three
-files are decoded with `img.decode()`, drawn to a canvas, and read back: size,
-alpha, the colour of each corner, the mean of each half, and the brightest
-column. The Apple icon is checked for full opacity and square corners, because
-a transparent icon is composited onto black by iOS and a source with its own
-rounded corners gets rounded a second time by the home screen mask.
+The encoder is written from the spec, so every measurement goes through the
+browser's own image pipeline — `img.decode()` onto a canvas and read back —
+rather than through a second parser of mine, which would happily agree with my
+encoder about a malformed file. The decoder got the same treatment from the
+other side: **a 1520×760 PNG written by Chromium decodes byte-for-byte
+identically to Chromium's own decoding of it.**
+
+The four checks that were about the generated artwork are replaced by four
+about this one: the three sizes are the same picture cell for cell, the subject
+sits inside the area the corner mask leaves alone, the four corners agree on a
+background for the mask to cut, and each shipped file is byte-for-byte the
+master resized.
 
 > **A 200 that was not the file.** `apple-touch-icon.png is served` was written
 > as `res.ok` and would have passed on the build with no icons in it at all:
 > the preview server answers an unknown path with `index.html` and a cheerful
 > 200. It checks the content type now.
 
-> **And a byte comparison, which is the only thing that catches the real
-> risk.** A committed binary is the one asset here that can quietly stop
-> matching the source claiming to produce it — nothing breaks, nothing fails to
-> build, the icon is just silently out of date. Each PNG is regenerated from
-> `icon.mjs` and compared byte for byte with the file on disk.
+> **Two thresholds that were facts about the old artwork.** A 4KB ceiling on
+> the icon set, which is true of flat rectangles and not of anything else; and
+> a same-artwork check comparing single corner pixels across three
+> resolutions, which cannot work once the images are filtered — the top-left
+> pixel of the 180 is a thousandth of the picture and the top-left pixel of the
+> 16 is a hundredth. That one is now an 8×8 grid of region means compared cell
+> for cell, which is a claim about the composition rather than about one pixel.
+
+> **And a harness that died rather than failed.** Run against the previous
+> build it threw on the first missing element, which proves only that the
+> element is new. Every probe reports absence as a failure now.
 
 ---
 
