@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "icons": "node tools/make-icons.mjs",
+    "prebuild": "node tools/make-icons.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
