@@ -3122,6 +3122,75 @@ both states — with a save and without.
 
 ---
 
+## Milestone 55 — the screens behind it — `6cc835c`
+
+### One instrument panel and six grey boxes
+
+[M54](#milestone-54--the-main-menu--aec31b6) redesigned the main menu and left
+everything behind it alone, so every way into the game led out of an instrument
+panel and into a plain dialog with a bold heading on it. Load Save, Past
+Administrations, a record's decisions, the region picker, Settings, Keyboard
+Shortcuts and How to Play — seven screens, all reachable from one menu, none of
+them looking like it.
+
+### One place, mostly
+
+Every dialog in the game goes through `showModal`, so most of this is a single
+block of CSS. The screens off the main menu now wear the title card's frame:
+the same panel, the same two corner brackets, and the header in the mark's own
+idiom — letterspaced uppercase, centred, over the hairline that runs under
+every title in this game.
+
+### Lists became the menu's row
+
+A save used to be one sentence with a date under it:
+
+> **Manual save** · Year 2 · pop 640
+> 8/12/2026, 1:27:23 PM
+
+It is now a mark, a label, and its figures **set apart in the mono face the
+rest of the game puts numbers in**, with the same lit left edge the menu's rows
+carry. An administration on the record reads the same way and takes a mark for
+which of the two endings it was — `override` where the system outlived you,
+because that is precisely the control that stopped answering, and the ballot
+box for the rest.
+
+> **An icon that would have been lying two thirds of the time.** The first
+> version used the loudhailer for a terminated administration. It says
+> *unrest* — and these runs also end in bankruptcy, in health collapse, and at
+> an election. The ballot box is true whatever the cause was, which is the only
+> thing a mark on a list of endings can afford to be.
+
+Choice buttons take the same edge. The settings toggles light in the ASI's
+colour rather than the accent blue, because every "this is currently doing
+something" light in this game is that colour. And the walkthrough — a different
+shape, but reached from the same screen — takes the corners and the header
+treatment at reading scale.
+
+### One deliberate boundary
+
+All of it is scoped to `body.at-title`. A decision that arrives *during* play
+is an interruption and should go on looking like one; restyling those out from
+under a player mid-game is a different milestone and a different argument.
+There is a check that opens a dialog inside a running game and asserts it has
+no brackets and an un-uppercased header — without which this milestone would
+have quietly redesigned every dialog in the game while claiming to have done
+the submenus.
+
+### Verification
+
+15 checks; **11 fail** against the previous build.
+
+> **A frame that reported itself as unframed.** The detector read
+> `borderTopColor` on both corner brackets. Each bracket is drawn by zeroing
+> two of its four borders — and `border-top: 0` is a *shorthand*, so it resets
+> that edge's colour to `currentColor` along with its width. The bottom-right
+> bracket therefore answered with the text colour, and seven correct screens
+> came back failing with `2/2 corner brackets` printed in their own failure
+> message. It reads all four edges now.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
