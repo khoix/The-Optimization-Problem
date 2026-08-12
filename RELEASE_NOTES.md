@@ -3191,6 +3191,61 @@ the submenus.
 
 ---
 
+## Milestone 56 — the tests come into the repo — `63f2457`
+
+### They existed and they were not yours
+
+Twelve verification suites, roughly three hundred checks, every one of them
+counterfactualled against the build before it — and none of them were in the
+repository. They lived in a scratch directory outside it. Every milestone's
+verification was one container reclamation away from being lost, and from the
+outside this project looked untested, because effectively it was: CI ran `tsc`
+and `vite build` and asserted nothing whatever about behaviour.
+
+An outside review of the repo reported this as "no test script yet". That
+undersold it. The tests existed; they just were not the project's.
+
+### The runner
+
+`test/` now holds 11 suites and **299 checks**. `test/run.mjs` builds, serves
+the build on 4173 and the dev server on 4174, drives each suite through a real
+browser, and exits non-zero if any of them fails.
+
+Two servers because one suite needs both. M53's entire subject is that the dev
+server and the build behaved differently, and the only way to assert they agree
+is to look at both.
+
+```
+npm run check      # types only
+npm test           # build, serve, drive every suite
+npm test -- m54    # one of them
+```
+
+CI runs both, installs chromium, and carries a 25-minute ceiling so a hung
+browser costs minutes rather than hours.
+
+### Three things that only worked on one machine
+
+| what | why it mattered |
+|---|---|
+| every suite exited `0` regardless of result | a file printing a wall of red still reported success — the runner, and CI behind it, would have called it green |
+| two suites hardcoded the absolute repo path | they run from their own module URL now |
+| every suite named `/opt/pw-browsers/chromium` | that path exists in one container and nowhere else; Playwright resolves its own browser now, with `PLAYWRIGHT_CHROMIUM` as an override |
+
+The first is the one worth dwelling on. A suite that cannot report failure is
+not a test, it is a log — and eleven of them had been that way for the whole
+project, which only never mattered because a human read the output every time.
+
+### Verification
+
+> **A runner that has only ever been seen to pass is not evidence of
+> anything.** Deleted the `text-transform: uppercase` from the dialog header,
+> reran: m55 reported six red checks with the measured value beside each, the
+> suite exited 1, and the runner exited 1. Then restored it and confirmed
+> 11 of 11 suites and 299 of 299 checks green.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
