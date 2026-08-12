@@ -38,7 +38,16 @@ function valueNoise(seed: number, w: number, h: number, scale: number): number[]
   return out;
 }
 
-function generateTerrain(seed: number, scen: ScenarioDef): Tile[] {
+/**
+ * The region's ground, from a seed.
+ *
+ * Exported so the scenario picker can show the map a player is about to be
+ * handed rather than an artist's impression of it. Nothing else may
+ * reimplement these rules: a preview drawn by a second copy of them is a
+ * preview that can be wrong, and the one thing a picture of the terrain has to
+ * be is the terrain.
+ */
+export function generateTerrain(seed: number, scen: ScenarioDef): Tile[] {
   const n1 = valueNoise(seed, MAP_W, MAP_H, 9);       // broad landmass
   const n2 = valueNoise(seed + 77, MAP_W, MAP_H, 4);  // forests
   const r = rng(seed + 1234);

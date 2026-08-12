@@ -70,7 +70,7 @@ export type IconId =
   // menu items
   | 'history' | 'save' | 'load' | 'newgame' | 'help' | 'settings'
   // the action button
-  | 'demolish' | 'cancel'
+  | 'demolish' | 'cancel' | 'reroll'
   // readouts
   | 'jobs' | 'labour' | 'appeal' | 'trust' | 'health' | 'unrest' | 'radius';
 
@@ -171,6 +171,12 @@ const PATHS: Record<IconId, string> = {
     + `<path fill="${C.steelDim}" d="M9.3 1.2l5.5 5.5-2.6 2.6L6.7 3.8z"/>`
     + `<path fill="${C.steelLit}" d="M9.9 2.6l4.1 4.1-1.2 1.2-4.1-4.1z"/>`,
   cancel: `<path fill="${C.red}" d="M3.6 1.8L8 6.2l4.4-4.4 1.8 1.8L9.8 8l4.4 4.4-1.8 1.8L8 9.8l-4.4 4.4-1.8-1.8L6.2 8 1.8 3.6z"/>`,
+  // Deal another region. An arrow chasing its own tail — the one shape
+  // everybody already reads as "again, differently". The single case in the set
+  // that is a stroke rather than a mass: a ring of even weight is what makes it
+  // read as a loop, and drawing that as an outline would be drawing it twice.
+  reroll: `<path fill="none" stroke="${C.cyan}" stroke-width="2.3" d="M12.7 9a5 5 0 1 1-1.2-4.4"/>`
+    + `<path fill="${C.cyan}" d="M14.4 1.5l.2 5.2-5-1.4z"/>`,
 
   // ---- readouts ---------------------------------------------------------
   jobs: `<circle cx="8" cy="4.6" r="3" fill="${C.blue}"/>`

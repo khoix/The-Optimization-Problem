@@ -14,6 +14,7 @@ import { rawDeltas } from './game/preview';
 import { performUpgrade, upgradePlan, UPGRADE_PATH } from './game/upgrade';
 import { unlockedBetween } from './game/buildings';
 import { invalidateNetwork, roadNetwork } from './game/network';
+import { regionThumbnail } from './ui/thumbnail';
 import { Soundscape } from './audio/soundscape';
 import type { ScenarioId } from './game/scenarios';
 
@@ -138,7 +139,11 @@ function startSession(req: SessionRequest): void {
   const loadedView = req.kind === 'load' ? peek(req.slot)?.view ?? null : null;
   const next = req.kind === 'load'
     ? loadFrom(req.slot)
-    : newGame(undefined, req.kind === 'new' ? req.scenario : 'verdant');
+    // The seed the picker was showing, when it was showing one. A card that
+    // draws you a map and then hands you a different region is worse than a
+    // card that draws you nothing.
+    : newGame(req.kind === 'new' ? req.seed : undefined,
+      req.kind === 'new' ? req.scenario : 'verdant');
   if (!next) {
     ui.flashSystemNote('That save could not be read.');
     return;
@@ -197,6 +202,9 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   // through the menu to do it.
   saveTo, peek, MANUAL_SLOT: 'top:save',
   MANUAL_SLOTS, AUTO_SLOT, savedGames, newestSave, freeManualSlot,
+  // The scenario picker's thumbnails, so their cost and their cache can be
+  // measured rather than inferred from how long a dialog takes to open.
+  regionThumbnail,
 };
 (window as unknown as Record<string, unknown>).__net = { roadNetwork };
 
