@@ -2652,6 +2652,137 @@ fact chip for spill past the card's right edge.
 
 ---
 
+## Milestone 50 — the boot screen — `1889699`
+
+### A blank second, and a silent city
+
+Two things were wrong with starting this game, and they had the same fix.
+
+The first second of a page load was **blank**. Five sprite atlases, a 112×112
+region and the whole interface were built before anything was drawn, and the
+player watched a dark rectangle while it happened. Nothing was slow; it was
+just invisible.
+
+The second is worse and had been true since the first build: **the game was
+silent until the player happened to click something.** A browser will not start
+an AudioContext without a gesture, and a page load is not one. Continue,
+Reload, a shared link — all of them landed on a region with no wind, no
+traffic and no server hum, and the soundscape is a narrative instrument in this
+game rather than decoration. The listeners that armed it were there and
+correct; they were just waiting for a press nobody had been asked for.
+
+### The screen is markup, not script
+
+`index.html` now carries the boot screen above `#app`, and `boot.ts` is the
+entry point. Building the screen that says *loading* out of the thing being
+loaded is the one arrangement guaranteed to show a blank page for exactly as
+long as the wait lasts.
+
+`main.ts` is loaded by the last step of the bar, which splits the bundle: a
+**66KB entry** paints the title, and the **277KB game chunk** is fetched behind
+it. First contentful paint now happens well before the work behind it finishes,
+which is a claim with a clock on it rather than an impression.
+
+### A region that founds itself, then gets optimized
+
+Behind the title, on its own canvas: roads spread out from a founding point as
+a wavefront, blocks fill in beside them, windows come on amber, and traffic
+moves on the streets. Buildings are tallest near the founding point and lowest
+at the edges, because that is where the demand went first — the same reason the
+real map has a downtown.
+
+At 1.15s a cold line crosses from the left, and everything behind it is the
+same city in blue-white. That is the game's forty-year era grading compressed
+into a second and a half, and it is the only backdrop that could be justified:
+a title about a city that optimizes itself should open on a city optimizing
+itself.
+
+Almost everything in the picture is a silhouette and the light is the subject,
+which is both what the region actually looks like after dark and the only way
+to put a busy image behind large white type. The first version painted
+mid-grey roofs at eleven pixels a cell and read as a texture rather than a
+town; the fix was darker, bigger, and lit — including a street lamp on the
+verge of every road tile, which is M45's rule at this scale.
+
+Cells are painted once into an offscreen buffer and blitted, so a frame costs
+one `drawImage` and a handful of small fills. Only the cells that changed are
+repainted, and the sweep repaints whole columns as it crosses.
+
+The title arrives letter by letter under a cyan solve line: each glyph starts
+blurred, off the baseline, in the ASI's own colour, and settles into white. A
+screen reader is given one labelled heading, not twenty-two spans.
+
+### The bar counts real work
+
+| step | what it is |
+|---|---|
+| Compiling terrain · Paving roads · Raising structures · Populating streets | the five sprite atlases, built on the first frame until now |
+| Surveying Verdant Valley · Sunbelt Dry · Rustbelt Revival · Azure Coast | the four region maps the picker will show |
+| Founding the region | `main.ts`: the region, the renderer, the interface |
+
+None of it was invented to give the bar something to count. Two consequences
+worth having on their own:
+
+- **The atlases are kept rather than rebuilt.** They are `drawImage` sources and
+  never draw targets, so there was never a reason for two of anything — and
+  there were two, because the walkthrough builds a second Renderer for its
+  scene and paid for the whole set again to do it.
+- **The surveys use the seeds the picker will ask for.** A cache keyed on region
+  *and* seed is worth nothing if the two ends roll separately: the boot screen
+  would found four regions nobody is shown and the picker would still hitch on
+  the way open. Opening it now costs **0.1ms** instead of four regions.
+
+The label names what is *about* to happen and the bar what has already
+finished. The other order reports work that has not been done yet, which is the
+ordinary way a loading bar lies.
+
+### Two decisions about timing
+
+**The prompt waits for the title, not only for the work.** The nine steps
+finish in about a third of a second and the title takes 1.9s, which put *Tap to
+Begin* on screen while the word OPTIMIZATION was still half-drawn and blue. A
+prompt is an instruction to stop reading and press something; it should not
+arrive in the middle of the sentence it is interrupting. It is a floor on the
+prompt and never on the player: a press before then skips the intro to its
+final frame and offers the prompt at once, and that final frame is the same one
+`prefers-reduced-motion` gets — if the animation can be switched off for
+somebody who does not want it, it can be switched off for somebody who is not
+waiting for it.
+
+**Nine one-frame yields, on purpose.** A `requestAnimationFrame` callback runs
+*before* the paint, so resolving there lets the next step start on the same
+frame and the whole sequence lands in one repaint — a bar that flashes 0% to
+100% and tells the player nothing about what took the time. Yielding to a task
+after the frame is presented costs about 150ms, and it is spent while real work
+is outstanding rather than added on top of it.
+
+### Verification
+
+25 checks; **24 fail** against the previous build. The one that does not is a
+deliberate regression holder — *the menu underneath still works when pressed* —
+which is meant to be true on both.
+
+> **Three assertions that were about the wrong thing.** The audio check was
+> sampled *after* the skip-press, and any real press arms the audio through the
+> window listener, so it proved that clicking works rather than that the prompt
+> does; it now reads before anything at all has been pressed. The
+> handler-cleanup check pressed `1` and the space bar, which come back
+> `defaultPrevented` after the handover because the **game** wants them — the
+> interface working, read as the boot screen refusing to let go; it now uses a
+> key nothing binds, paired against the same key during boot. And *"the title is
+> painted in under 900ms"* was true of the previous build, where the first paint
+> **is** the finished menu with all nine steps already run behind it; it is now
+> an ordering against the loading's own clock.
+
+> **And a counterfactual that crashed instead of failing.** Every probe here
+> reaches for an element the previous build does not have, so the first run
+> against it died on `getAttribute` of null and made no assertions at all — the
+> same failure as M46's, which is that a probe must be able to *run* against the
+> thing it is meant to distinguish from. Each one now reports the absence as the
+> failure it is.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
