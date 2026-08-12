@@ -2756,11 +2756,35 @@ frame and the whole sequence lands in one repaint — a bar that flashes 0% to
 after the frame is presented costs about 150ms, and it is spent while real work
 is outstanding rather than added on top of it.
 
+### The title is the only thing on it
+
+The screen carried the tagline for a while — *Every decision is reasonable.
+That is the problem.* — and it is better on the menu one screen later, where it
+is the only prose on the page rather than the third line of a title card. Out.
+
+Which left the title seventy pixels high, because the loading bar was still in
+the flow beneath it and the block balanced around its own middle rather than
+the title's. The loader is now positioned against the screen and anchored to
+the bottom, so the title is centred on its own: **5 to 10px off vertically and
+0px horizontally** at 1280×820, 390×844 and 780×400. The few pixels are the
+hairline rule sitting in the centred block with it.
+
+> **The fix had a bug in it that a screenshot could not see.** `.boot-foot`
+> went `position: absolute` while still inside `.boot-stage`, so its `bottom`
+> resolved against the stage — a box only as tall as the words in it — rather
+> than against the screen, and the loading bar landed *across the middle of the
+> title*. It happened to fall in a dark gap between two lines. Measuring the
+> rectangles caught it; looking at the picture did not.
+
 ### Verification
 
-25 checks; **24 fail** against the previous build. The one that does not is a
-deliberate regression holder — *the menu underneath still works when pressed* —
-which is meant to be true on both.
+31 checks; **24 of the first 25 fail** against the previous build. The one that
+does not is a deliberate regression holder — *the menu underneath still works
+when pressed* — which is meant to be true on both. The six added with the
+centring run at three viewport shapes, because *centred* is the sort of claim
+that is true at the size it was designed at and nowhere else, and they assert
+the loader's clearance as well as the title's position — the overlap above
+passes any check that only asks where the title is.
 
 > **Three assertions that were about the wrong thing.** The audio check was
 > sampled *after* the skip-press, and any real press arms the audio through the
