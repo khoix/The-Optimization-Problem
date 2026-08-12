@@ -2524,6 +2524,97 @@ doing a text job.
 
 ---
 
+## Milestone 49 — the region you are about to be handed — `b72c69e`
+
+### Choosing between four words
+
+*Begin New Simulation* offered four text buttons — Verdant Valley, Sunbelt
+Dry, Rustbelt Revival, Coast City — each with a sentence under it. That is the
+first decision anybody makes in the game, and it was made blind twice over:
+without seeing the region, and without seeing the numbers that make the four
+regions different from each other. Those numbers exist and the simulation uses
+them from the first tick — starting capital between §500 and §1,500, population
+between 55 and 90, water and solar multipliers from ×0.55 to ×1.45, an aging
+plant, an inherited industrial estate — and none of them were on the screen.
+
+### The map on the card is the map
+
+Each region is now a card carrying **a 112×112 picture of the actual region**,
+one pixel per tile, drawn from the seed that card is holding. Press the card
+and you get that map. It is not an illustration of a river valley; it is the
+river valley, and the rerolled one is a different valley because it is a
+different seed.
+
+This follows the walkthrough's rule about its figures, for the same reason:
+anything drawn by a second copy of the rules is a picture that can quietly stop
+being true, and the one thing a preview of the terrain has to be is the
+terrain.
+
+> **The one that got away with it for a while.** The thumbnail first drew from
+> `generateTerrain`, which is where terrain comes from — but the founding
+> settlement clears the ground it stands on, so rock and forest under the
+> streets and the footprints are gone by the time the player sees the map. The
+> preview differed from the region it was previewing by seven to twelve tiles:
+> small enough to never be noticed, wrong all the same. Generating from
+> `newGame` fixed it and paid for itself twice, because painting the roads and
+> footprints that come with it put the real founding town on the card in place
+> of the synthetic cross marker that had been standing in for one.
+
+### The numbers the simulation actually uses
+
+Facts are read off the scenario definition, not written next to it, so they
+cannot drift from what the game does with them:
+
+| region | facts shown |
+|---|---|
+| Verdant Valley | §900, 60 |
+| Sunbelt Dry | §1,100, 55, water ×0.55, power ×1.45 |
+| Rustbelt Revival | §500, 90, water ×0.85, aging plant, legacy industry |
+| Coast City | §1,500, 70, water ×1.15, power ×1.05 |
+
+A multiplier appears only when it is not 1 — Verdant is ordinary in every
+respect and says nothing rather than saying `×1.00` four times. Hard ones are
+amber, easy ones green, and each carries its M48 icon so a bare number never
+has to be guessed at.
+
+### Reroll is a corner control
+
+M47's rule, applied to something that is not a save row: **the card is the
+button, and the secondary action on it is a corner control**, not a sibling
+competing for the press. Reroll deals a different seed for that region only
+and leaves the other three exactly as they were.
+
+Seeds are pinned per region for the life of the dialog. Backing out to the
+title and coming back offers the same four regions rather than reshuffling the
+choice out from under someone who was still thinking about it.
+
+### Cost
+
+**21.4ms to found and draw all four regions, 22KB of image, 0.1ms warm.**
+Founding a region is the expensive half, so results are kept, keyed on scenario
+and seed — a card the player has already seen costs a lookup. (Software
+rasterisation in headless Chromium: it bounds the cost, it does not predict a
+GPU.)
+
+### Verification
+
+42 checks; **33 fail** against the previous build.
+
+> **Two probes that could not tell what they were claiming.** The cache check
+> timed `showScenarioPicker` twice — but the second call rebuilds the DOM and
+> decodes four images either way, so it was comparing four generations against
+> a repaint and would have reported a healthy-looking speedup with no cache at
+> all. Rewritten to time `regionThumbnail` directly: 19.8ms cold, 0ms warm.
+> And "with no button inside it competing for the press" was true of a dialog
+> containing zero cards, so it is now conditioned on there being four.
+
+> **A counterfactual that started a game instead of failing.** Backing out of
+> the picker on the old build clicked the first `.choice-btn` — which on the
+> old build is a scenario, not *Back*, so the harness quietly began a
+> simulation and destroyed the title screen it was about to assert on.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
