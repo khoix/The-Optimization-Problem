@@ -173,9 +173,13 @@ const rows = (page) => page.evaluate(() => [...document.querySelectorAll('.title
   const { ctx, page } = await fresh();
   const r = await rows(page);
   const primaries = r.filter((x) => x.primary);
+  // Four rows since M58: with nothing on disk there is no Load Save and no
+  // Past Administrations, and there is Import a Region — the one way a player
+  // on a new machine gets an existing region back.
   check('With nothing saved, the emphasis moves to Begin New Simulation',
-    r.length === 3 && primaries.length === 1 && primaries[0].id === 't-new',
-    `${r.length} rows, primary ${primaries.map((x) => x.id).join(',') || 'none'}`);
+    r.length === 4 && primaries.length === 1 && primaries[0].id === 't-new'
+    && r.map((x) => x.id).join(',') === 't-import,t-new,t-how,t-settings',
+    `${r.length} rows (${r.map((x) => x.id).join(',')}), primary ${primaries.map((x) => x.id).join(',') || 'none'}`);
   check('And no row claims a figure it does not have',
     r.every((x) => x.meta === null), r.map((x) => x.meta).join('|') || 'none carry one');
   await ctx.close();

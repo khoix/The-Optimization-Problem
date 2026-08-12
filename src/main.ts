@@ -6,7 +6,8 @@ import { canDemolish } from './game/asi';
 import { UI, type ScreenRect, type SessionRequest } from './ui/ui';
 import { TILE } from './render/sprites';
 import { BUILDING_DEFS, TIER_NAMES } from './game/buildings';
-import { AUTO_SLOT, MANUAL_SLOTS, consumeBootFlag, freeManualSlot, loadFrom, newestSave, peek, provideView, releaseSlots, savedGames, saveTo, type SavedView } from './game/save';
+import { AUTO_SLOT, MANUAL_SLOTS, consumeBootFlag, freeManualSlot, loadFrom, newestSave, peek, provideView, releaseSlots, savedGames, saveTo, serialize, writeEnvelope, type SavedView } from './game/save';
+import { exportRegion, importRegion, regionFilename } from './game/transfer';
 import { archiveRun, hasEnded } from './game/archive';
 import { updateTutorial } from './game/tutorial';
 import { EVENTS, resolveEvent } from './game/events';
@@ -217,6 +218,10 @@ const SPEED_MUL = [0, 1, 2.5, 6];
   // does — through localStorage and the real deserializer — so a round-trip
   // test measures the format players actually get, not an in-memory copy.
   saveTo, loadFrom, peek, MANUAL_SLOT: 'top:save',
+  // Region files: the export/import pair and the validator behind them, so a
+  // harness can feed the importer a file rather than driving a file picker,
+  // which is the one control a browser will not let a script fill in.
+  exportRegion, importRegion, regionFilename, writeEnvelope, serialize,
   MANUAL_SLOTS, AUTO_SLOT, savedGames, newestSave, freeManualSlot,
   // The scenario picker's thumbnails, so their cost and their cache can be
   // measured rather than inferred from how long a dialog takes to open.

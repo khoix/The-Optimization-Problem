@@ -13,7 +13,7 @@ import { connectOrphans } from './network';
  * still load: the number says which repairs a load has to run, not which
  * files it will accept.
  */
-const SAVE_VERSION = 2;
+export const SAVE_VERSION = 2;
 
 /**
  * The three manual slots, in the order they get filled.
@@ -237,6 +237,23 @@ export function deserialize(env: SaveEnvelope): GameState {
 export function saveTo(slot: string, g: GameState): boolean {
   try {
     localStorage.setItem(slot, JSON.stringify(serialize(g)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Put an envelope in a slot exactly as given.
+ *
+ * `saveTo` writes the region that is being played; this writes one that came
+ * from somewhere else. The only caller is the importer, and it has already
+ * checked the envelope — nothing else should reach for this, because nothing
+ * else has an envelope it did not just build itself.
+ */
+export function writeEnvelope(slot: string, env: SaveEnvelope): boolean {
+  try {
+    localStorage.setItem(slot, JSON.stringify(env));
     return true;
   } catch {
     return false;

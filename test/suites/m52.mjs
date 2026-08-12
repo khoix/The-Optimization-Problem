@@ -55,6 +55,12 @@ let spots = [];
   await ctx.close();
 }
 
+// The row to press when the point is that pressing works. Not the first one:
+// since M58 that is Import a Region on a cold start, and what it opens is the
+// operating system's file dialog, which is not in the page and cannot be seen
+// from here. Begin New Simulation puts four region cards on screen.
+const deliberate = spots.find((s) => s.id === 't-new') ?? spots[0];
+
 // ============ A. A TAP ANYWHERE BEGINS THE GAME AND DOES NOTHING ELSE
 for (const spot of spots) {
   const { ctx, page } = await fresh();
@@ -85,7 +91,7 @@ for (const spot of spots) {
 {
   const { ctx, page } = await fresh();
   const before = await page.evaluate(() => window.__api?.soundRunning?.() ?? null);
-  await page.touchscreen.tap(spots[0].x, spots[0].y);
+  await page.touchscreen.tap(deliberate.x, deliberate.y);
   await page.waitForTimeout(900);
   const after = await page.evaluate(() => ({
     audio: window.__api?.soundRunning?.() ?? null,
@@ -131,7 +137,7 @@ for (const spot of spots) {
   check('A press after the handover is not swallowed', swallowed === false,
     `defaultPrevented: ${swallowed}`);
 
-  await page.touchscreen.tap(spots[0].x, spots[0].y);
+  await page.touchscreen.tap(deliberate.x, deliberate.y);
   await page.waitForTimeout(700);
   const s = await menuState(page);
   check('And the menu answers a deliberate tap normally',

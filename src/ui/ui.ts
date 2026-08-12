@@ -9,7 +9,9 @@ import { POLICY_CATEGORIES, POLICY_DEFS, POLICY_ORDER } from '../game/policies';
 import { attemptShutdown, buildableTypes, canDemolish, filterAllocation, filterPolicyChange, pauseAllowed, statLabel } from '../game/asi';
 import { notify, record, bridgeSpans, setAllocation, ROCK_CLEAR_COST } from '../game/state';
 import { resolveEvent } from '../game/events';
-import { AUTO_SLOT, MANUAL_SLOTS, deleteSlot, freeManualSlot, newestSave, savedGames, saveTo, type SlotInfo } from '../game/save';
+import { AUTO_SLOT, MANUAL_SLOTS, deleteSlot, freeManualSlot, newestSave, savedGames, saveTo, serialize, writeEnvelope, type SaveEnvelope, type SlotInfo } from '../game/save';
+import { exportRegion, importRegion, regionFilename } from '../game/transfer';
+import { esc } from './escape';
 import { deleteRecord, readArchive, type RunRecord } from '../game/archive';
 import { tierOf, tierProgress, buildingCondition, cashflow, demolishBuilding, demolitionRefund, fullRefund, NET_WINDOW } from '../game/sim';
 import { performUpgrade, upgradePlan, withArticle } from '../game/upgrade';
@@ -487,6 +489,7 @@ export class UI {
         <div class="title-actions">
           ${resume ? row('t-continue', icon('resume'), resume.label, resume.meta, true) : ''}
           ${hasSaves ? row('t-load', icon('load'), 'Load Save') : ''}
+          ${hasSaves ? '' : row('t-import', icon('import'), 'Import a Region')}
           ${past.length ? row('t-past', icon('history'), 'Past Administrations', String(past.length)) : ''}
           ${row('t-new', icon('newgame'), 'Begin New Simulation', '', !resume)}
           ${row('t-how', icon('help'), 'How to Play')}
@@ -503,6 +506,7 @@ export class UI {
     };
     on('#t-continue', () => { if (latest) this.onSession({ kind: 'load', slot: latest.slot }); });
     on('#t-load', () => this.showLoadMenu(true));
+    on('#t-import', () => this.importGame(true));
     on('#t-past', () => this.showArchive(true));
     on('#t-new', () => this.showScenarioPicker(true));
     on('#t-how', () => this.showHowTo(true));
@@ -619,6 +623,7 @@ export class UI {
     items.push(
       [icon('save'), 'Save Game', () => this.saveGame()],
       [icon('load'), 'Load Game', () => this.showLoadMenu()],
+      [icon('export'), 'Export Region', () => this.exportGame()],
       [icon('newgame'), 'New Simulation', () => this.showScenarioPicker()],
       [icon('help'), 'How to Play', () => this.showHowTo()],
       [icon('settings'), 'Settings', () => this.showSettings()],
@@ -686,11 +691,22 @@ export class UI {
       : 'Game saved. All three save slots are now in use.');
   }
 
-  /** All three manual slots are full: which one goes. */
-  private showReplaceMenu(): void {
+  /**
+   * All three manual slots are full: which one goes.
+   *
+   * Takes what to do with the chosen slot, because there are two things that
+   * need a slot and cannot have one — saving the region being played, and
+   * importing one from a file — and the second must not be able to drift into
+   * a differently-worded, differently-guarded version of the first.
+   */
+  private showReplaceMenu(
+    write: (slot: string) => void = (slot) => this.flashSystemNote(
+      saveTo(slot, this.g) ? 'Game saved.' : 'Save failed — storage unavailable.'),
+    what = 'the region you are playing',
+  ): void {
     const manual = savedGames().filter((s) => s.manual);
     this.showModal('Replace a Save',
-      '<p class="hint">All three save slots are in use. Choose the one to write over — ' +
+      `<p class="hint">All three save slots are in use. Choose the one to write over with ${what} — ` +
       'the autosave is separate and is not touched.</p>' +
       manual.map((s) => this.slotRowHtml(s, false)).join(''),
       [{ label: 'Cancel', action: () => {} }]);
@@ -700,15 +716,124 @@ export class UI {
         `Write over the save from Year ${year}, population ${s.env.population.toLocaleString()}? ` +
         'What is in this slot now is gone.',
         [
-          {
-            label: 'Replace it',
-            action: () => {
-              this.flashSystemNote(saveTo(s.slot, this.g)
-                ? 'Game saved.' : 'Save failed — storage unavailable.');
-            },
-          },
-          { label: 'Keep it', action: () => this.showReplaceMenu() },
+          { label: 'Replace it', action: () => write(s.slot) },
+          { label: 'Keep it', action: () => this.showReplaceMenu(write, what) },
         ]);
+    });
+  }
+
+  // ---------------------------------------------------------- region files
+  //
+  // A save lives in this browser's storage for this origin: clear the site
+  // data, switch machines, or open the game in a different browser and a
+  // hundred and forty months of region is not there. These two make it a file
+  // instead — one the player keeps, moves, and can hand to somebody else.
+
+  /**
+   * The hidden file input, made once and reused.
+   *
+   * `value` is cleared before every open because a file input does not fire
+   * `change` when the same file is chosen twice running, and the second time
+   * is exactly when somebody has just fixed the file they picked.
+   */
+  private fileInput: HTMLInputElement | null = null;
+  private pickFile(onRead: (name: string, text: string) => void): void {
+    let input = this.fileInput;
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json,.json';
+      input.className = 'file-pick';
+      // Off-screen but still a real control, so it stays out of the tab order
+      // and out of the accessibility tree rather than sitting in both as an
+      // unlabelled input nobody can see.
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden', 'true');
+      document.body.append(input);
+      this.fileInput = input;
+    }
+    const el2 = input;
+    el2.value = '';
+    el2.onchange = () => {
+      const f = el2.files?.[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => onRead(f.name, String(reader.result ?? ''));
+      reader.onerror = () => this.showModal('Import Region',
+        `<p>${esc(f.name)} could not be read.</p>`, [{ label: 'Close', action: () => {} }]);
+      reader.readAsText(f);
+    };
+    el2.click();
+  }
+
+  /** Write the region on screen out to a file the player owns. */
+  private exportGame(): void {
+    let text: string;
+    let env: SaveEnvelope;
+    try {
+      env = serialize(this.g);
+      text = exportRegion(env);
+    } catch {
+      this.flashSystemNote('Export failed — the region could not be written out.');
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = regionFilename(env);
+    // Appended rather than clicked detached: some browsers ignore a download
+    // from an anchor that is not in the document.
+    document.body.append(a);
+    a.click();
+    a.remove();
+    // Long enough for the download to have started, and then reclaimed: the
+    // blob is the whole region, and a session that exports a dozen times would
+    // otherwise hold a dozen copies of it for as long as the tab is open.
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const kb = Math.max(1, Math.round(text.length / 1024));
+    this.flashSystemNote(`Region exported — ${regionFilename(env)}, ${kb.toLocaleString()}KB.`);
+  }
+
+  /**
+   * Bring a region file in.
+   *
+   * It lands in a save slot rather than on screen. A file is the first input
+   * this game has ever taken that it did not write itself, and putting it
+   * through the same door every other save goes through means it is opened by
+   * the same code, with the same failure handling, and can be looked at in the
+   * load menu before it is opened at all.
+   */
+  private importGame(fromTitle = false): void {
+    const back = { label: 'Close', action: () => { if (fromTitle) this.showTitle(); } };
+    this.pickFile((name, text) => {
+      const result = importRegion(text);
+      if (!result.ok) {
+        this.showModal('Import Region',
+          `<p><b>${esc(name)}</b></p><p class="hint">${esc(result.reason)}</p>`, [back]);
+        return;
+      }
+      const env = result.env;
+      const year = Math.floor(env.tick / 12) + 1;
+      const summary = `Year ${year}, population ${Math.round(env.population).toLocaleString()}`
+        + (env.locked ? ', observer mode' : env.ended ? ', terminated' : '');
+      const put = (slot: string): void => {
+        if (!writeEnvelope(slot, env)) {
+          this.showModal('Import Region',
+            '<p>There was no room to keep it. Browser storage is full — delete a save and try again.</p>',
+            [back]);
+          return;
+        }
+        this.showModal('Region Imported',
+          `<p><b>${esc(name)}</b> — ${summary}.</p>` +
+          '<p class="hint">It is in a save slot now. Opening it replaces the current session.</p>',
+          [
+            { label: 'Open it now', action: () => this.onSession({ kind: 'load', slot }) },
+            { label: 'Leave it in the slot', action: () => { if (fromTitle) this.showTitle(); } },
+          ]);
+      };
+      const free = freeManualSlot();
+      if (free) put(free);
+      else this.showReplaceMenu(put, 'the imported region');
     });
   }
 
@@ -1470,7 +1595,7 @@ export class UI {
   private pushArchive(n: Notification): void {
     const year = Math.floor(n.tick / 12) + 1;
     const rep = n.count > 1 ? ` <span class="feed-rep">×${n.count}</span>` : '';
-    const html = `<span class="feed-date">Y${year} ${MONTHS[n.tick % 12]}</span> ${n.text}${rep}`;
+    const html = `<span class="feed-date">Y${year} ${MONTHS[n.tick % 12]}</span> ${esc(n.text)}${rep}`;
     const cls = `feed-item ${n.kind} sev-${n.severity}`;
     const existing = this.archiveEls.get(n.id);
     if (existing) {
@@ -1834,7 +1959,7 @@ export class UI {
       const rows = sorted.map((l) => {
         const neg = l.amount < 0;
         return `<div class="ledger-row${l.policy ? ' from-policy' : ''}">` +
-          `<span class="ledger-label">${l.label}${l.rate !== undefined ? ` <small>${l.rate > 0 ? '+' : '−'}${Math.round(Math.abs(l.rate) * 100)}%</small>` : ''}</span>` +
+          `<span class="ledger-label">${esc(l.label)}${l.rate !== undefined ? ` <small>${l.rate > 0 ? '+' : '−'}${Math.round(Math.abs(l.rate) * 100)}%</small>` : ''}</span>` +
           `<span class="ledger-amt${neg ? ' neg' : ''}">${neg ? '−' : ''}§${money(Math.abs(l.amount))}</span></div>`;
       }).join('');
       return `<div class="ledger-side ${cls}">` +
@@ -2180,14 +2305,18 @@ export class UI {
   showLoadMenu(fromTitle = false): void {
     const slots = savedGames();
     const back = { label: fromTitle ? 'Back' : 'Close', action: () => { if (fromTitle) this.showTitle(); } };
+    // Import lives here, beside the saves, and is offered even when there are
+    // none — a player opening the game on a new machine has nothing to load
+    // and a file in their downloads folder, which is the whole case for it.
+    const bring = { label: 'Import a region file…', action: () => this.importGame(fromTitle) };
     if (slots.length === 0) {
-      this.showModal('Load Game', 'No saved games found.', [back]);
+      this.showModal('Load Game', 'No saved games found.', [bring, back]);
       return;
     }
     this.showModal('Load Game',
       `<p class="hint">${fromTitle ? 'Pick a save to resume.' : 'Loading replaces the current session.'}</p>` +
       slots.map((s) => this.slotRowHtml(s)).join(''),
-      [back]);
+      [bring, back]);
     this.wireSlotRows(
       (s) => { this.modal.classList.add('hidden'); this.onSession({ kind: 'load', slot: s.slot }); },
       (s) => {
@@ -2232,9 +2361,9 @@ export class UI {
         // cause was. A loudhailer was the first choice and it was wrong: it
         // says "unrest", and these end in bankruptcy and collapse too.
         icon: icon(r.kind === 'observer' ? 'override' : 'politics'),
-        label: r.scenarioName,
+        label: esc(r.scenarioName),
         meta: `${years}y · peak ${r.peakPopulation.toLocaleString()}`,
-        sub: `${how} — ${r.cause}`,
+        sub: `${how} — ${esc(r.cause)}`,
         del: 'Delete this record',
       });
     }).join('');
@@ -2252,7 +2381,7 @@ export class UI {
         // the only thing that outlives an administration, and there is no
         // second copy of it anywhere.
         this.showModal('Delete Record',
-          `Delete the record of ${rec.scenarioName}? ${years} year${years === 1 ? '' : 's'}, ` +
+          `Delete the record of ${esc(rec.scenarioName)}? ${years} year${years === 1 ? '' : 's'}, ` +
           `peak population ${rec.peakPopulation.toLocaleString()}. ` +
           'Every decision it made goes with it, and nothing else keeps them.',
           [
@@ -2270,10 +2399,10 @@ export class UI {
       : rec.history.map((h) => {
           const year = Math.floor(h.tick / 12) + 1;
           const cls = h.kind === 'system' ? 'hist-system' : 'hist-player';
-          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${h.text}</div>`;
+          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${esc(h.text)}</div>`;
         }).join('');
-    this.showModal(`${rec.scenarioName} — ${years} year${years === 1 ? '' : 's'}`,
-      `<p class="rec-cause">${rec.cause}</p>` +
+    this.showModal(`${esc(rec.scenarioName)} — ${years} year${years === 1 ? '' : 's'}`,
+      `<p class="rec-cause">${esc(rec.cause)}</p>` +
       `<p class="hint">Peak population ${rec.peakPopulation.toLocaleString()}. ` +
       `Each entry was, at the time, a reasonable response to a real problem.</p>` +
       `<div class="hist-list">${rows}</div>`,
@@ -2296,7 +2425,7 @@ export class UI {
       : g.history.map((h) => {
           const year = Math.floor(h.tick / 12) + 1;
           const cls = h.kind === 'system' ? 'hist-system' : 'hist-player';
-          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${h.text}</div>`;
+          return `<div class="hist-row ${cls}"><span class="hist-date">Y${year} ${MONTHS[h.tick % 12]}</span>${esc(h.text)}</div>`;
         }).join('');
     this.showModal('Historical Decision Review',
       `<p class="hint">Each entry was, at the time, a reasonable response to a real problem.</p><div class="hist-list">${rows}</div>`,
@@ -2913,7 +3042,7 @@ export class UI {
     // Conventional game over ----------------------------------------------
     if (g.gameOver && !g.asi.observer && this.modal.classList.contains('hidden') && !document.body.classList.contains('ended')) {
       document.body.classList.add('ended');
-      this.showModal('Administration Terminated', g.gameOver, [
+      this.showModal('Administration Terminated', esc(g.gameOver), [
         { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
         { label: 'Begin New Simulation', action: () => this.showScenarioPicker() },
         { label: 'Return to Main Menu', action: () => this.onSession({ kind: 'menu' }) },

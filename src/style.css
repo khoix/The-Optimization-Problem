@@ -66,6 +66,14 @@ body {
 /* ---------------- shared panel content ---------------- */
 .hidden { display: none !important; }
 .hint { color: var(--text-dim); font-size: 11px; margin-bottom: 8px; }
+/* The file picker for importing a region. Off-screen rather than
+   `display: none`, because a hidden input cannot be opened from script in
+   every browser, and 1×1 with no pointer events keeps it out of the way and
+   out of the tab order without hiding it. */
+.file-pick {
+  position: absolute; left: -9999px; top: 0;
+  width: 1px; height: 1px; opacity: 0; pointer-events: none;
+}
 .cat-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
   color: var(--text-dim); margin: 10px 0 4px;
