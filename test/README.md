@@ -25,6 +25,13 @@ Two servers because one suite needs both: [M53](../RELEASE_NOTES.md) exists
 because the dev server and the build behaved differently, and the only way to
 assert they agree is to look at both.
 
+One of them is not about the interface at all: `m57.mjs` plays each scenario for
+a thousand months through `window.__api` and checks the simulation's own
+invariants — no non-finite numbers, no quantity outside its documented bounds,
+a ledger whose lines sum to its totals, a save that round-trips, a phase that
+only climbs, a road network that agrees with the map, and a seed that plays the
+same game twice.
+
 ## What a suite is
 
 One file per milestone, named for it. Each prints every assertion it made with
@@ -57,6 +64,11 @@ they have caught something:
 - **The probe must be able to run against the build it is meant to distinguish
   from.** A suite that throws on the previous build proves only that a file is
   new.
+- **Play the region before you measure it.** M57's first draft ticked an
+  untouched valley for a thousand months and asserted a great deal about it: no
+  construction, no utilities, no events, and an emergence curve that never left
+  phase 0. Every check was green and none of them had been anywhere near the
+  simulation.
 
 And the practice that makes them work: after a suite goes green, **stash the
 change, rebuild, and run it again.** A suite that passes both ways is testing

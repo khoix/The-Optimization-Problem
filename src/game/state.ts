@@ -327,6 +327,28 @@ export function record(g: GameState, kind: GameState['history'][number]['kind'],
   if (g.history.length > 500) g.history.splice(0, g.history.length - 500);
 }
 
+/**
+ * Move one slice of the compute allocation, and pay for it from the others.
+ *
+ * The allocation is a set of fractions of one pool: it has to sum to 1, or the
+ * panel shows six percentages adding up to 105% and every sector quietly gets
+ * more compute than the region produces. The sliders have always rebalanced
+ * like this; an event that granted the hospital "a dedicated allocation" did
+ * not, and left the sum wrong for the rest of the campaign — which is what the
+ * invariant suite found. One function now, so there is only one way to do it.
+ */
+export function setAllocation(g: GameState, changed: keyof GameState['alloc'], value: number): void {
+  const keys = Object.keys(g.alloc) as Array<keyof GameState['alloc']>;
+  const oldOthers = keys.reduce((s, k) => (k === changed ? s : s + g.alloc[k]), 0);
+  g.alloc[changed] = Math.max(0, Math.min(1, value));
+  const rest = 1 - g.alloc[changed];
+  if (oldOthers > 0) {
+    for (const k of keys) if (k !== changed) g.alloc[k] = (g.alloc[k] / oldOthers) * rest;
+  } else {
+    for (const k of keys) if (k !== changed) g.alloc[k] = rest / (keys.length - 1);
+  }
+}
+
 /** Seed-derived emergence weights: every campaign's danger has a different shape. */
 function rollEmergenceProfile(seed: number): { weights: EmergenceWeights; thresholds: number[] } {
   const r = rng(seed * 3 + 999);

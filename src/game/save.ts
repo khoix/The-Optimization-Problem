@@ -8,7 +8,12 @@ import { EVENTS } from './events';
 import { defaultCorps, defaultGroups, ELECTION_PERIOD } from './politics';
 import { connectOrphans } from './network';
 
-const SAVE_VERSION = 1;
+/**
+ * 2 since the access-stub repair below became a v1-only repair. Older saves
+ * still load: the number says which repairs a load has to run, not which
+ * files it will accept.
+ */
+const SAVE_VERSION = 2;
 
 /**
  * The three manual slots, in the order they get filled.
@@ -216,9 +221,16 @@ export function deserialize(env: SaveEnvelope): GameState {
   // rock under an existing road is not visible and not doing anything, so it
   // goes — which unsticks every founding street in every save already written.
   for (const t of g.map) if (t.road && t.terrain === 'rock') t.terrain = 'grass';
-  // Cities built before roads were a requirement get access stubs rather
-  // than going dark on load.
-  connectOrphans(g);
+  // Cities built before roads were a requirement get access stubs rather than
+  // going dark on load — and only those.
+  //
+  // This used to run on every load, which quietly made loading a save an edit
+  // to the region. Anything without road frontage got a free stub paved to it:
+  // a house the player had deliberately cut off came back connected, and a
+  // region the administrator had built at phase 6 came back with roads nobody
+  // laid and a bumped mapVersion. The invariant suite found it as a save that
+  // did not round-trip — the map that went in was not the map that came out.
+  if (env.version < 2) connectOrphans(g);
   return g;
 }
 
@@ -297,7 +309,9 @@ export function peek(slot: string): SaveEnvelope | null {
     const raw = localStorage.getItem(slot);
     if (!raw) return null;
     const env = JSON.parse(raw) as SaveEnvelope;
-    if (env.version !== SAVE_VERSION) return null;
+    // Anything this build has ever written is readable. Only a save from a
+    // *newer* build is refused, because there is no way to guess what it means.
+    if (!(env.version >= 1 && env.version <= SAVE_VERSION)) return null;
     return env;
   } catch {
     return null;
