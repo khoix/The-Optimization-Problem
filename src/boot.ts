@@ -198,13 +198,33 @@ function activate(): void {
   // calling it here is what makes the promise on the screen a promise the code
   // keeps, rather than one it happens to satisfy by accident.
   mainModule?.armAudio();
+
+  // A tap is not one event. `pointerdown` is what dismissed this screen, and a
+  // `click` follows when the finger lifts — aimed at whatever is under that
+  // point *by then*, which is the menu, because this screen is already fading
+  // out from under it. So the one tap that meant "begin" also pressed whichever
+  // title-screen button happened to be behind the finger: on a 390px phone,
+  // two of the three opened a dialog nobody asked for.
+  //
+  // A mouse never showed it. Press and release land in the same instant to a
+  // human, and the desktop pointer is nowhere near a button when the screen is
+  // dismissed by keyboard or by the prompt itself.
+  const swallow = (e: Event): void => { e.stopPropagation(); e.preventDefault(); };
+  const TRAILING = ['click', 'pointerup', 'mouseup', 'touchend'] as const;
+  for (const t of TRAILING) addEventListener(t, swallow, { capture: true });
+
   root.classList.add('going');
   // Long enough for the fade, then gone for good: this screen is never shown
   // twice, and returning to the menu must not have to step around it.
+  //
+  // The swallower comes off at the same moment. It exists for the tail of one
+  // gesture; left standing it would eat every press in the session, which is a
+  // worse bug than the one it fixes and a much quieter one.
   setTimeout(() => {
     city.stop();
     root.remove();
     document.body.classList.remove('booting');
+    for (const t of TRAILING) removeEventListener(t, swallow, { capture: true });
   }, 480);
 }
 

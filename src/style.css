@@ -1393,10 +1393,18 @@ body.at-title .guide { padding-bottom: 20px; }
   display: flex; align-items: center; justify-content: center;
   background: #0a0e16; overflow: hidden;
   transition: opacity 460ms ease;
-  /* The whole screen is the button. */
+  /* The whole screen is the button. `manipulation` drops the double-tap-zoom
+     wait, the same way the rest of the chrome does — the first press in the
+     game should not be the slowest one in it. */
   cursor: pointer; user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
 }
-.boot.going { opacity: 0; pointer-events: none; }
+/* Still hit-testable while it fades. `pointer-events: none` here was half of
+   the tap-through: it made the overlay transparent to hit-testing the moment
+   the fade began, so the click at the end of the dismissing tap went straight
+   past it to the menu. A screen that is on its way out still owns the pointer
+   until it is gone. */
+.boot.going { opacity: 0; }
 .boot.going .boot-stage { transform: translateY(-10px); transition: transform 460ms ease; }
 /* Its resting transform is the horizontal centring, so the exit has to carry
    it rather than replace it. */
