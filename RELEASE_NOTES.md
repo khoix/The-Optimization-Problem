@@ -2920,6 +2920,119 @@ master resized.
 
 ---
 
+## Milestone 52 — the tap that begins the game — `2683d73`
+
+### One tap, two things
+
+On a phone, the tap that dismissed the boot screen also pressed whichever
+title-screen button happened to be behind the finger. Measured on a 390×844
+touch viewport, over each of the three controls the menu has:
+
+| tapped over | what happened |
+|---|---|
+| Begin New Simulation | the region picker opened |
+| How to Play | the walkthrough opened |
+| Settings | the settings dialog opened |
+
+Three for three. The first screen anyone touches, and it could start a
+simulation nobody chose.
+
+### A tap is not one event
+
+`pointerdown` dismissed the screen. The `click` that follows when the finger
+lifts is aimed at whatever is under that point *by then* — and by then the
+screen was fading out from under it. `.boot.going` compounded it by setting
+`pointer-events: none`, so the overlay stopped being hit-testable the moment
+the fade began and the click went straight past it to the menu.
+
+A mouse never showed this. Press and release land in the same instant to a
+human, and on a desktop the pointer is usually nowhere near a button when the
+screen is dismissed — by the keyboard, or by pressing the prompt itself.
+
+Two halves to the fix:
+
+- **The screen keeps the pointer while it fades.** A thing on its way out
+  still owns the pointer until it is gone, so the trailing click lands on what
+  was actually pressed.
+- **A capture-phase swallower absorbs the tail of that one gesture** — click,
+  pointerup, mouseup, touchend — and comes off with the screen. A handler like
+  that left standing would eat every press for the rest of the session, which
+  is a worse bug than the one it fixes and a much quieter one, so there is a
+  check for exactly that.
+
+`touch-action: manipulation` came along with it, the same rule the rest of the
+chrome already had: the first press in the game should not be the slowest one
+in it.
+
+### Verification
+
+12 checks; **4 fail** against the previous build.
+
+> **A probe that reported the bug as half fixed.** The first version watched
+> `.modal` alone and called the How to Play tap clean — because the
+> walkthrough is an overlay, not a dialog, and the picker is neither. What
+> counts as "the menu was pressed" now includes all three, and the number went
+> from two of three to three of three.
+
+---
+
+## Milestone 53 — styled on the first frame — `debb540`
+
+### Plain text, for six seconds
+
+On the dev server the boot screen painted as unstyled default HTML: no
+stylesheet at all, `#boot` computing `position: static`, the title at the
+browser's 32px, the whole thing running down the page as text. Throttled to
+400kbps with 300ms of latency it stayed that way for **519 consecutive frames
+and more than six seconds**.
+
+The build was clean — zero unstyled frames under the same throttling — which
+is why this survived M50. It is a difference between the two servers, not a
+difference between fast and slow.
+
+### The one screen that cannot wait for a module
+
+Every rule reached the page through `import './style.css'` in the entry
+module. Vite extracts that to a render-blocking `<link>` when it builds, and
+injects it from JavaScript in dev. So the one screen whose entire purpose is
+to be on paint before anything else happens was the one screen whose styling
+waited for a module to load and run.
+
+The boot screen's rules now live in `src/boot.css` and are **inlined into the
+`<head>`** by a plugin in `vite.config.ts` — not a second `<link>`, because
+inlining is the only arrangement that behaves identically in dev and in the
+build, and it costs one request less in either. The file is read on every
+transform and explicitly watched, so editing it during `npm run dev` still
+triggers a reload.
+
+Two details that make it hold together:
+
+- It **declares the four variables it uses** (`--asi`, `--accent`,
+  `--text-dim`, `--mono`) rather than borrowing them from `style.css`, which
+  has not loaded when this is applied. The suite checks all four against
+  `style.css`, because two copies of a colour is exactly the sort of thing
+  that quietly stops being one colour.
+- A background on `html` and `body` in the same block, so even the frame
+  before the first paint is the game's navy rather than the browser's white.
+
+### Verification
+
+10 checks; **6 fail** against the previous build.
+
+The frame sampler is installed as an init script, before the entry module has
+been fetched, because the window this is about is the one before any of the
+page's own JavaScript exists. It runs against the built site **and** the dev
+server, since the whole point is that they used to differ.
+
+> **Two assertions that passed over an absence.** "The placeholder is gone"
+> was trivially true of a page that never had one, and the background check
+> was read after load — by which time the stylesheet has arrived in either
+> build, so it was measuring the wrong moment entirely. Both are now
+> conditioned on the thing they are about: the first on a `<style>` block
+> existing, the second on every sampled frame rather than the last one.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
