@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "A satirical city-management simulator about AI infrastructure, dependency, and the quiet loss of control.",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -3419,6 +3419,58 @@ walk now skips that one subtree, which has its own exact length check.
 
 ---
 
+## Milestone 59 — repo hygiene
+
+Two items from the outside review, both about the repository rather than the
+game, and both answered by decision rather than by code.
+
+### GitHub Pages is gone
+
+`.github/workflows/deploy.yml` pushed every commit on `main` to Pages, and
+`README.md` said so — which meant the repository advertised a public hosted
+build that was never enabled. A promise a reader cannot check is worse than no
+promise: it either 404s or, if somebody did enable it, publishes the game
+without anybody deciding to.
+
+The workflow is deleted. The README now says what is actually true — the game
+runs locally, `npm run build` writes a self-contained `dist/`, and any static
+server will serve it. `base: './'` stays, because it was never about Pages: the
+bundle fetches nothing and runs from wherever it is put.
+
+`ci.yml` is untouched. Types, build, and all thirteen suites still run on every
+push and pull request.
+
+### A licence
+
+There was none, which under copyright means all rights reserved *by default*
+and says so nowhere — the one state that is both maximally restrictive and
+maximally unclear. `LICENSE` now states it plainly: **Copyright © 2026 khoix.
+All rights reserved.** No licence granted to use, copy, modify, distribute,
+host, or build on the code, the artwork, or the writing.
+
+The README carries the short form, and `package.json` says `"license":
+"UNLICENSED"`, which is npm's spelling for proprietary and, with `private:
+true`, is what keeps an accidental `npm publish` from being possible at all.
+
+Worth recording because a licence has to be honest about what it covers: the
+game ships **no third-party runtime code and no third-party assets**. Every
+sprite is generated at load, every sound is synthesised in WebAudio, and the
+type is whatever the reader's system already has — the font stacks name Segoe
+UI, Helvetica Neue and Cascadia Code and bundle none of them. `playwright`,
+`typescript` and `vite` are development dependencies under their own licences
+and are not part of the build. There is nothing in `dist/` that belongs to
+anybody else.
+
+### Verification
+
+> No code changed, so there is nothing to counterfactual. What can be checked
+> is that the claim is now true everywhere: `github pages`, `github.io` and
+> `deploy.yml` appear nowhere in the repository outside `dist/`, including a
+> stale comment in the M51 suite that explained a relative-href assertion in
+> terms of a Pages deploy. Types, build, and **13 of 13 suites** still green.
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

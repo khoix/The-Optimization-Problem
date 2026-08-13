@@ -141,9 +141,10 @@ for (const [name, size] of FILES) {
     favicons.length === 2 && favicons.every((l) => l.type === 'image/png') &&
       favicons.map((l) => l.sizes).sort().join(',') === '16x16,32x32',
     favicons.map((l) => `${l.sizes} ${l.href}`).join(' · '));
-  // `base: './'` in vite.config.ts: this build is meant to run from a subpath,
-  // and a root-absolute icon href is the sort of thing that works locally and
-  // 404s on GitHub Pages, where nobody is looking at the favicon anyway.
+  // `base: './'` in vite.config.ts: this build is meant to run from wherever
+  // `dist/` is put, and a root-absolute icon href is the sort of thing that
+  // works locally and 404s from a subpath, where nobody is looking at the
+  // favicon anyway.
   check('Every icon href is relative, so a subpath deploy still finds them',
     links.length === 3 && links.every((l) => l.href.startsWith('./')),
     links.map((l) => l.href).join(' '));

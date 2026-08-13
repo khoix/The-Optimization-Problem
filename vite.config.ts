@@ -40,8 +40,9 @@ function inlineBootCss(): Plugin {
 }
 
 export default defineConfig({
-  // Relative base so the built bundle runs from any static host or subpath
-  // (GitHub Pages, itch.io, a plain file server).
+  // Relative base so the built `dist/` runs from anywhere it is put — the
+  // filesystem, a plain static server, a subpath — without being rebuilt for
+  // the location. Nothing is fetched at runtime, so that is the whole of it.
   base: './',
   plugins: [inlineBootCss()],
 });
