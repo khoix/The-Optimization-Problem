@@ -3471,6 +3471,99 @@ anybody else.
 
 ---
 
+## Milestone 61 — the console, in one language
+
+M54 restyled the title screen and M55 restyled its dialogs, both scoped to
+`body.at-title` on the argument that what happens during play is a different
+kind of thing. Half of that was right. The other half meant the player spent the
+entire game inside a console that looked nothing like the screen that handed it
+to them — and, worse, that **Load Game looked like two different programs
+depending on which door you came through**. Same dialog, same code, two designs.
+
+The scope is gone. What survives of the argument is the distinction it was
+actually about, which was never *where the game is*: it is **who opened the
+panel**.
+
+### Three rules, named once
+
+The values M54 arrived at now live in `--panel-grad`, `--row-bg`,
+`--row-edge-hover` and three classes, so the two screens cannot drift apart
+again:
+
+| | |
+|---|---|
+| `.console-panel` | the material: one gradient, one edge, one shadow — and `.bracketed` for the two corner brackets that say *instrument panel, not frame* |
+| `.console-head` | the letterspaced capitals over the cyan hairline, with a `.strip` variant for a drawer's header, which is ranged left with a close button opposite it |
+| `.row-btn` | a row you press: icon, label, figures in the mono face, and the 2px lit left edge that goes accent-blue under the pointer |
+
+`.title-card`, `.title-btn` and `.save-row` were each carrying their own copy of
+those; they are three lines apiece now.
+
+### What changed on screen
+
+- **The bar** gained the same cyan hairline that runs under the title and under
+  every dialog header. It is one mark, and it now says the whole thing is one
+  instrument.
+- **Drawers** — Indicators, the build categories, Alerts, Politics — are the
+  console's panel with the console's header. They keep their connector tab
+  rather than gaining brackets: the tab already says which button the drawer
+  came out of, and a bracket at the bottom of a panel with no bottom edge is a
+  bracket around nothing.
+- **The hamburger's items** were transparent strips that grew a border on hover
+  — the one pattern in the console that gave no sign of being a control until
+  the pointer was already on it. They are `.row-btn`s now.
+- **Submenus** — Load, Save, Settings, How to Play, every confirmation — are the
+  same dialog wherever they are opened from.
+- **Toasts and the alert feed** are the console's material. The coloured left
+  edge stays exactly as it was: it is the same lit edge as every row in the
+  game, one channel over, carrying *kind* instead of *hover*.
+- **The inspector, hover card, explain card and vitals dock** are the same
+  panel. Build cards, layer buttons, tool buttons and system buttons share one
+  hover colour and one focus ring.
+- Section labels — `.cat-label`, `.att-header`, the ledger's heads — are on one
+  letterspacing scale instead of four.
+
+### What deliberately did not change
+
+A decision that interrupts you still reads as an interruption. Events, reports,
+elections and the termination notice carry `.incoming`: the same panel, **no
+corner brackets**, and an amber rule under the title instead of the system's
+cyan — the colour this console has always used for something that wants an
+answer.
+
+They also keep their titles as *titles*. The first version set them in the
+console's letterspaced capitals like everything else, and
+`MERIDIAN COMPUTE LTD. COMES CALLING` both cost a line to the wrap and took the
+voice out of it. A menu is labelled; an event is narrated.
+
+### Verification
+
+> **`test/suites/m61.mjs`, 15 checks.** The bar's hairline is the title's
+> hairline; a drawer is the panel with the header and the tab; every menu item
+> is a row with a lit edge that lights; the drawer, a dialog, the inspector and
+> a toast all report *one* background string.
+>
+> The last three are the ones with the most to lose and are regression holders,
+> not new claims: the whole late-game arc is this console being restyled by
+> something that is not the player, and a milestone that unifies every surface
+> could easily unify them out of reach of those overrides. Phase 4 still cools
+> the bar and calms the warnings (`rgb(232,200,90)` → `rgb(106,168,216)`);
+> observer mode still drains what decides.
+>
+> Counterfactual: stashed the CSS and the markup, rebuilt, reran — **9 of 15
+> red**, and the six that held are exactly the arc checks plus the two the
+> previous build already satisfied.
+>
+> M55's own scoping check was rewritten rather than deleted. It asserted "in a
+> running game the dialogs are untouched", which is the claim this milestone
+> overturns; it now asserts the replacement — a dialog you opened is bracketed
+> anywhere, one that opened itself is not, the rules are different colours, and
+> **both are cut from the same panel**.
+>
+> **14 of 14 suites, 395 of 395 checks.**
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.

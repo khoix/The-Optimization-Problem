@@ -311,8 +311,8 @@ export class UI {
    * legible as loss rather than as a redesign.
    */
   private buildChrome(): void {
-    this.flyout = el('div', 'flyout hidden');
-    this.flyoutTitle = el('div', 'flyout-title');
+    this.flyout = el('div', 'flyout console-panel hidden');
+    this.flyoutTitle = el('div', 'flyout-title console-head strip');
     this.flyoutBody = el('div', 'flyout-body');
     const flyClose = el('button', 'flyout-close', '×');
     flyClose.onclick = () => this.closePanel();
@@ -404,9 +404,9 @@ export class UI {
     this.feed = el('div', 'feed');
     this.toastStack = el('div', 'toast-stack');
     this.modal = el('div', 'modal hidden');
-    this.inspector = el('div', 'panel inspector hidden');
-    this.hoverCard = el('div', 'hover-card hidden');
-    this.explainCard = el('div', 'explain-card hidden');
+    this.inspector = el('div', 'panel inspector console-panel hidden');
+    this.hoverCard = el('div', 'hover-card console-panel hidden');
+    this.explainCard = el('div', 'explain-card console-panel hidden');
     this.root.append(this.explainCard);
     this.installExplainers();
     this.observerOverlay = el('div', 'observer-overlay hidden');
@@ -469,14 +469,14 @@ export class UI {
       : { label: 'Continue', meta: `Year ${year} · pop ${auto.population.toLocaleString()}` };
 
     const row = (id: string, mark: string, label: string, meta = '', primary = false): string =>
-      `<button id="${id}" class="title-btn${primary ? ' primary' : ''}">
+      `<button id="${id}" class="title-btn row-btn${primary ? ' primary' : ''}">
         <span class="tb-ico">${mark}</span>
         <span class="tb-label">${label}</span>
         ${meta ? `<span class="tb-meta">${meta}</span>` : ''}
       </button>`;
 
     this.titleScreen.innerHTML = `
-      <div class="title-card">
+      <div class="title-card console-panel bracketed">
         <p class="title-eyebrow">Regional Administration Console</p>
         <h1 class="title-mark" aria-label="The Optimization Problem">
           <span class="tm-sm" aria-hidden="true">THE</span>
@@ -630,7 +630,7 @@ export class UI {
       [icon('menu'), 'Main Menu', () => this.confirmMainMenu()],
     );
     for (const [mark, label, action] of items) {
-      const b = el('button', 'menu-item');
+      const b = el('button', 'menu-item row-btn');
       b.innerHTML = `<span class="menu-ico">${mark}</span><span>${label}</span>`;
       b.onclick = () => { this.closePanel(); action(); };
       host.append(b);
@@ -2195,11 +2195,21 @@ export class UI {
   }
 
   // ------------------------------------------------------------ modal & events
+  /**
+   * A dialog.
+   *
+   * `variant` carries `incoming` for the ones that open themselves — a
+   * decision, a reclassification, an ending. Those keep the console's material
+   * and its header but drop the corner brackets, which say "a panel you
+   * opened" everywhere else in the game. Everything the player asked for gets
+   * them.
+   */
   private showModal(title: string, bodyHtml: string, choices: Array<{ label: string; action: () => void }>, recommendedIndex = -1, variant = ''): void {
     this.modal.classList.remove('hidden');
     this.modal.innerHTML = '';
-    const box = el('div', 'modal-box' + (variant ? ' ' + variant : ''));
-    box.append(el('h2', '', title), el('div', 'modal-body', bodyHtml));
+    const opened = !/\bincoming\b/.test(variant);
+    const box = el('div', `modal-box console-panel${opened ? ' bracketed' : ''}${variant ? ' ' + variant : ''}`);
+    box.append(el('h2', 'console-head', title), el('div', 'modal-body', bodyHtml));
     const btns = el('div', 'modal-choices');
     choices.forEach((c, i) => {
       const b = el('button', 'choice-btn', c.label);
@@ -2237,7 +2247,7 @@ export class UI {
   private rowHtml(id: string, r: {
     icon?: string; label: string; meta?: string; sub?: string; flag?: string; del?: string;
   }): string {
-    return `<div class="save-row" role="button" tabindex="0" data-row="${id}">
+    return `<div class="save-row row-btn" role="button" tabindex="0" data-row="${id}">
       ${r.icon ? `<span class="tb-ico">${r.icon}</span>` : ''}
       <span class="save-what">
         <span class="save-line"><b class="tb-label">${r.label}</b>${r.meta ? `<span class="tb-meta">${r.meta}</span>` : ''}</span>
@@ -3016,7 +3026,7 @@ export class UI {
       else { this.sound?.systemTone(); this.promotedUntil = 0; this.syncPromotionMark(); }
       this.showModal(rep.title, rep.body, [
         { label: rep.fanfare ? 'Continue' : 'Acknowledge', action: () => { g.pendingReport = null; this.autoResume(); } },
-      ], -1, rep.fanfare ? 'promotion' : '');
+      ], -1, rep.fanfare ? 'incoming promotion' : 'incoming');
     }
 
     // Events ---------------------------------------------------------------
@@ -3036,7 +3046,7 @@ export class UI {
       this.showModal(e.title, e.body, e.choices.map((c, i) => ({
         label: this.choiceLabelWithImpact(e, c.label, i, rec === i),
         action: () => { resolveEvent(g, i); this.autoResume(); },
-      })), rec);
+      })), rec, 'incoming');
     }
 
     // Conventional game over ----------------------------------------------
@@ -3046,7 +3056,7 @@ export class UI {
         { label: 'Review Historical Decisions', action: () => { document.body.classList.remove('ended'); this.showHistory(); } },
         { label: 'Begin New Simulation', action: () => this.showScenarioPicker() },
         { label: 'Return to Main Menu', action: () => this.onSession({ kind: 'menu' }) },
-      ]);
+      ], -1, 'incoming');
     }
   }
 

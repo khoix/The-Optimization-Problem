@@ -86,7 +86,7 @@ npm run check   # types
 npm test        # build, serve, and drive a browser through every suite
 ```
 
-`test/` holds one suite per milestone — 375 assertions — each driving a
+`test/` holds one suite per milestone — 395 assertions — each driving a
 real browser against the **built** game rather than a mock or a dev build. Each
 prints every assertion with the value it measured beside it. See
 [test/README.md](test/README.md) for the rules they were written under, most of
