@@ -333,7 +333,9 @@ const PLAY = `(() => {
 
   // Export really produces a file: intercept the download.
   const [download] = await Promise.all([
-    page.waitForEvent('download', { timeout: 8000 }).catch(() => null),
+    // Generous: this fires while a dozen other suites may be sharing the
+    // machine, and a download that took nine seconds is still a download.
+    page.waitForEvent('download', { timeout: 25000 }).catch(() => null),
     page.evaluate(() => {
       const b = [...document.querySelectorAll('.menu-item')].find((x) => /Export Region/.test(x.textContent));
       b?.click();

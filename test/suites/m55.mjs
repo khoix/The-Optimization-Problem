@@ -205,34 +205,75 @@ const home = async (page) => {
   await ctx.close();
 }
 
-// ============ D. NOTHING THAT ARRIVES DURING PLAY WAS RESTYLED
+// ============ D. THE SAME DIALOG, WHEREVER IT WAS OPENED FROM
+//
+// M55 scoped this milestone's frame to `body.at-title` and pinned that here,
+// on the argument that a decision which interrupts a game should go on looking
+// like an interruption. M61 kept the argument and threw out the scope: Settings
+// and Load Game are the *same dialogs* reached through two doors, and they
+// looked like two programs. What distinguishes them now is not where the game
+// is — it is who opened the dialog.
 {
-  // The scoping claim, and the one worth pinning: a decision that interrupts a
-  // game should go on looking like an interruption. Without this the milestone
-  // would have quietly redesigned every dialog in the game.
   const { ctx, page } = await fresh();
   await page.evaluate(() => window.__ui.onSession({ kind: 'new', scenario: 'verdant' }));
   await page.waitForTimeout(1600);
-  await page.evaluate(() => {
-    document.querySelector('.modal')?.classList.add('hidden');
-    window.__ui.showSettings();
-  });
-  await page.waitForTimeout(500);
-  const inGame = await page.evaluate(() => {
+  const read = () => page.evaluate(() => {
     const box = document.querySelector('.modal:not(.hidden) .modal-box');
     const h2 = box?.querySelector(':scope > h2');
     return {
       atTitle: document.body.classList.contains('at-title'),
       opened: !!box,
+      title: h2?.textContent ?? '',
       upper: h2 ? getComputedStyle(h2).textTransform : null,
+      spacing: h2 ? getComputedStyle(h2).letterSpacing : null,
+      rule: h2 ? getComputedStyle(h2, '::after').backgroundImage : null,
       brackets: box ? ['::before', '::after']
-        .filter((p) => getComputedStyle(box, p).content !== 'none').length : -1,
+        .filter((pp) => getComputedStyle(box, pp).content !== 'none').length : -1,
+      bg: box ? getComputedStyle(box).backgroundImage : null,
     };
   });
-  check('In a running game the dialogs are untouched',
-    inGame.opened && !inGame.atTitle && inGame.upper === 'none' && inGame.brackets === 0,
-    inGame.opened ? `at title ${inGame.atTitle}, header ${inGame.upper}, ${inGame.brackets} brackets`
+
+  // A dialog the player asked for, opened mid-game.
+  await page.evaluate(() => {
+    document.querySelector('.modal')?.classList.add('hidden');
+    window.__ui.showSettings();
+  });
+  await page.waitForTimeout(400);
+  const mine = await read();
+  check('A dialog opened during play wears the console frame, same as at the title',
+    mine.opened && !mine.atTitle && mine.upper === 'uppercase'
+    && mine.brackets === 2 && /gradient/.test(mine.bg ?? ''),
+    mine.opened ? `at title ${mine.atTitle}, header ${mine.upper}, ${mine.brackets} brackets, ${/gradient/.test(mine.bg ?? '') ? 'panel gradient' : mine.bg}`
       : 'no dialog opened');
+  check('And its header sits over the console hairline',
+    /rgb\(122, 233, 255\)/.test(mine.rule ?? ''), mine.rule ?? 'none');
+
+  // A dialog that opened itself.
+  const incoming = await page.evaluate(async () => {
+    const api = window.__api, g = window.__game, ui = window.__ui;
+    document.querySelector('.modal')?.classList.add('hidden');
+    g.pendingEvent = api.EVENTS.find((e) => e.choices.length >= 2) ?? api.EVENTS[0];
+    ui.refresh(g);
+    return g.pendingEvent.title;
+  });
+  await page.waitForTimeout(400);
+  const theirs = await read();
+  check('A decision that arrives on its own carries no brackets',
+    theirs.opened && theirs.brackets === 0 && /gradient/.test(theirs.bg ?? ''),
+    theirs.opened ? `${theirs.brackets} brackets, ${/gradient/.test(theirs.bg ?? '') ? 'the same panel gradient' : theirs.bg}`
+      : 'no dialog opened');
+  // The distinction has to be visible in the dialog itself, not only in a
+  // property nobody looks at: the rule under an event is amber, and its title
+  // is a sentence rather than a letterspaced label.
+  check('Its rule is the colour this console uses for something wanting an answer',
+    /rgb\(232, 200, 90\)/.test(theirs.rule ?? ''), theirs.rule ?? 'none');
+  check('And it keeps its title as a title rather than a label',
+    theirs.upper === 'none' && theirs.title === incoming,
+    `text-transform ${theirs.upper}, letter-spacing ${theirs.spacing}, "${theirs.title}"`);
+  // Both are the same material — that is the whole point of the milestone.
+  check('Both are cut from the same panel',
+    mine.bg === theirs.bg && mine.bg !== null,
+    mine.bg === theirs.bg ? 'identical background' : `${mine.bg} vs ${theirs.bg}`);
   await ctx.close();
 }
 

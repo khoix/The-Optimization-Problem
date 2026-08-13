@@ -13,6 +13,17 @@
   --asi: #7ae9ff;
   --font: 'Segoe UI', 'Helvetica Neue', system-ui, sans-serif;
   --mono: 'Cascadia Code', 'Consolas', monospace;
+
+  /* The console's own materials, named once.
+     The title screen and its dialogs were built out of these values written
+     out longhand; every surface behind them was built out of different ones,
+     so the same Load Game dialog looked like two different programs depending
+     on which screen you opened it from. */
+  --panel-grad: linear-gradient(to bottom, rgba(9, 13, 21, 0.94), rgba(6, 9, 15, 0.97));
+  --panel-edge: rgba(44, 54, 72, 0.9);
+  --row-bg: rgba(16, 22, 33, 0.82);
+  --row-bg-hover: rgba(26, 36, 53, 0.92);
+  --row-edge-hover: #3d5a7a;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -63,6 +74,81 @@ body {
 }
 
 
+/* ---------------- one console, one language ----------------
+   Three rules that every surface in the game is made of.
+
+   M54 gave the title screen a look and M55 gave its dialogs the same one, both
+   scoped to `body.at-title` on the argument that what happens during play is a
+   different kind of thing. That was half right — a decision that interrupts you
+   *should* read differently from a menu you opened — and wholly wrong about
+   everything else: the drawers, the hamburger, the inspector, the toasts and
+   every dialog reachable from the bar were still in the old idiom, so the
+   console the player spends the entire game inside looked nothing like the
+   screen that handed it to them.
+
+   These are the same values M54 arrived at, named once so that the two screens
+   cannot drift apart again. */
+
+/* The material. Every panel is this, whatever it is anchored to. */
+.console-panel {
+  background: var(--panel-grad);
+  border: 1px solid var(--panel-edge);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+/* Two corner brackets rather than four: an instrument panel, not a frame.
+   Only on surfaces the player *opened* — see `.modal-box.incoming`. */
+.console-panel.bracketed { position: relative; }
+.console-panel.bracketed::before,
+.console-panel.bracketed::after {
+  content: ''; position: absolute; width: 15px; height: 15px;
+  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
+}
+.console-panel.bracketed::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.console-panel.bracketed::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+/* The header, in the mark's own idiom at panel scale, over the hairline that
+   runs under every title in this game. */
+.console-head {
+  font-size: 13px; font-weight: 600; letter-spacing: 0.24em; text-indent: 0.24em;
+  text-transform: uppercase; color: #fff; text-align: center;
+  margin-bottom: 0; padding-bottom: 13px;
+}
+.console-head::after {
+  content: ''; display: block; height: 1px; width: min(200px, 62%); margin: 12px auto 0;
+  background: linear-gradient(to right, transparent, var(--asi), transparent);
+  opacity: 0.7;
+}
+/* A drawer's header is a strip with a close button in it rather than a title
+   over a body, so it keeps the idiom at a smaller size, ranged left, with the
+   rule running the full width underneath instead of centred beneath a title. */
+.console-head.strip {
+  font-size: 10px; letter-spacing: 0.2em; text-indent: 0.2em;
+  text-align: left; color: var(--text); padding-bottom: 0;
+}
+.console-head.strip::after { display: none; }
+
+/* A row you press: an icon, what it does, and — where there is one — the
+   figure that row is about. The lit left edge is the whole tell that a row is
+   a control, and it is the same edge from the title screen to the save list to
+   the hamburger menu. */
+.row-btn {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 10px 12px 10px 14px; text-align: left; cursor: pointer;
+  color: var(--text); font-size: 12.5px;
+  background: var(--row-bg);
+  border: 1px solid var(--panel-border); border-radius: 5px;
+  position: relative; overflow: hidden;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.row-btn::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--panel-border);
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+.row-btn:hover { background: var(--row-bg-hover); border-color: var(--row-edge-hover); }
+.row-btn:hover::before { background: var(--accent); }
+.row-btn:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
+
 /* ---------------- shared panel content ---------------- */
 .hidden { display: none !important; }
 .hint { color: var(--text-dim); font-size: 11px; margin-bottom: 8px; }
@@ -75,8 +161,8 @@ body {
   width: 1px; height: 1px; opacity: 0; pointer-events: none;
 }
 .cat-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-  color: var(--text-dim); margin: 10px 0 4px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--text-dim); margin: 12px 0 5px;
 }
 .cat-label:first-child { margin-top: 0; }
 
@@ -102,7 +188,7 @@ body {
   line-height: 1.7; font-family: var(--mono);
 }
 .att-header {
-  margin: 12px 0 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  margin: 12px 0 5px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.18em;
   color: var(--text-dim); border-top: 1px solid var(--panel-border); padding-top: 8px;
 }
 .att-header b { color: var(--text); font-family: var(--mono); }
@@ -133,7 +219,7 @@ body {
 .ledger-side { margin-bottom: 8px; }
 .ledger-head {
   display: flex; justify-content: space-between; gap: 8px;
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.18em;
   color: var(--text-dim); border-bottom: 1px solid var(--panel-border);
   padding-bottom: 3px; margin-bottom: 4px;
 }
@@ -165,24 +251,8 @@ body {
    save, open this administration's decisions — and the destructive action is a
    corner X rather than a second button of equal weight sitting one target away
    from the one the player wanted. */
-.save-row {
-  display: flex; align-items: center; gap: 11px; margin-bottom: 7px;
-  padding: 9px 36px 9px 15px; border: 1px solid var(--panel-border); border-radius: 5px;
-  background: rgba(16, 22, 33, 0.82);
-  position: relative; cursor: pointer; text-align: left; width: 100%;
-  overflow: hidden;
-  transition: background 140ms ease, border-color 140ms ease;
-}
-/* The same lit edge the menu's rows carry, for the same reason: one language
-   for "a row you can press", from the console through every list behind it. */
-.save-row::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: var(--panel-border);
-  transition: background 140ms ease;
-}
-.save-row:hover { background: rgba(26, 36, 53, 0.92); border-color: #3d5a7a; }
-.save-row:hover::before { background: var(--accent); }
-.save-row:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
+/* A `.row-btn` with room on the right for the corner X. */
+.save-row { margin-bottom: 7px; padding: 9px 36px 9px 15px; }
 .save-row .row-x { top: 50%; right: 6px; transform: translateY(-50%); }
 .save-what { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.45; }
 /* The label and the figures on one line, the figures pushed to the end of it —
@@ -212,6 +282,14 @@ body {
   background: linear-gradient(to bottom, rgba(14,18,28,0.95), rgba(9,12,19,0.99));
   border-top: 1px solid var(--panel-border);
   box-shadow: 0 -6px 24px rgba(0,0,0,0.4);
+}
+/* The same hairline that runs under the title and under every dialog header in
+   the game, along the top edge of the console it hands over to. It is the one
+   mark that says all of this is the same instrument. */
+.civic-bar::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -1px; height: 1px;
+  background: linear-gradient(to right, transparent, var(--asi) 16%, var(--asi) 84%, transparent);
+  opacity: 0.5; pointer-events: none;
 }
 .bar-row { display: flex; align-items: center; min-width: 0; }
 .bar-row-console { gap: 10px; }
@@ -387,7 +465,11 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
   background: #161d2b; color: var(--text-dim); border: 1px solid var(--panel-border);
   border-radius: 5px; font-size: 10px; flex-shrink: 0;
 }
-.bar-tool:hover { background: #1f293b; color: var(--text); }
+.bar-tool:hover { background: var(--row-bg-hover); color: var(--text); border-color: var(--row-edge-hover); }
+.bar-tool:focus-visible, .sys-btn:focus-visible, .speed-btn:focus-visible,
+.build-card:focus-visible, .layer-btn:focus-visible, .small-btn:focus-visible {
+  outline: 2px solid var(--asi); outline-offset: 2px;
+}
 .bar-tool.open, .sys-btn.open {
   background: #24344f; color: #fff; border-color: var(--accent);
   box-shadow: 0 -2px 10px rgba(90, 168, 232, 0.25);
@@ -423,7 +505,7 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
   background: #161d2b; color: var(--text-dim); border: 1px solid var(--panel-border);
   padding: 6px 9px; cursor: pointer; border-radius: 4px; font-size: 11px;
 }
-.sys-btn:hover { color: #fff; background: #1f293b; }
+.sys-btn:hover { color: #fff; background: var(--row-bg-hover); border-color: var(--row-edge-hover); }
 .sys-ico { font-size: 12px; line-height: 1; }
 .alert-btn.has-unread, .sys-btn.has-unread { border-color: var(--mid); color: var(--mid); }
 .override-btn { color: #d8a45a; border-color: #4a3a20; }
@@ -450,11 +532,15 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
   width: var(--drawer-w, 560px); max-width: calc(100% - 20px);
   max-height: calc(100% - var(--bar-h, 130px) - 24px);
   display: flex; flex-direction: column;
-  background: var(--panel-bg); border: 1px solid var(--panel-border);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
+  /* The panel material, but the shadow goes upward: this one is anchored to
+     the bar below it and lit from the map above. */
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5), 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
 }
+/* No corner brackets on a drawer. Its connector tab already says which button
+   it came out of, and a bracket at the bottom of a panel with no bottom edge
+   is a bracket around nothing. */
 /* The connector: a short tab bridging the gap to the button below, so the
    panel reads as having come out of it rather than appeared near it. */
 .flyout::after {
@@ -477,27 +563,34 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
   from { transform: translateY(6px) scaleY(0.86); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
+/* The header strip, in the console's idiom, over the console's hairline —
+   which here runs the full width of the panel rather than being centred under
+   a title, because the title is ranged left with a close button opposite it. */
 .flyout-head {
+  position: relative;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; border-bottom: 1px solid var(--panel-border);
+  padding: 9px 12px 10px;
 }
-.flyout-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+.flyout-head::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: linear-gradient(to right, var(--asi), rgba(122, 233, 255, 0.06) 78%, transparent);
+  opacity: 0.5;
+}
 .flyout-close {
   background: none; border: none; color: var(--text-dim); font-size: 18px;
-  cursor: pointer; line-height: 1; padding: 0 4px;
+  cursor: pointer; line-height: 1; padding: 0 4px; border-radius: 4px;
 }
 .flyout-close:hover { color: #fff; }
+.flyout-close:focus-visible { outline: 2px solid var(--asi); outline-offset: 1px; }
 .flyout-body { padding: 10px 12px; overflow-y: auto; }
 .panel-body { display: block; }
 
-.menu-item {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  padding: 9px 10px; margin-bottom: 2px; cursor: pointer;
-  background: transparent; border: 1px solid transparent; border-radius: 4px;
-  color: var(--text); font-size: 12px;
-}
-.menu-item:hover { background: rgba(255, 255, 255, 0.06); border-color: var(--panel-border); }
-.menu-ico { width: 16px; text-align: center; opacity: 0.85; }
+/* A `.row-btn`, like every other list of things to press in this game. It used
+   to be a transparent strip that grew a border on hover, which is the one
+   pattern in the console that gave no sign of being a control until the
+   pointer was already on it. */
+.menu-item { margin-bottom: 4px; font-size: 12px; }
+.menu-ico { width: 16px; text-align: center; opacity: 0.85; display: inline-flex; justify-content: center; }
 
 /* build cards inside a flyout */
 .build-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(164px, 1fr)); gap: 6px; }
@@ -507,7 +600,7 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
   background: #161d2b; color: var(--text); border: 1px solid var(--panel-border);
   border-radius: 5px; padding: 7px 9px; cursor: pointer;
 }
-.build-card:hover { background: #1f293b; border-color: #3d4c66; }
+.build-card:hover { background: var(--row-bg-hover); border-color: var(--row-edge-hover); }
 .build-card.active { background: #24344f; border-color: var(--accent); }
 .build-card.locked { opacity: 0.45; border-style: dashed; }
 .build-card.unaffordable .card-cost { color: var(--bad); }
@@ -529,9 +622,7 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
      compositor job rather than a layout one. */
   position: fixed; top: 0; left: 0; will-change: transform;
   pointer-events: none;
-  background: rgba(14,18,28,0.96); border: 1px solid var(--panel-border);
-  border-radius: 5px; padding: 6px 9px; max-width: 220px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  border-radius: 6px; padding: 6px 9px; max-width: 220px;
 }
 .hc-title { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
 .hc-status { font-size: 10px; margin-bottom: 2px; }
@@ -549,11 +640,16 @@ body.observer .flyout .ico { filter: saturate(0.18) brightness(0.92); }
    unreachable from anywhere. */
 .panel {
   position: absolute; z-index: 12;
-  background: var(--panel-bg); border: 1px solid var(--panel-border);
-  border-radius: 5px; padding: 9px 11px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+  border-radius: 6px; padding: 9px 11px;
 }
-.panel h3 { font-size: 12px; margin-bottom: 4px; }
+/* A panel title is the console's header at the smallest size it stays legible
+   at, ranged left because the inspector's close button sits opposite it. */
+.panel h3 {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.18em; text-indent: 0.18em;
+  text-transform: uppercase; color: #fff;
+  padding-bottom: 7px; margin-bottom: 7px;
+  border-bottom: 1px solid rgba(122, 233, 255, 0.22);
+}
 /* Measured, not guessed: the bar reflows when it folds and when the window
    narrows, and any fixed number is right for exactly one of those. */
 .inspector { bottom: calc(var(--bar-h, 130px) + 10px); left: 10px; width: 280px; }
@@ -632,24 +728,17 @@ body.at-title .modal { padding-bottom: 0; }
 /* A panel over the region rather than text floating on it. Faint enough that
    the map still reads through it — the region is the first thing seen and the
    last, and covering it with a solid card would be the wrong promise. */
+/* Material, brackets and rows all come from `.console-panel` / `.row-btn`
+   now. What is left here is what is particular to this screen: its width, and
+   a background a shade more transparent than a dialog's, because the region
+   underneath is the first thing seen and the last. */
 .title-card {
-  position: relative;
   width: min(440px, 100%);
   padding: 26px 22px 22px;
   text-align: center;
-  border: 1px solid rgba(44, 54, 72, 0.75);
   border-radius: 8px;
   background: linear-gradient(to bottom, rgba(9, 13, 21, 0.72), rgba(6, 9, 15, 0.86));
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
 }
-/* Two corner brackets rather than four: an instrument panel, not a frame. */
-.title-card::before,
-.title-card::after {
-  content: ''; position: absolute; width: 15px; height: 15px;
-  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
-}
-.title-card::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-.title-card::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
 
 /* The institution, named once and quietly. The joke of this game is that all
    of it is procedurally reasonable, and a console with a department name on it
@@ -693,29 +782,13 @@ body.at-title .modal { padding-bottom: 0; }
 
 /* ---- the controls ---- */
 .title-actions { display: flex; flex-direction: column; gap: 7px; }
-/* A row, not a pill: an icon, what it does, and — where there is one — the
-   figure that row is about. Left-aligned because a list of six centred labels
+/* A `.row-btn` with a little more room round it, because this screen has six
+   of them and nothing else. Left-aligned because a list of six centred labels
    is six things to re-find the start of. */
-.title-btn {
-  display: flex; align-items: center; gap: 11px; width: 100%;
-  padding: 11px 13px 11px 15px; text-align: left; cursor: pointer;
-  color: var(--text); font-size: 12.5px;
-  background: rgba(16, 22, 33, 0.82);
-  border: 1px solid var(--panel-border); border-radius: 5px;
-  position: relative; overflow: hidden;
-  transition: background 140ms ease, border-color 140ms ease;
-}
-/* The lit edge. Dim on every row, so the primary one is brighter rather than
+.title-btn { padding: 11px 13px 11px 15px; }
+/* The lit edge is dim on every row, so the primary one is brighter rather than
    the only one with an edge at all — the difference should read as emphasis,
    not as a different kind of control. */
-.title-btn::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
-  background: var(--panel-border);
-  transition: background 140ms ease, box-shadow 140ms ease;
-}
-.title-btn:hover { background: rgba(26, 36, 53, 0.92); border-color: #3d5a7a; }
-.title-btn:hover::before { background: var(--accent); }
-.title-btn:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
 .title-btn.primary { border-color: rgba(122, 233, 255, 0.4); color: #fff; }
 .title-btn.primary::before {
   background: var(--asi); box-shadow: 0 0 12px rgba(122, 233, 255, 0.6);
@@ -807,8 +880,9 @@ body.at-title .modal { padding-bottom: 0; }
 /* ---------------- vital signs as a sidebar ---------------- */
 .vitals-dock {
   position: absolute; left: 10px; top: 10px; width: 208px; z-index: 12;
-  background: var(--panel-bg); border: 1px solid var(--panel-border);
-  border-radius: 5px; padding: 9px 11px;
+  background: var(--panel-grad); border: 1px solid var(--panel-edge);
+  border-radius: 6px; padding: 9px 11px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
   max-height: calc(100% - var(--bar-h, 130px) - 24px); overflow-y: auto;
 }
 /* Stacked rather than strung out, now that width is the scarce axis. */
@@ -828,7 +902,7 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
   color: var(--text); font-size: 11px;
 }
-.layer-btn:hover { border-color: var(--text-dim); background: rgba(255, 255, 255, 0.06); }
+.layer-btn:hover { border-color: var(--row-edge-hover); background: var(--row-bg-hover); }
 .layer-btn.active { border-color: var(--accent); background: rgba(90, 168, 232, 0.13); }
 .layer-head { display: flex; align-items: center; gap: 7px; }
 .layer-swatch { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto; }
@@ -847,9 +921,7 @@ body.reduced-motion * { animation: none !important; transition: none !important;
    rather than the cursor, so reading one doesn't chase the pointer. */
 .explain-card {
   position: fixed; z-index: 70; width: 300px; pointer-events: none;
-  background: rgba(10, 14, 22, 0.97); border: 1px solid var(--panel-border);
-  border-radius: 4px; padding: 8px 10px; line-height: 1.45;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+  border-radius: 6px; padding: 8px 10px; line-height: 1.45;
 }
 .explain-title { font-size: 11px; font-weight: 600; color: #fff; margin-bottom: 3px; }
 .explain-reading {
@@ -878,16 +950,21 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   display: flex; flex-direction: column; align-items: stretch; gap: 5px;
   z-index: 47; pointer-events: none;
 }
+/* The console's material, with the lit left edge doing what it does on every
+   other row in the game — except that here it carries the *kind* of alert
+   rather than whether the pointer is on it. Same language, one channel over. */
 .toast {
   pointer-events: auto; cursor: pointer;
-  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  background: var(--panel-grad); border: 1px solid var(--panel-edge);
   border-left: 3px solid var(--panel-border);
-  padding: 6px 9px; font-size: 11px; border-radius: 3px; line-height: 1.35;
+  padding: 7px 10px; font-size: 11px; border-radius: 4px; line-height: 1.4;
   display: flex; gap: 6px; align-items: baseline;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(2px);
   animation: toast-in 200ms ease-out;
 }
-.toast:hover { border-color: var(--text-dim); }
+.toast:hover { border-color: var(--row-edge-hover); background: var(--row-bg-hover); }
+.toast:focus-visible { outline: 2px solid var(--asi); outline-offset: 2px; }
 .toast-text { flex: 1; }
 .toast-count { color: var(--text-dim); font-family: var(--mono); font-size: 10px; }
 .toast.warn { border-left-color: var(--mid); }
@@ -895,7 +972,10 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .toast.asi { border-left-color: var(--asi); color: #c8ecf4; }
 /* Severity is carried by weight and glow, not by a fifth colour. */
 .toast.sev-low { opacity: 0.82; font-size: 10.5px; padding: 5px 9px; }
-.toast.sev-high { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 3px 14px rgba(0, 0, 0, 0.45); }
+.toast.sev-high {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 6px 22px rgba(0, 0, 0, 0.55);
+}
+.toast.asi.sev-high { box-shadow: 0 0 14px rgba(122, 233, 255, 0.22), 0 6px 22px rgba(0, 0, 0, 0.55); }
 .toast.sev-high .toast-text { font-weight: 600; }
 .toast.out { animation: toast-out 380ms ease-in forwards; }
 
@@ -920,8 +1000,9 @@ body.reduced-motion * { animation: none !important; transition: none !important;
   position: static; width: auto; max-height: 46vh; overflow-y: auto;
 }
 .feed-item {
-  background: var(--panel-bg); border-left: 3px solid var(--panel-border);
-  padding: 4px 8px; font-size: 11px; border-radius: 3px; line-height: 1.35;
+  background: var(--row-bg); border: 1px solid transparent;
+  border-left: 3px solid var(--panel-border);
+  padding: 5px 9px; font-size: 11px; border-radius: 4px; line-height: 1.4;
 }
 .feed-item.warn { border-left-color: var(--mid); }
 .feed-item.system { border-left-color: var(--accent); }
@@ -948,57 +1029,53 @@ body.reduced-motion * { animation: none !important; transition: none !important;
 .civic-bar { z-index: 62; }
 .flyout { z-index: 63; }
 .hover-card { z-index: 65; }
+/* ---- one dialog, wherever it was opened from ----
+   M55 gave the main menu's dialogs the console's frame and scoped it to
+   `body.at-title`, on the argument that what happens during play is a
+   different kind of thing. But Load Game, Settings and How to Play are the
+   *same dialogs* — the player reaches them from the bar mid-game and from the
+   title screen between games — and they looked like two different programs
+   depending on which door was used. The scope is gone.
+
+   What survives of that argument is the distinction it was actually about: a
+   dialog you *opened* carries the corner brackets, and a dialog that opened
+   *itself* does not. See `.incoming` below. */
 .modal-box {
-  width: 440px; max-width: 90%; background: #131926; border: 1px solid #34405a;
-  border-radius: 8px; padding: 20px; box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+  width: 440px; max-width: 90%; border-radius: 8px; padding: 20px;
 }
-.modal-box h2 { font-size: 16px; margin-bottom: 10px; }
+/* The header, in the mark's own idiom at dialog scale. */
+.modal-box > h2 { font-size: 13px; margin-bottom: 0; }
 
-/* ---- the console at rest ----
-   Every dialog reachable from the main menu is part of that screen rather than
-   an interruption of it, so they share its frame: the same panel, the same two
-   corner brackets, the same letterspaced header over the same hairline.
-
-   Scoped to `body.at-title` on purpose. The dialogs that arrive *during* play
-   — a decision, an election, a reclassification — are interruptions and should
-   go on looking like one; restyling those out from under a player mid-game is
-   a different milestone and a different argument. */
-body.at-title .modal-box {
-  position: relative;
-  background: linear-gradient(to bottom, rgba(9, 13, 21, 0.94), rgba(6, 9, 15, 0.97));
-  border-color: rgba(44, 54, 72, 0.9);
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+/* Something arrived: a decision, an election, a reclassification, an ending.
+   No brackets — those say "a panel you opened" everywhere else in the game —
+   and the hairline under the title is amber rather than the system's cyan,
+   which is the colour this console has always used for something that wants
+   an answer. */
+.modal-box.incoming::before,
+.modal-box.incoming::after { display: none; }
+/* And it keeps its title as a *title*. These are written as sentences —
+   "Meridian Compute Ltd. Comes Calling", "The Aquifer Report" — and setting
+   them in the console's letterspaced capitals both cost a line to the wrap and
+   took the voice out of them. A menu is labelled; an event is narrated. */
+.modal-box.incoming > h2 {
+  font-size: 15px; letter-spacing: 0.2px; text-indent: 0; text-transform: none;
+  padding-bottom: 11px;
 }
-body.at-title .modal-box::before,
-body.at-title .modal-box::after {
-  content: ''; position: absolute; width: 15px; height: 15px;
-  border: 1px solid var(--asi); opacity: 0.42; pointer-events: none;
+.modal-box.incoming > h2::after {
+  width: min(150px, 46%); margin-top: 11px;
+  background: linear-gradient(to right, transparent, var(--mid), transparent);
+  opacity: 0.75;
 }
-body.at-title .modal-box::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-body.at-title .modal-box::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-/* The header, in the mark's own idiom at dialog scale, with the hairline that
-   runs under every title in this game. */
-body.at-title .modal-box > h2 {
-  font-size: 13px; font-weight: 600; letter-spacing: 0.24em; text-indent: 0.24em;
-  text-transform: uppercase; color: #fff; text-align: center;
-  margin-bottom: 0; padding-bottom: 13px;
-}
-body.at-title .modal-box > h2::after {
-  content: ''; display: block; height: 1px; width: min(200px, 62%); margin: 12px auto 0;
-  background: linear-gradient(to right, transparent, var(--asi), transparent);
-  opacity: 0.7;
-}
-/* The promotion dialog keeps its gold rule and its own colour: it is the one
-   piece of good news in the game and it has earned an exception. */
-body.at-title .modal-box.promotion::before,
-body.at-title .modal-box.promotion::after { display: none; }
 /* The line of explanation under a centred header belongs under the middle of
    it, not hanging off the left. */
-body.at-title .modal-box .hint,
-body.at-title .modal-box .rec-cause {
+.modal-box .hint,
+.modal-box .rec-cause {
   text-align: center; margin: 12px auto 14px; max-width: 340px; line-height: 1.5;
 }
-body.at-title .modal-box .rec-cause { color: var(--text); margin-bottom: 4px; }
+.modal-box .rec-cause { color: var(--text); margin-bottom: 4px; }
+/* Event and report bodies are prose and stay ranged left: a paragraph of
+   briefing centred under a centred title is a poster, not a document. */
+.modal-box.incoming .modal-body > p { text-align: left; }
 /* The one dialog in this game that is good news.
    A civic dashboard would absolutely put a gold rule on this, so it does. */
 .modal-box.promotion {
