@@ -14,7 +14,10 @@ npm run dev      # local dev server
 npm run build    # production build in dist/
 ```
 
-Pushes to `main` deploy automatically to GitHub Pages via `.github/workflows/deploy.yml` (enable Pages → Source: GitHub Actions in the repo settings once).
+The game runs locally. There is no hosted build: `npm run dev` serves it while
+you work on it, and `npm run build` writes a self-contained `dist/` that any
+static file server will serve — the bundle uses a relative base and fetches
+nothing, so opening it from a subpath works too.
 
 Open the printed URL. The **Civic Systems Bar** along the bottom is the primary console: vital signs and capacity gauges on the left, construction and system panels in the centre (they open upward over the map), and clock, speed, alerts, and Manual Override on the right.
 
@@ -83,7 +86,7 @@ npm run check   # types
 npm test        # build, serve, and drive a browser through every suite
 ```
 
-`test/` holds one suite per milestone — roughly 330 assertions — each driving a
+`test/` holds one suite per milestone — 375 assertions — each driving a
 real browser against the **built** game rather than a mock or a dev build. Each
 prints every assertion with the value it measured beside it. See
 [test/README.md](test/README.md) for the rules they were written under, most of
@@ -98,3 +101,17 @@ changed, and where one exists, what was wrong.
 
 - More events beyond the current 102; deeper population-group interactions
 - Desktop/console adaptation exploration per the proposal
+
+## Licence
+
+**Copyright © 2026 khoix. All rights reserved.** See [`LICENSE`](LICENSE).
+
+This repository is public to be read, not to be reused: no licence is granted
+to use, copy, modify, distribute, host, or build on the code, the artwork, or
+the writing. If you want to do any of those, ask.
+
+The game itself has no third-party runtime code and ships no third-party
+assets — every sprite is generated at load, every sound is synthesised, and the
+type is whatever the reader's system already has. `playwright`, `typescript` and
+`vite` are development dependencies under their own licences and are not part of
+the build.
