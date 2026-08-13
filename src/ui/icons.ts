@@ -69,6 +69,7 @@ export type IconId =
   | 'alerts' | 'override' | 'menu' | 'collapse' | 'expand'
   // menu items
   | 'history' | 'save' | 'load' | 'newgame' | 'help' | 'settings' | 'resume'
+  | 'export' | 'import'
   // the action button
   | 'demolish' | 'cancel' | 'reroll'
   // readouts
@@ -159,6 +160,16 @@ const PATHS: Record<IconId, string> = {
     + `<path fill="${C.steelDim}" d="M1.6 11.6h12.8v3.2H1.6z"/>`,
   load: `<path fill="${C.cyan}" d="M8 1L12.3 6H9.4v5.2H6.6V6H3.7z"/>`
     + `<path fill="${C.steelDim}" d="M1.6 11.6h12.8v3.2H1.6z"/>`,
+  // The save layer's two halves of the same shape: a document with an arrow
+  // leaving it, and the same document with an arrow arriving. Deliberately
+  // near-identical to `save` and `load` — the page is the slot, the arrow is
+  // the direction — because these sit directly beneath them in the same menu.
+  export: `<path fill="${C.paper}" d="M2.6 1.2h7.2l3.6 3.5v10.1H2.6z"/>`
+    + `<path fill="${C.steelDim}" d="M9.8 1.2l3.6 3.5H9.8z"/>`
+    + `<path fill="${C.green}" d="M7.1 12.6V8.9H4.9L8 5.4l3.1 3.5H8.9v3.7z"/>`,
+  import: `<path fill="${C.paper}" d="M2.6 1.2h7.2l3.6 3.5v10.1H2.6z"/>`
+    + `<path fill="${C.steelDim}" d="M9.8 1.2l3.6 3.5H9.8z"/>`
+    + `<path fill="${C.cyan}" d="M8.9 5.4v3.7h2.2L8 12.6 4.9 9.1h2.2V5.4z"/>`,
   newgame: `<path fill="${C.cyan}" d="M6.4 1l1.8 4.4L12.6 7.2 8.2 9l-1.8 4.4L4.6 9 .2 7.2 4.6 5.4z"/>`
     + `<path fill="${C.gold}" d="M12.3 9.2l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/>`,
   help: `<circle cx="8" cy="8" r="6.6" fill="${C.blueDeep}"/>`

@@ -64,6 +64,13 @@ they have caught something:
 - **The probe must be able to run against the build it is meant to distinguish
   from.** A suite that throws on the previous build proves only that a file is
   new.
+- **Measure the surface while it is still on screen.** M58's injection check
+  counted elements across the whole document at the end of the probe. By then
+  the terminated-administration modal had replaced the history modal and taken
+  the injected `<img>` with it, so it reported "0 elements injected" against a
+  build with no escaping in it at all. Measure each surface the moment it is
+  drawn — and read an asynchronous effect after a wait, because `onerror` has
+  not fired yet in the turn that created the element.
 - **Play the region before you measure it.** M57's first draft ticked an
   untouched valley for a thousand months and asserted a great deal about it: no
   construction, no utilities, no events, and an emergence curve that never left

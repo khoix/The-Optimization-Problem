@@ -3332,6 +3332,93 @@ administrative lockout between month 215 and month 376.
 
 ---
 
+## Milestone 58 — regions that leave the browser
+
+A save lives in `localStorage`: per-origin, per-browser, per profile. Clear the
+site data and a hundred and forty months of region are gone. Open the game on a
+different machine and there is nothing there and no way to bring anything. There
+was no route out of the tab at all.
+
+There is now a file.
+
+- **Export Region** from the in-game menu writes the region on screen to
+  `optimization-problem-<scenario>-y<year>-pop<n>.json` — around 80KB for a
+  young region, which is small enough to attach to a message.
+- **Import a region file…** in the Load menu brings one back, into a save slot
+  rather than straight onto the screen, so it opens through the same door every
+  other save opens through and can be looked at before it is opened at all. It
+  is offered when there are no saves, too, which is exactly when a player needs
+  it — and the title screen grows an **Import a Region** row on a cold start,
+  because a player on a new machine has nothing to Continue and a file in their
+  downloads folder.
+
+### The first input this game has ever taken that it did not write
+
+Every input the simulation has had until now came from a control we drew: a
+button, a slider, a tile under a pointer. There is no text field anywhere in
+this game and no `prompt()`. A file is different. It can say anything, including
+things that are the right shape and complete nonsense, and it arrives as a
+`GameState` that the renderer indexes by, the simulation does arithmetic on, and
+the console interpolates into markup.
+
+So `transfer.ts` checks a file before keeping it, and **refuses with a reason
+rather than repairing quietly** — a region that has to be guessed at is not the
+region the player was handed. The suite feeds it 27 broken files and all 27 come
+back refused, with 26 distinct sentences between them:
+
+| the file says | the answer |
+|---|---|
+| a building at x=5000 | *a house sits at 5000,40, which is off the map* |
+| `"type": "orbital_ring"` | *a building is of unknown type "orbital_ring"* |
+| a map string one character short | *the map's terrain is 12543 characters for 12544 tiles, not 12544* |
+| `"phase": 9` | *the system is in phase 9* |
+| an enacted policy that does not exist | *the region enacts an unknown policy, "mandatory_joy"* |
+| half a million history entries | *there are 500000 decision history entries, and the cap is 2000* |
+| a spliced-in `__proto__` key | *the region carries a "\_\_proto\_\_" key* |
+| a cover that disagrees with its contents | *it is labelled a different month than it holds* |
+
+Under all of it is a walk of the whole state: every number finite, every string
+bounded, nothing nested deeply enough to blow the stack on the way back out.
+
+### Escaping, which now has a reason to exist
+
+An outside review flagged 38 `innerHTML` sites as an XSS risk, and at the time
+that was theoretical — there was no player-authored text in the game to inject.
+A region file is player-authored text: it carries its own decision history, its
+own alerts and its own epitaph, and each of those is drawn by interpolation.
+
+`esc()` now stands between a region's own words and markup, at the sites that
+render them — the decision log, the alert feed, the ledger's line labels, the
+archive's causes and scenario names, and the terminated-administration modal.
+Authored copy does not get it and does not need it; the rule is about
+provenance, not thoroughness.
+
+### Fixed — a validator that refused every file the game wrote
+
+The string-length check ran over the whole state including the packed map,
+whose four strings are 12,544 and 25,088 characters *by design*. So the first
+build exported a perfectly good region and then refused to read it back. The
+walk now skips that one subtree, which has its own exact length check.
+
+### Verification
+
+> The suite runs 24 checks and the counterfactual is two reverts. Dropping
+> `esc()` from the decision log and the alert feed: **two elements injected,
+> `window.__pwned` true**. Dropping the building checks from the validator:
+> three malformed files accepted.
+>
+> One of those checks was green and wrong on the way there. It counted injected
+> elements across the whole document at the *end* of the probe, by which point
+> the terminated-administration modal had replaced the history modal and taken
+> the injected `<img>` down with it — it reported "0 elements injected" against
+> a build with no escaping at all. Each surface is now measured in its own step,
+> the moment it is drawn, and the `onerror` flag is read after a wait, because
+> an `onerror` is asynchronous and a synchronous read of it is always `false`.
+>
+> **13 of 13 suites, 375 of 375 checks.**
+
+---
+
 ## A note on testing
 
 Several fixes in this history were found only after a green test was distrusted.
