@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 1
+# Visual overhaul — Execution 2
 
-Branch: `codex/visual-overhaul`. Base: `94395c7` (main).
-Scope: visual direction, shared foundation, deterministic review. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 2 base: `9d32abf`.
+Scope: world surfaces, vegetation, roads, tool feedback, and visual review. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -28,7 +28,7 @@ not by adding another effect layer. The city is the subject, the console its ins
 
 | Area / entry point | Finding and constraint for subsequent work |
 |---|---|
-| `src/render/sprites.ts` | Deterministic procedural albedo/emissive atlases, cached lazily. Grass/rock dither competes with small buildings; terrain boundaries are hard steps. Roads have five materials × sixteen connectivity masks. Preserve mask/bridge semantics. |
+| `src/render/sprites.ts` | Deterministic procedural albedo/emissive atlases, cached lazily. Quiet clustered grass, layered stone plates, sand bands, distinct forest floor and stepped material edges replace the noisy ground treatment. Roads have five materials × sixteen connectivity masks. Preserve mask/bridge semantics. |
 | `src/render/height.ts` | Explicit per-type heights and four facade families: glass, masonry, industrial, civic. Roof-edge-derived facade colors keep volumes coherent, but roof/window rhythms need stronger type identity. Keep exhaustive height mapping and occlusion relief. |
 | `src/render/renderer.ts` | Pass order: cached terrain → lamps → agents → trees → depth-sorted buildings → water reflection → haze/particles/clouds → diagnostics/light → placement/selection → grade/upscale → tilt-shift → bloom/shafts/vignette. Do not reorder casually; earlier emissives feed later passes. |
 | Renderer caches / performance | `mapVersion` + dirty tiles govern ground invalidation; building ordering also caches by state. `resetSession()` must accompany fixture swaps. Overview detail fades from zoom 0.55 to 1.0; world-buffer budget is 4.4M pixels. Preserve these controls. |
@@ -42,7 +42,8 @@ not by adding another effect layer. The city is the subject, the console its ins
 ## Shared foundation
 
 `src/render/visual.ts` owns `TERRAIN_PALETTE`, `ROAD_MATERIALS`, `ICON_PALETTE`,
-`AMBIENT_KEYS`, `LIGHTING`, and `MOTION`. All consumed values were moved unchanged.
+`AMBIENT_KEYS`, `LIGHTING`, and `MOTION`. Execution 2 changes only the ground/road
+material families; icon colors, ambient light and timing retain their E1 values.
 It has no DOM work, runtime dependencies, or simulation imports. CSS semantic and
 panel tokens remain canonical in `style.css :root`; boot keeps its independent
 critical styling. Do not merge distinct material and semantic roles just because
@@ -62,7 +63,7 @@ Use the existing `PLAYWRIGHT_CHROMIUM` environment override if Chromium is insta
 elsewhere. The runner builds and serves the actual bundle, owns its preview/dev
 servers, and closes them afterwards. No production debug API was added.
 
-- Output: ignored `artifacts/visual-review/index.html`, 21 PNGs and `manifest.json`.
+- Default output: ignored `artifacts/visual-review/index.html`, 21 PNGs and `manifest.json`.
 - Seven states: early day, populated day, night, rain, snow, phase 5, observer.
 - Viewports: 1340×860, 390×844 touch portrait, 844×390 touch landscape; DPR 1.
 - Seed 90210, Verdant scenario, zoom 2, fixed camera/hour/month/phase; reduced motion.
@@ -72,6 +73,11 @@ servers, and closes them afterwards. No production debug API was added.
   phase classes, and canvas/building-state hashes. Assert population, phase,
   precipitation, no document overflow, and no page errors. Repeat the first
   fixture in a new context and assert identical state and canvas on the same host.
+- Surface matrix: `VISUAL_SURFACES=1 npm run review:visual` creates 20 desktop
+  captures: all four scenarios at 0.5×/2×/4×, four overlays and four tool previews.
+  Uses 1280×800 so 0.5× actually fits the buffer budget; asserts requested zoom.
+  River/coast captures center on real shorelines; dry Sunbelt centers on its town.
+  Choose another output directory to keep both galleries (see below).
 - Optional: `VISUAL_SCENES=early,night npm run review:visual`;
   `VISUAL_REVIEW_DIR=artifacts/comparison npm run review:visual` for another output.
   `-- --no-build` reuses a known current build; never use it after code changes.
@@ -82,42 +88,70 @@ These are deliberately **staged art fixtures**, not save files or proof of econo
 reachability: late phase, building activity/age and month are set directly; dense
 sites use real placement rules and instant/free construction. Utilities and HUD
 totals are not economically reconciled. M57 remains the simulation-invariant test.
-The gallery does not cover all scenarios, zooms, input gestures, panel states,
+The surface matrix covers scenario terrain, close/normal/overview scales and
+placement/removal feedback; it does not cover all input gestures, panel states,
 long-running motion, or physical mobile GPUs. Extend only as the next pass needs.
+
+## Execution 2 decisions and primitives
+
+- Grass keeps over 80% of each tile in its base value, with sparse connected
+  clusters; sand uses wind-laid bands; rock uses lit plates and shaded lower lips.
+- Forest has a separate floor palette. Trees have layered canopy masses, NW
+  highlights and contact shadows; dead trees retain bare branching and bark accents.
+- Water holds a stable body across its three frames, animating only sparse glints.
+  Per-tile phase variation avoids every glint moving together. Sixteen cardinal
+  shore masks create a shallow shelf on the water side, below bridge/reflection
+  passes. Land-side banks and material fringes are contained in their own tile.
+- Dirt keeps wheel ruts. Paved roads gain quiet asphalt and lit curb/shoulder
+  edges. Street dashes, avenue markings and highway double lines remain distinct.
+  Junction centers are cleared with approach stop bars; bridges retain transparent
+  water margins and gain capped rails/supports. Connectivity masks are unchanged.
+- Placement and demolition use a dark keyline for contrast on sand/roads. Refused
+  placement adds an X; demolition retains diagonal hatching and the mass outline.
+  Utility/pollution washes are lighter so ground detail and roads remain readable.
+- New primitives: `Px.clusters()` in `sprites.ts`; `TerrainSprites.shore[mask]`;
+  `Renderer.outlineFootprint()`. The existing cardinal dirty-neighbor expansion
+  handles material-edge redraws; no new cache invalidation or simulation rules.
+- Changed code: `src/render/visual.ts`, `src/render/sprites.ts`,
+  `src/render/renderer.ts`, `test/visual-review.mjs`, `test/suites/m63.mjs`.
+  This handoff and `test/README.md` document the new review mode.
+- Existing terrain layout, coast stair-stepping and tile grid are preserved.
+  This pass softens and articulates boundaries; it does not regenerate the map.
+  Scenario-picker thumbnail colors stay unchanged with the existing UI.
 
 ## Execution record
 
-- Budget: 95% × 20 = 19 minutes. Start 2026-09-23 11:59:24 UTC;
-  implementation cutoff 12:14:24; hard stop 12:18:24; save buffer 4 minutes.
-- Derived harness values: entry points `src/`, `test/`; conventions `README.md`
-  and `test/README.md`; typecheck `npm run check`; build `npm run build`;
-  full test `npm test`; targeted test `npm test -- <suite>`.
-- No lint or formatter is configured; use surrounding style, `git diff --check`,
-  and `node --check` for changed MJS files. Protected scope: simulation/save/input
-  behavior. VCS: commit and push this branch, as explicitly required by the plan.
-- Local tooling: `npm ci`; standard browser download failed with a corrupt archive.
-  A separately installed scratch-only Chromium package enabled real-browser checks;
-  no runtime or project dependency was added. Existing npm proxy warning predates edits.
-- Verified: typecheck, build, M62, full 21-state gallery and same-host replay.
-  All 21 pre/post-refactor canvas hashes AND building-state hashes match exactly.
-- Baseline and updated presentation inspected: daytime/night, phone, short landscape
-  observer; additional boot, title, construction drawer, indicators, policies,
-  politics, menu, settings and inspector audit.
-- Full regression: `npm test` passed all 15 suites (M44–M62, existing suite gaps
-  retained), including M57 simulation/save invariants and M61 console/phase checks.
-  `node --check` passed for all three changed MJS files; `git diff --check` passed.
-  The filtered capture command also passed three viewports plus replay after
-  making the CLI entry-point detection safe for paths with spaces and Windows.
-- Execution 1 implementation and validation complete. No remaining blocker.
-  Execution 2 has not started. No lint/formatter gate exists in this repository;
-  platform-specific rendering and physical-device behavior remain untested.
+- Budget: 95% × 20 = 19 minutes. Start 2026-09-23 17:14:32 UTC;
+  implementation cutoff 17:29:32; hard stop 17:33:32; save buffer 4 minutes.
+- Harness values: entry points `src/`, `test/`; conventions `README.md` and
+  `test/README.md`; typecheck `npm run check`; build `npm run build`;
+  full test `npm test`; targeted `npm test -- m44 m62` and `npm test -- m63`.
+- No lint/formatter configured: surrounding style, `git diff --check` and
+  `node --check` for changed MJS. No runtime assets or dependencies added.
+- Typecheck, build, M44/M62 and new M63 pass. M63 checks quiet material coverage,
+  coherent animated water, distinct live/dead vegetation, every shoreline mask,
+  all 80 road masks, transparent bridge edges, and incremental versus full ground
+  cache rebuilding after real rock clearance. Rendering preserves the map.
+- Default gallery: 21 captures and same-host replay passed. Surface matrix:
+  20 captures including all scenarios, actual 0.5×/2×/4×, overlays and previews.
+- Two review setup issues were corrected: Sunbelt deliberately has no river, so
+  its camera targets the dry town; the larger 1340px viewport clamps overview to
+  1×, so the surface matrix uses 1280px and asserts the actual zoom. One gallery
+  launch timed out before the game API loaded; rerun against the settled build
+  passed. Do not rebuild dist while a capture run is starting.
+- Full regression: `npm test` passed all 16 suites, including M63. All 21
+  original gallery building-state hashes match E1; their canvas hashes change
+  with the new art. Both galleries passed their same-host repeatability checks.
+- Browser uses the existing `PLAYWRIGHT_CHROMIUM` override. Physical devices,
+  browser engines other than Chromium and sustained-animation performance remain
+  untested. Settings/observer-ticker findings above remain out of scope.
 
 ## Exact continuation
 
-Execution 2 starts in `src/render/sprites.ts:makeTerrain`, using
-`TERRAIN_PALETTE` and the early/day/night/rain/snow review scenes. First reduce
-ground noise and establish clustered terrain value shapes; then work through
-terrain boundaries, vegetation, water, roads, placement/demolition and overlays
-in the supplied Execution 2 order. Preserve atlas sizes, seeds, connectivity,
-cache invalidation and footprints. Add scenario/zoom captures when those become
-the next required comparison. Do not begin buildings, effects or full UI redesign.
+Execution 3 starts with the building drawers in `src/render/sprites.ts` and
+`makeFacade` / the height table in `src/render/height.ts`. Keep the completed
+terrain/road language and review workflow. Build stronger per-class silhouettes,
+roof equipment and material identity while preserving footprints, sorting,
+parallax and occlusion relief. Use the dense/day/night/late/observer fixtures;
+add targeted building views where needed. Do not reopen terrain or begin the
+later lighting/post-processing/HUD redesigns. Execution 3 has not started.

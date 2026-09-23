@@ -1,19 +1,22 @@
-// Shared visual vocabulary. Values are migrated unchanged from the original art.
+// Shared visual vocabulary. Ground materials favor quiet masses and sparse detail.
 // CSS console tokens remain in style.css :root; keep semantic roles distinct
 // from material swatches. No simulation, DOM access, or sprite generation here.
 
 export const TERRAIN_PALETTE = {
-  grass: { base: '#4a7f3c', light: '#548c44', shade: '#3f7034', highlight: '#5d9a4d' },
-  sand: { base: '#c9b06a', light: '#d6bf7c', shade: '#b89b58' },
-  rock: { base: '#6e6f6a', light: '#7d7e78', shade: '#5c5d58' },
-  water: { base: '#2e5f8f', light: '#356b9e', glint: '#6fa3cc', ripple: '#4c86b8' },
+  grass: { base: '#526f43', light: '#597749', shade: '#4b673e', highlight: '#74935a' },
+  sand: { base: '#bda575', light: '#cbb686', shade: '#b29a6d' },
+  rock: { base: '#767b78', light: '#91968b', shade: '#626c68' },
+  water: { base: '#2d5669', light: '#355f70', glint: '#6e9a9e', ripple: '#426e7d' },
+  forest: { base: '#435d38', litter: '#526645' },
+  foliage: { shade: '#283f30', base: '#38583b', light: '#507448', highlight: '#78945c', bark: '#705940', dead: '#8c8063' },
+  shore: { shallow: '#4d777c', edge: '#7e9690', bank: '#827958' },
 } as const;
 
 export const ROAD_MATERIALS = [
   { surface: '#7d6a4e', surfaceHi: '#8a7658', edge: '#6a5940', line: '', width: 0 }, // dirt track
-  { surface: '#3a3a40', surfaceHi: '#44444b', edge: '#6a6a72', line: '#b8b25e', width: 1 }, // street
-  { surface: '#34343a', surfaceHi: '#3e3e45', edge: '#7a7a84', line: '#c9c36a', width: 2 }, // avenue
-  { surface: '#2e2e34', surfaceHi: '#38383f', edge: '#8a8a94', line: '#d9d372', width: 3 }, // highway
+  { surface: '#343b40', surfaceHi: '#3b4245', edge: '#85877d', line: '#b8b25e', width: 1 }, // street
+  { surface: '#30383e', surfaceHi: '#394148', edge: '#92958b', line: '#c9c36a', width: 2 }, // avenue
+  { surface: '#293239', surfaceHi: '#333c43', edge: '#7f888c', line: '#d9d372', width: 3 }, // highway
   { surface: '#6b5a48', surfaceHi: '#7a6853', edge: '#4a3d31', line: '#b8b25e', width: 1 }, // bridge deck
 ] as const;
 

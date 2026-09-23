@@ -34,6 +34,16 @@ class Px {
       for (let xx = x; xx < x + w; xx++)
         if (rand() < density) this.p(xx, yy, c);
   }
+  /** Small connected patches, not independent high-frequency pixel noise. */
+  clusters(color: string, count: number, seed: number, width = 3): void {
+    const rand = rng(seed);
+    for (let i = 0; i < count; i++) {
+      const x = 1 + Math.floor(rand() * (TILE - width - 2));
+      const y = 1 + Math.floor(rand() * (TILE - 3));
+      this.r(x, y, width, 1, color);
+      this.r(x + 1, y + 1, Math.max(1, width - 1), 1, color);
+    }
+  }
   outline(x: number, y: number, w: number, h: number, c: string): void {
     this.r(x, y, w, 1, c); this.r(x, y + h - 1, w, 1, c);
     this.r(x, y, 1, h, c); this.r(x + w - 1, y, 1, h, c);
@@ -52,6 +62,7 @@ export interface TerrainSprites {
   rock: HTMLCanvasElement[];
   tree: HTMLCanvasElement[];   // overlay sprites, 16x20 (canopy above tile)
   treeDead: HTMLCanvasElement[]; // pollution-killed variants
+  shore: HTMLCanvasElement[]; // N/E/S/W land-neighbor masks, water-side only
 }
 
 export function makeTerrain(): TerrainSprites {
@@ -60,10 +71,10 @@ export function makeTerrain(): TerrainSprites {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
     p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.base);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.light, 0.35, 10 + v);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.shade, 0.2, 20 + v);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.highlight, 0.08, 30 + v);
-    if (v === 3) { p.p(4, 5, '#c9d96a'); p.p(11, 10, '#d9e07a'); } // tiny flowers
+    p.clusters(TERRAIN_PALETTE.grass.shade, 3, 20 + v, 3);
+    p.clusters(TERRAIN_PALETTE.grass.light, 2, 10 + v, 3);
+    // A few tufts, placed as gestures instead of filling every empty pixel.
+    if (v === 3) { p.r(4, 6, 2, 1, TERRAIN_PALETTE.grass.highlight); p.p(5, 5, TERRAIN_PALETTE.grass.light); }
     grass.push(c);
   }
 
@@ -72,8 +83,12 @@ export function makeTerrain(): TerrainSprites {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
     p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.base);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.light, 0.3, 40 + v);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.shade, 0.2, 50 + v);
+    // Wind-laid bands: broad horizontal strokes, with space between them.
+    for (let y = 3 + v % 2; y < TILE - 2; y += 6) {
+      p.r(2 + v, y, 7, 1, TERRAIN_PALETTE.sand.light);
+      p.r(4 + v, y + 1, 5, 1, TERRAIN_PALETTE.sand.shade);
+    }
+    p.p(12 - v, 13, TERRAIN_PALETTE.sand.shade);
     sand.push(c);
   }
 
@@ -82,12 +97,13 @@ export function makeTerrain(): TerrainSprites {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
     p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.base);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.light, 0.3, 60 + v);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.shade, 0.25, 70 + v);
+    // Overlapping stone plates with one lit edge and a grounded lower lip.
     const rand = rng(80 + v);
     for (let i = 0; i < 3; i++) {
-      const x = 2 + Math.floor(rand() * 10), y = 2 + Math.floor(rand() * 10);
-      p.r(x, y, 3, 2, '#84857e'); p.r(x, y + 2, 3, 1, '#54554f');
+      const x = 1 + Math.floor(rand() * 9), y = 1 + Math.floor(rand() * 10);
+      p.r(x, y, 5, 3, TERRAIN_PALETTE.rock.shade);
+      p.r(x, y, 4, 2, TERRAIN_PALETTE.rock.base);
+      p.r(x, y, 4, 1, TERRAIN_PALETTE.rock.light);
     }
     rock.push(c);
   }
@@ -97,12 +113,12 @@ export function makeTerrain(): TerrainSprites {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
     p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.water.base);
-    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.water.light, 0.3, 90 + f);
-    const rand = rng(100 + f * 7);
-    for (let i = 0; i < 5; i++) {
-      const x = Math.floor(rand() * 14), y = Math.floor(rand() * 15);
-      // glints shift per frame
-      p.r((x + f * 2) % 15, y, 2, 1, f === 1 ? TERRAIN_PALETTE.water.glint : TERRAIN_PALETTE.water.ripple);
+    // The body is stable across frames; only a few restrained ripples travel.
+    p.r(0, 4, TILE, 3, TERRAIN_PALETTE.water.light);
+    for (let i = 0; i < 2; i++) {
+      const x = (2 + i * 7 + f) % 11, y = 5 + i * 7;
+      p.r(x, y, 4, 1, TERRAIN_PALETTE.water.ripple);
+      if (i === 0) p.r(x + 1, y, 2, 1, TERRAIN_PALETTE.water.glint);
     }
     water.push(c);
   }
@@ -113,24 +129,20 @@ export function makeTerrain(): TerrainSprites {
     const p = new Px(ctx);
     const rand = rng(200 + v);
     const cx = 8, cy = 9;
-    // trunk + shadow
-    p.r(cx - 1, cy + 5, 2, 3, '#5a4630');
-    p.dither(cx - 5, cy + 6, 10, 3, '#00000055', 0.4, 210 + v);
-    // canopy: layered blobs
-    const dark = '#2f5c2c', mid = '#3d7338', light = '#4f8a44', hi = '#65a254';
-    for (let i = 0; i < 24; i++) {
-      const a = rand() * Math.PI * 2, d = rand() * 5;
-      p.r(Math.round(cx + Math.cos(a) * d) - 1, Math.round(cy + Math.sin(a) * d * 0.8) - 1, 3, 2, dark);
+    const leaf = TERRAIN_PALETTE.foliage;
+    // Grounded trunk, broad canopy lobes, NW light; all detail stays in 16×20.
+    p.r(4, 15, 9, 2, '#1b2c2455');
+    p.r(cx - 1, cy + 3, 2, 5, leaf.bark);
+    p.r(cx, cy + 3, 1, 5, leaf.shade);
+    const lobes = [[4, 7, 8, 7], [2, 7, 5, 5], [8, 5, 6, 7], [5, 3, 6, 7]];
+    for (const [x, y, w, h] of lobes) {
+      const shift = Math.floor(rand() * 2);
+      p.r(x, y + shift, w, h, leaf.shade);
+      p.r(x, y + shift, w - 1, h - 2, leaf.base);
+      p.r(x, y + shift, w - 2, 2, leaf.light);
     }
-    for (let i = 0; i < 18; i++) {
-      const a = rand() * Math.PI * 2, d = rand() * 4;
-      p.r(Math.round(cx + Math.cos(a) * d) - 1, Math.round(cy - 1 + Math.sin(a) * d * 0.8), 2, 2, mid);
-    }
-    for (let i = 0; i < 10; i++) {
-      const a = rand() * Math.PI * 2, d = rand() * 3;
-      p.p(Math.round(cx - 1 + Math.cos(a) * d), Math.round(cy - 2 + Math.sin(a) * d * 0.8), light);
-    }
-    for (let i = 0; i < 5; i++) p.p(Math.round(cx - 2 + rand() * 4), Math.round(cy - 3 + rand() * 3), hi);
+    p.r(5 + v, 4, 3, 1, leaf.highlight);
+    p.r(3, 8 + v, 2, 1, leaf.highlight);
     tree.push(c);
   }
 
@@ -140,18 +152,44 @@ export function makeTerrain(): TerrainSprites {
     const p = new Px(ctx);
     const rand = rng(260 + v);
     const cx = 8, cy = 9;
-    p.dither(cx - 4, cy + 6, 8, 2, '#00000044', 0.35, 270 + v);
+    p.r(cx - 4, cy + 6, 8, 2, '#1b2c2444');
+    p.r(cx, cy - 1, 1, 8, TERRAIN_PALETTE.foliage.dead);
     // bare trunk and skeletal branches
     p.r(cx - 1, cy - 1, 2, 9, '#4a3c30');
     p.r(cx - 4, cy, 3, 1, '#4a3c30'); p.p(cx - 4, cy - 1, '#4a3c30');
     p.r(cx + 1, cy - 2, 3, 1, '#544438'); p.p(cx + 3, cy - 3, '#544438');
     p.p(cx - 2, cy - 3, '#4a3c30'); p.p(cx - 3, cy - 4, '#4a3c30');
     p.p(cx + 1, cy - 4, '#544438');
+    p.r(cx + 1, cy - 2, 2, 1, TERRAIN_PALETTE.foliage.dead);
     for (let i = 0; i < 3; i++) p.p(cx - 3 + Math.floor(rand() * 6), cy - 1 + Math.floor(rand() * 3), '#3c332a');
     treeDead.push(c);
   }
 
-  return { grass, forest: grass, water, sand, rock, tree, treeDead };
+  const forest = grass.map((_, v) => {
+    const [c, ctx] = canvas(TILE, TILE);
+    const p = new Px(ctx);
+    p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.forest.base);
+    p.clusters(TERRAIN_PALETTE.forest.litter, 3, 280 + v, 3);
+    return c;
+  });
+  // Shelves are composited over animated water, under bridges and reflections.
+  const shore = Array.from({ length: 16 }, (_, mask) => {
+    const [c, ctx] = canvas(TILE, TILE);
+    const p = new Px(ctx);
+    for (let edge = 0; edge < 4; edge++) {
+      if (!(mask & (1 << edge))) continue;
+      for (let along = 0; along < TILE; along++) {
+        const depth = 2 + (Math.floor(along / 4) % 2);
+        for (let inset = 0; inset < depth; inset++) {
+          const x = edge === 1 ? TILE - 1 - inset : edge === 3 ? inset : along;
+          const y = edge === 0 ? inset : edge === 2 ? TILE - 1 - inset : along;
+          p.p(x, y, inset === 0 ? TERRAIN_PALETTE.shore.edge : TERRAIN_PALETTE.shore.shallow);
+        }
+      }
+    }
+    return c;
+  });
+  return { grass, forest, water, sand, rock, tree, treeDead, shore };
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +214,7 @@ export function makeRoads(): HTMLCanvasElement[][] {
         if (along === 'ns') p.r(IN, 0, TILE - IN * 2, TILE, cls.surface);
         else if (along === 'ew') p.r(0, IN, TILE, TILE - IN * 2, cls.surface);
         else p.r(IN, IN, TILE - IN * 2, TILE - IN * 2, cls.surface);
-        p.dither(IN, IN, TILE - IN * 2, TILE - IN * 2, cls.surfaceHi, 0.22, 700 + mask);
+        p.r(IN + 1, IN + 1, TILE - IN * 2 - 2, TILE - IN * 2 - 2, cls.surfaceHi);
         // Rails, and the plank joints that make the deck read as a structure.
         if (along !== 'ew') {
           p.r(IN, 0, 1, TILE, cls.edge);
@@ -188,6 +226,11 @@ export function makeRoads(): HTMLCanvasElement[][] {
           p.r(0, TILE - IN - 1, TILE, 1, cls.edge);
           for (let x = 1; x < TILE; x += 3) p.r(x, IN + 1, 1, TILE - IN * 2 - 2, '#5d4e3f');
         }
+        // Rail caps and regularly spaced supports give the deck thickness.
+        for (let t = 1; t < TILE; t += 5) {
+          if (along !== 'ew') { p.r(IN, t, 1, 2, '#bdad85'); p.r(TILE - IN - 1, t, 1, 2, '#bdad85'); }
+          if (along !== 'ns') { p.r(t, IN, 2, 1, '#bdad85'); p.r(t, TILE - IN - 1, 2, 1, '#bdad85'); }
+        }
         // Pale centre marking, so a bridge still reads as carriageway.
         if (along === 'ns') { p.r(7, 2, 2, 3, cls.line); p.r(7, 8, 2, 3, cls.line); }
         else if (along === 'ew') { p.r(2, 7, 3, 2, cls.line); p.r(8, 7, 3, 2, cls.line); }
@@ -195,12 +238,19 @@ export function makeRoads(): HTMLCanvasElement[][] {
         continue;
       }
       p.r(0, 0, TILE, TILE, cls.surface);
-      p.dither(0, 0, TILE, TILE, cls.surfaceHi, type === 0 ? 0.3 : 0.15, 300 + mask + type * 37);
+      p.clusters(cls.surfaceHi, type === 0 ? 5 : 2, 300 + mask + type * 37, 2);
       // curbs / shoulders on unconnected edges
       if (!n) p.r(0, 0, TILE, 1, cls.edge);
       if (!s) p.r(0, TILE - 1, TILE, 1, cls.edge);
       if (!w) p.r(0, 0, 1, TILE, cls.edge);
       if (!e) p.r(TILE - 1, 0, 1, TILE, cls.edge);
+      // Paved shoulders catch light; dirt remains an irregular earth track.
+      if (type > 0) {
+        if (!n) p.r(1, 1, TILE - 2, 1, cls.surfaceHi);
+        if (!s) p.r(1, TILE - 2, TILE - 2, 1, cls.surfaceHi);
+        if (!w) p.r(1, 1, 1, TILE - 2, cls.surfaceHi);
+        if (!e) p.r(TILE - 2, 1, 1, TILE - 2, cls.surfaceHi);
+      }
       const cx = 7, cy = 7;
       if (type === 0) {
         // dirt: wheel ruts instead of markings
@@ -228,6 +278,16 @@ export function makeRoads(): HTMLCanvasElement[][] {
         if (w) { p.r(1, cy, 2, 2, cls.line); p.r(5, cy, 2, 2, cls.line); }
         if (e) { p.r(9, cy, 2, 2, cls.line); p.r(13, cy, 2, 2, cls.line); }
         if (!n && !e && !s && !w) p.r(cx, cy, 2, 2, cls.line);
+      }
+      const junction = Number(n) + Number(e) + Number(s) + Number(w) >= 3;
+      if (junction && type > 0) {
+        // Keep the conflict area clear. Stop bars identify approaching lanes;
+        // no checkerboard of crossing centre lines at a four-way junction.
+        p.r(3, 3, 10, 10, cls.surface);
+        if (n) p.r(9, 2, 4, 1, cls.edge);
+        if (s) p.r(3, 13, 4, 1, cls.edge);
+        if (w) p.r(2, 3, 1, 4, cls.edge);
+        if (e) p.r(13, 9, 1, 4, cls.edge);
       }
       out.push(c);
     }

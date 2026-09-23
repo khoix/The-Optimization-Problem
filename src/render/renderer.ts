@@ -10,7 +10,7 @@ import {
   carSprites, pedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
-import { AMBIENT_KEYS, LIGHTING, MOTION } from './visual';
+import { AMBIENT_KEYS, LIGHTING, MOTION, TERRAIN_PALETTE } from './visual';
 import { computeConnectivity, computeCoverage, covered } from '../game/network';
 import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } from './height';
 
@@ -587,7 +587,13 @@ export class Renderer {
         const tile = g.map[ty * g.mapW + tx];
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
         if (tile.terrain === 'water') {
-          w.drawImage(this.terrain.water[waterFrame], dx, dy);
+          w.drawImage(this.terrain.water[(waterFrame + tile.variant) % 3], dx, dy);
+          let shore = 0;
+          if (ty > 0 && g.map[(ty - 1) * g.mapW + tx].terrain !== 'water') shore |= 1;
+          if (tx + 1 < g.mapW && g.map[ty * g.mapW + tx + 1].terrain !== 'water') shore |= 2;
+          if (ty + 1 < g.mapH && g.map[(ty + 1) * g.mapW + tx].terrain !== 'water') shore |= 4;
+          if (tx > 0 && g.map[ty * g.mapW + tx - 1].terrain !== 'water') shore |= 8;
+          if (shore) w.drawImage(this.terrain.shore[shore], dx, dy);
           // Water is animated, so it is drawn live rather than baked — which
           // means it lands on top of anything the terrain cache put here. A
           // bridge deck goes back over it, and its transparent margins let the
@@ -1053,8 +1059,15 @@ export class Renderer {
           : ['rgba(110,220,130,0.3)', '#6edc82'];
       w.fillStyle = cFill;
       w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
-      w.strokeStyle = cLine;
-      w.strokeRect(dx + 0.5, dy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+      this.outlineFootprint(w, dx, dy, def.w * TILE, def.h * TILE, cLine);
+      if (!ui.canPlaceHere) {
+        // An X carries refusal even when the player cannot distinguish red.
+        w.strokeStyle = cLine;
+        w.beginPath();
+        w.moveTo(dx + 3, dy + 3); w.lineTo(dx + def.w * TILE - 3, dy + def.h * TILE - 3);
+        w.moveTo(dx + def.w * TILE - 3, dy + 3); w.lineTo(dx + 3, dy + def.h * TILE - 3);
+        w.stroke();
+      }
     }
     // --------------------------------------------------------- demolish cursor
     if (ui.demolish) {
@@ -1081,8 +1094,8 @@ export class Renderer {
         w.stroke();
       }
       w.restore();
+      this.outlineFootprint(w, dx, dy, dw, dh, line);
       w.strokeStyle = line;
-      w.strokeRect(dx + 0.5, dy + 0.5, dw - 1, dh - 1);
       // A building is mostly not on the tile you clicked — outline the mass too,
       // or a tall block reads as though only its base is being taken.
       if (d.buildingId != null) {
@@ -1539,7 +1552,7 @@ export class Renderer {
           const p = Math.min(1, g.map[ty * g.mapW + tx].pollution * 2);
           if (p <= 0.02) continue;
           const r = 232, gg = Math.round(200 - 140 * p), b = Math.round(90 - 60 * p);
-          w.fillStyle = `rgba(${r},${gg},${b},${(0.14 + p * 0.5).toFixed(3)})`;
+          w.fillStyle = `rgba(${r},${gg},${b},${(0.12 + p * 0.38).toFixed(3)})`;
           w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
         }
       }
@@ -1550,7 +1563,7 @@ export class Renderer {
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
           const inside = grid[ty * g.mapW + tx];
-          w.fillStyle = inside ? `rgba(${tint},0.20)` : 'rgba(10,14,22,0.45)';
+          w.fillStyle = inside ? `rgba(${tint},0.18)` : 'rgba(10,14,22,0.30)';
           w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
         }
       }
@@ -1679,7 +1692,31 @@ export class Renderer {
       case 'water': break; // animated, drawn live
       case 'sand': c.drawImage(this.terrain.sand[tile.variant], dx, dy); break;
       case 'rock': c.drawImage(this.terrain.rock[tile.variant], dx, dy); break;
+      case 'forest': c.drawImage(this.terrain.forest[tile.variant], dx, dy); break;
       default: c.drawImage(this.terrain.grass[tile.variant], dx, dy);
+    }
+    if (!tile.road && tile.terrain !== 'water') {
+      // Contained in this tile: the existing cardinal dirty-neighbor expansion
+      // repaints every affected edge when rock is cleared or forest is built on.
+      const neighbors = [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]];
+      neighbors.forEach(([nx, ny], edge) => {
+        if (nx < 0 || ny < 0 || nx >= g.mapW || ny >= g.mapH) return;
+        const other = g.map[ny * g.mapW + nx];
+        if (other.road || other.terrain === tile.terrain) return;
+        const color = other.terrain === 'water' ? TERRAIN_PALETTE.shore.bank
+          : tile.terrain === 'grass' && other.terrain === 'sand' ? TERRAIN_PALETTE.sand.shade
+          : tile.terrain === 'grass' && other.terrain === 'rock' ? TERRAIN_PALETTE.rock.shade
+          : tile.terrain === 'grass' && other.terrain === 'forest' ? TERRAIN_PALETTE.forest.base : null;
+        if (!color) return;
+        c.fillStyle = color;
+        for (let along = 0; along < TILE; along += 4) {
+          const depth = 1 + ((along / 4 + tile.variant) % 2);
+          if (edge === 0) c.fillRect(dx + along, dy, 4, depth);
+          if (edge === 1) c.fillRect(dx + TILE - depth, dy + along, depth, 4);
+          if (edge === 2) c.fillRect(dx + along, dy + TILE - depth, 4, depth);
+          if (edge === 3) c.fillRect(dx, dy + along, depth, 4);
+        }
+      });
     }
     if (tile.road) {
       let mask = 0;
@@ -1689,6 +1726,16 @@ export class Renderer {
       if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
       c.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
     }
+  }
+
+  /** Dark keyline protects tool feedback against bright sand and striped roads. */
+  private outlineFootprint(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
+    c.save();
+    c.strokeStyle = '#101923'; c.lineWidth = 3;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    c.strokeStyle = color; c.lineWidth = 1;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    c.restore();
   }
 
   private constructionFor(w: number, h: number): HTMLCanvasElement {

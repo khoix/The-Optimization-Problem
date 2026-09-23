@@ -14,6 +14,13 @@ the suites. See [the visual handoff](../docs/AI-VISUAL-OVERHAUL-HANDOFF.md) for
 fixture assumptions, capture controls, and art direction. `npm test -- m62`
 checks the new workflow without writing screenshots.
 
+`VISUAL_SURFACES=1 npm run review:visual` captures all four scenario terrains
+at overview, normal and close zoom, plus utility overlays and placement/removal
+feedback. It uses a 1280×800 viewport and asserts that each requested zoom is
+actually reached. Use `VISUAL_REVIEW_DIR` to keep it separate from the default
+gallery. `npm test -- m63` checks terrain/road atlas properties and neighbor
+redraws after rock clearance.
+
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not
 look, point `PLAYWRIGHT_CHROMIUM` at the executable:

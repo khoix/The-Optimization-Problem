@@ -18,6 +18,14 @@ export const scenes = {
   late: { dense: true, hour: 12, rain: 0, tick: 486, phase: 5 },
   observer: { dense: true, hour: 12, rain: 0, tick: 606, phase: 6 },
 };
+export const surfaceScenes = Object.fromEntries(
+  ['verdant', 'sunbelt', 'rustbelt', 'coast'].flatMap((scenario) =>
+    [0.5, 2, 4].map((zoom) => [`${scenario}-${zoom}`, { ...scenes.early, scenario, zoom, shore: scenario !== 'sunbelt' }])),
+);
+for (const overlay of ['power', 'water', 'roads', 'pollution'])
+  surfaceScenes[`overlay-${overlay}`] = { ...scenes.early, overlay };
+for (const preview of ['place', 'replace', 'blocked', 'demolish'])
+  surfaceScenes[`preview-${preview}`] = { ...scenes.early, preview };
 const viewports = {
   desktop: { width: 1340, height: 860 },
   phone: { width: 390, height: 844 },
@@ -42,7 +50,7 @@ export async function captureScene(browser, scene, viewport, output) {
     await page.clock.pauseAt(new Date('2026-01-01T12:00:01Z'));
     const metadata = await page.evaluate((config) => {
       const api = window.__api, g = window.__game, r = window.__renderer;
-      const next = api.newGame(90210, 'verdant');
+      const next = api.newGame(90210, config.scenario || 'verdant');
       for (const key of Object.keys(g)) if (!(key in next)) delete g[key];
       Object.assign(g, next);
       api.invalidateNetwork(g);
@@ -73,8 +81,19 @@ export async function captureScene(browser, scene, viewport, output) {
       // of economic viability. Simulation invariants remain in the M57 suite.
       for (const b of g.buildings.values()) { b.active = true; b.age = config.dense ? 80 : 0; }
       r.resetSession();
-      r.setZoomDirect(2, innerWidth / 2, innerHeight / 2);
+      r.setZoomDirect(config.zoom || 2, innerWidth / 2, innerHeight / 2);
       r.centerOn(cx, cy);
+      if (config.shore) {
+        // Pick an actual inland shoreline, not empty ocean or a map corner.
+        const candidates = g.map.map((t, i) => ({ t, i }))
+          .filter(({ t, i }) => t.terrain === 'water' && i % g.mapW > 5
+            && i % g.mapW < g.mapW - 5 && i > g.mapW * 5 && i < g.mapW * (g.mapH - 5)
+            && g.map[i - 1].terrain !== 'water');
+        candidates.sort((a, b) => Math.abs(a.i % g.mapW - cx) + Math.abs(Math.floor(a.i / g.mapW) - cy)
+          - Math.abs(b.i % g.mapW - cx) - Math.abs(Math.floor(b.i / g.mapW) - cy));
+        if (!candidates.length) throw new Error('No shoreline in scenario');
+        r.centerOn(candidates[0].i % g.mapW, Math.floor(candidates[0].i / g.mapW));
+      }
       r.hour = config.hour;
       const snow = config.tick % 12 < 2;
       const originalRandom = Math.random;
@@ -87,9 +106,26 @@ export async function captureScene(browser, scene, viewport, output) {
       r.rain = config.rain; r.snowing = snow && config.rain > 0;
       window.__ui.resetSession();
       if (g.asi.observer) document.querySelector('#obs-continue').click();
-      r.render(g, { hoverTile: null, cursorWorld: null, xrayRadial: false,
+      const uiState = { hoverTile: null, cursorWorld: null, xrayRadial: false,
         buildType: null, buildTile: null, canPlaceHere: false, buildReplaces: false,
-        demolish: null, selectedBuildingId: null, overlay: null });
+        demolish: null, selectedBuildingId: null, overlay: config.overlay || null };
+      if (config.overlay === 'pollution') {
+        for (let y = cy - 5; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++)
+          g.map[y * g.mapW + x].pollution = 0.35;
+      }
+      if (config.preview) {
+        let target;
+        for (let y = cy - 4; y < cy + 4 && !target; y++) for (let x = cx - 6; x < cx + 6; x++) {
+          const t = g.map[y * g.mapW + x];
+          const road = config.preview !== 'place';
+          if (road ? t.road : api.canPlace(g, 'avenue', x, y) && !t.road) { target = [x, y]; break; }
+        }
+        if (!target) throw new Error('No preview site');
+        if (config.preview === 'demolish') uiState.demolish = { x: target[0], y: target[1], w: 1, h: 1, kind: 'remove', buildingId: null };
+        else Object.assign(uiState, { buildType: config.preview === 'blocked' ? 'house' : 'avenue',
+          buildTile: target, canPlaceHere: config.preview !== 'blocked', buildReplaces: config.preview === 'replace' });
+      }
+      r.render(g, uiState);
       const canvas = document.querySelector('#game');
       return { seed: g.seed, scenario: g.scenario, tick: g.tick, phase: g.asi.phase,
         observer: g.asi.observer, hour: r.hour, rain: r.rain, snowing: r.snowing,
@@ -103,6 +139,7 @@ export async function captureScene(browser, scene, viewport, output) {
     assert.equal(metadata.hour, scene.hour);
     assert.equal(metadata.rain, scene.rain);
     assert.equal(metadata.observer, scene.phase === 6);
+    if (scene.zoom) assert.equal(metadata.zoom, scene.zoom, 'requested review zoom is actually reached');
     assert.ok(metadata.buildings >= 15, 'founding settlement exists');
     if (scene.dense) assert.ok(metadata.placed.length >= 24, 'dense scene populated');
     if (scene.rain) assert.ok(metadata.particles > 0, 'precipitation is populated');
@@ -120,22 +157,24 @@ export async function captureScene(browser, scene, viewport, output) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const out = resolve(process.env.VISUAL_REVIEW_DIR || 'artifacts/visual-review');
-  const sceneNames = process.env.VISUAL_SCENES?.split(',') || Object.keys(scenes);
-  for (const name of sceneNames) assert.ok(scenes[name], `Unknown scene: ${name}`);
+  const catalog = process.env.VISUAL_SURFACES ? surfaceScenes : scenes;
+  const sceneNames = process.env.VISUAL_SCENES?.split(',') || Object.keys(catalog);
+  for (const name of sceneNames) assert.ok(catalog[name], `Unknown scene: ${name}`);
   await mkdir(out, { recursive: true });
   const browser = await chromium.launch(launchOptions);
   const manifest = { seed: 90210, captures: [] };
   try {
-    for (const [view, viewport] of Object.entries(viewports)) {
+    // 1280×800 fits the renderer's world-buffer budget at a true 0.5× overview.
+    for (const [view, viewport] of Object.entries(process.env.VISUAL_SURFACES ? { desktop: { width: 1280, height: 800 } } : viewports)) {
       for (const name of sceneNames) {
         const file = `${view}-${name}.png`;
-        const result = await captureScene(browser, scenes[name], viewport, resolve(out, file));
+        const result = await captureScene(browser, catalog[name], viewport, resolve(out, file));
         manifest.captures.push({ file, viewport, ...result });
         console.log(`PASS ${file}: ${result.buildings} buildings, ${result.canvasHash.slice(0, 12)}`);
       }
     }
     const first = manifest.captures[0];
-    const repeat = await captureScene(browser, scenes[sceneNames[0]], first.viewport);
+    const repeat = await captureScene(browser, catalog[sceneNames[0]], first.viewport);
     assert.equal(repeat.canvasHash, first.canvasHash, 'repeated fixture renders identically');
     assert.equal(repeat.stateHash, first.stateHash, 'repeated fixture state is identical');
     await writeFile(resolve(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
