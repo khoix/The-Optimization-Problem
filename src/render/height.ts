@@ -106,11 +106,11 @@ export interface Facade {
 }
 
 /** How a district's walls are built, which is what makes districts distinguishable. */
-type WallStyle = 'glass' | 'masonry' | 'industrial' | 'civic';
+type WallStyle = 'glass' | 'masonry' | 'industrial' | 'civic' | 'compute';
 
 function wallStyleOf(type: BuildingType): WallStyle {
   const def = BUILDING_DEFS[type];
-  if (def.category === 'compute') return 'glass';
+  if (def.category === 'compute') return 'compute';
   if (def.category === 'power' || def.category === 'industry') return 'industrial';
   if (def.category === 'civic' || def.category === 'amenity') return 'civic';
   // Tall housing is curtain wall; low housing is brick and render.
@@ -165,7 +165,27 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
     return seed / 4294967296;
   };
 
-  if (style === 'industrial') {
+  if (style === 'compute') {
+    // Sealed service bays distinguish machine halls from occupied glass towers.
+    // Larger facilities repeat wider modules; lights remain a separate layer.
+    const bay = type === 'ai_campus' ? 10 : type === 'cloud_dc' ? 8 : 6;
+    a.fillStyle = '#28313b';
+    a.fillRect(1, 1, w - 2, h - 2);
+    for (let sx = 2; sx < w - 2; sx += bay) {
+      a.fillStyle = '#43515b';
+      a.fillRect(sx, 1, 1, h - 2);
+      for (let sy = 3; sy < h - 5; sy += 4) {
+        a.fillStyle = '#151e27';
+        a.fillRect(sx + 1, sy, Math.min(bay - 2, w - sx - 3), 2);
+      }
+      a.fillStyle = '#315661';
+      a.fillRect(sx + 2, 2, 2, 1);
+      e.fillStyle = 'rgba(112,216,232,0.75)';
+      e.fillRect(sx + 2, 2, 2, 1);
+    }
+    a.fillStyle = '#17202a';
+    a.fillRect(1, h - 3, w - 2, 2);
+  } else if (style === 'industrial') {
     // Ribbed cladding with few openings: sheds and plant, not offices.
     for (let x = 2; x < w - 1; x += 3) {
       a.fillStyle = 'rgba(255,255,255,0.05)';
@@ -219,7 +239,7 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
     const dx = Math.floor(w / 2) - 1;
     a.fillStyle = 'rgba(24,21,18,0.92)';
     a.fillRect(dx, h - 4, 3, 4);
-    e.fillStyle = 'rgba(255,196,120,0.5)';
+    e.fillStyle = style === 'compute' ? 'rgba(112,216,232,0.5)' : 'rgba(255,196,120,0.5)';
     e.fillRect(dx, h - 3, 3, 2);
   }
   return { albedo, emissive, height: h };

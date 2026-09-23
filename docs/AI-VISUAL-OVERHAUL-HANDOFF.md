@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 2
+# Visual overhaul — Execution 3 in progress
 
-Branch: `codex/visual-overhaul`. Execution 2 base: `9d32abf`.
-Scope: world surfaces, vegetation, roads, tool feedback, and visual review. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 3 base: `cfebd50`.
+Scope: completed world surfaces and first compute-facade architecture checkpoint. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -146,12 +146,43 @@ long-running motion, or physical mobile GPUs. Extend only as the next pass needs
   browser engines other than Chromium and sustained-animation performance remain
   untested. Settings/observer-ticker findings above remain out of scope.
 
+## Execution 3 partial checkpoint
+
+- Budget: 30% × 20 = 6 minutes. Start 2026-09-23 19:19:33 UTC;
+  implementation cutoff 19:21:33; hard stop 19:25:33; save buffer 4 minutes.
+- Completed the first architectural distinction in `src/render/height.ts`:
+  compute now uses sealed graphite service bays and ventilation slots instead
+  of the occupied glass-window pattern used by towers. Edge and specialized
+  facilities use 6px bays, cloud 8px, AI campus 10px. Cyan status strips and
+  entrance lighting live in the emissive layer; daytime surfaces stay dark.
+- All six compute types receive this treatment. Heights, footprint widths,
+  parallax, sorting, occlusion, roof drawers and simulation are unchanged.
+- `test/suites/m64.mjs` checks all six compute facades in the built renderer:
+  geometry, dark albedo, cool emitters, distinct facade images and page errors.
+- `npm run check`, build (through the test runner), `npm test -- m62 m64`,
+  `node --check test/suites/m64.mjs` and `git diff --check` passed. M62 covers
+  deterministic replay, populated night, phone rain/snow/late/observer rendering.
+  The full regression suite exceeds the 6-minute budget and was not rerun.
+  No lint/formatter is configured. The existing npm http-proxy environment
+  warning persists; no new build warnings were introduced.
+- `VISUAL_SCENES=dense,night npm run review:visual -- --no-build` passed six
+  desktop/phone/landscape captures and deterministic replay. Desktop day/night
+  images were visually inspected: dark compute bays and cyan status strips
+  stay distinct from occupied warm-window towers. An initial review invocation
+  used the nonexistent scene name `day`; corrected to the existing `dense`.
+  Close/overview, all-type lifecycle coverage and dedicated viewport-edge
+  parallax checks remain untested in this checkpoint.
+- E3 remains incomplete: roofs and category-wide architectural identity,
+  construction/lifecycle, aging/pollution/corporate details, all-type review
+  scenes and edge/zoom/day/night inspection still require work. Do not start E4.
+
 ## Exact continuation
 
-Execution 3 starts with the building drawers in `src/render/sprites.ts` and
+Resume Execution 3 with the building drawers in `src/render/sprites.ts` and
 `makeFacade` / the height table in `src/render/height.ts`. Keep the completed
 terrain/road language and review workflow. Build stronger per-class silhouettes,
 roof equipment and material identity while preserving footprints, sorting,
 parallax and occlusion relief. Use the dense/day/night/late/observer fixtures;
 add targeted building views where needed. Do not reopen terrain or begin the
-later lighting/post-processing/HUD redesigns. Execution 3 has not started.
+later lighting/post-processing/HUD redesigns. Retain the new compute facade
+style and complete the remaining E3 scope before moving to Execution 4.
