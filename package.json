@@ -12,7 +12,8 @@
     "prebuild": "node tools/make-icons.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "review:visual": "node test/run.mjs --visual-review"
   },
   "devDependencies": {
     "playwright": "^1.49.0",

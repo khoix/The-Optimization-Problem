@@ -10,6 +10,7 @@ import {
   carSprites, pedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
+import { AMBIENT_KEYS, LIGHTING, MOTION } from './visual';
 import { computeConnectivity, computeCoverage, covered } from '../game/network';
 import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } from './height';
 
@@ -68,9 +69,9 @@ const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
 /** Sodium warm, for both the bulb and the pool it throws. */
-const LAMP_COLOR = '#ffe7b4';
+const LAMP_COLOR = LIGHTING.streetLamp;
 /** How far a lamp's light reaches, in world pixels. A tile and a bit. */
-const LAMP_RADIUS = 19;
+const LAMP_RADIUS = LIGHTING.streetLampRadius;
 /** Bulb inset from the kerb, and the centre line of a 16px tile. */
 const EDGE = 1;
 const MID = TILE / 2;
@@ -102,20 +103,7 @@ const POOL_THINNING = 2;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-/** Ambient light keyframes across 24h: [hour, r, g, b]. */
-const AMBIENT_KEYS: Array<[number, number, number, number]> = [
-  [0, 44, 54, 96],
-  [4.5, 50, 58, 104],
-  [6, 200, 140, 110],
-  [8, 244, 226, 200],
-  [12, 255, 250, 238],
-  [16, 250, 236, 210],
-  [18.5, 235, 160, 110],
-  [20, 110, 90, 140],
-  [21.5, 54, 62, 106],
-  [24, 44, 54, 96],
-];
-
+/** Interpolate the shared 24-hour ambient light curve. */
 function ambientAt(hour: number): [number, number, number] {
   for (let i = 0; i < AMBIENT_KEYS.length - 1; i++) {
     const a = AMBIENT_KEYS[i], b = AMBIENT_KEYS[i + 1];
@@ -592,7 +580,7 @@ export class Renderer {
     if (g.mapVersion !== this.cachedMapVersion) this.syncTerrainCache(g);
     w.drawImage(this.terrainCache!, camX, camY, W, H, 0, 0, W, H);
 
-    const waterFrame = ((Math.floor(this.t * 2.2) % 3) + 3) % 3;
+    const waterFrame = ((Math.floor(this.t * MOTION.waterFramesPerSecond) % 3) + 3) % 3;
     const wetRoads = this.rain > 0.25 && !this.snowing;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {

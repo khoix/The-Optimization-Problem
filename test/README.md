@@ -5,7 +5,14 @@ npm run check      # types only, no build
 npm test           # build, serve, drive a browser through every suite
 npm test -- m54    # one suite
 npm test -- --no-build
+npm run review:visual  # 21 fixed art-review captures plus a replay check
 ```
+
+Visual review writes a PNG gallery and state manifest to
+`artifacts/visual-review/` (ignored). It uses the same browser and built app as
+the suites. See [the visual handoff](../docs/AI-VISUAL-OVERHAUL-HANDOFF.md) for
+fixture assumptions, capture controls, and art direction. `npm test -- m62`
+checks the new workflow without writing screenshots.
 
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not

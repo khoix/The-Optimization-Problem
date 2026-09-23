@@ -6,6 +6,7 @@
 import type { BuildingType } from '../game/types';
 import { BUILDING_DEFS } from '../game/buildings';
 import { rng } from '../game/state';
+import { TERRAIN_PALETTE, ROAD_MATERIALS } from './visual';
 
 export const TILE = 16;
 
@@ -58,10 +59,10 @@ export function makeTerrain(): TerrainSprites {
   for (let v = 0; v < 4; v++) {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, '#4a7f3c');
-    p.dither(0, 0, TILE, TILE, '#548c44', 0.35, 10 + v);
-    p.dither(0, 0, TILE, TILE, '#3f7034', 0.2, 20 + v);
-    p.dither(0, 0, TILE, TILE, '#5d9a4d', 0.08, 30 + v);
+    p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.base);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.light, 0.35, 10 + v);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.shade, 0.2, 20 + v);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.grass.highlight, 0.08, 30 + v);
     if (v === 3) { p.p(4, 5, '#c9d96a'); p.p(11, 10, '#d9e07a'); } // tiny flowers
     grass.push(c);
   }
@@ -70,9 +71,9 @@ export function makeTerrain(): TerrainSprites {
   for (let v = 0; v < 4; v++) {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, '#c9b06a');
-    p.dither(0, 0, TILE, TILE, '#d6bf7c', 0.3, 40 + v);
-    p.dither(0, 0, TILE, TILE, '#b89b58', 0.2, 50 + v);
+    p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.base);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.light, 0.3, 40 + v);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.sand.shade, 0.2, 50 + v);
     sand.push(c);
   }
 
@@ -80,9 +81,9 @@ export function makeTerrain(): TerrainSprites {
   for (let v = 0; v < 4; v++) {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, '#6e6f6a');
-    p.dither(0, 0, TILE, TILE, '#7d7e78', 0.3, 60 + v);
-    p.dither(0, 0, TILE, TILE, '#5c5d58', 0.25, 70 + v);
+    p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.base);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.light, 0.3, 60 + v);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.rock.shade, 0.25, 70 + v);
     const rand = rng(80 + v);
     for (let i = 0; i < 3; i++) {
       const x = 2 + Math.floor(rand() * 10), y = 2 + Math.floor(rand() * 10);
@@ -95,13 +96,13 @@ export function makeTerrain(): TerrainSprites {
   for (let f = 0; f < 3; f++) {
     const [c, ctx] = canvas(TILE, TILE);
     const p = new Px(ctx);
-    p.r(0, 0, TILE, TILE, '#2e5f8f');
-    p.dither(0, 0, TILE, TILE, '#356b9e', 0.3, 90 + f);
+    p.r(0, 0, TILE, TILE, TERRAIN_PALETTE.water.base);
+    p.dither(0, 0, TILE, TILE, TERRAIN_PALETTE.water.light, 0.3, 90 + f);
     const rand = rng(100 + f * 7);
     for (let i = 0; i < 5; i++) {
       const x = Math.floor(rand() * 14), y = Math.floor(rand() * 15);
       // glints shift per frame
-      p.r((x + f * 2) % 15, y, 2, 1, f === 1 ? '#6fa3cc' : '#4c86b8');
+      p.r((x + f * 2) % 15, y, 2, 1, f === 1 ? TERRAIN_PALETTE.water.glint : TERRAIN_PALETTE.water.ripple);
     }
     water.push(c);
   }
@@ -159,14 +160,7 @@ export function makeTerrain(): TerrainSprites {
 
 /** Road sprites: [roadType][connectivity mask]. */
 export function makeRoads(): HTMLCanvasElement[][] {
-  const CLASSES = [
-    { surface: '#7d6a4e', surfaceHi: '#8a7658', edge: '#6a5940', line: '', width: 0 }, // dirt track
-    { surface: '#3a3a40', surfaceHi: '#44444b', edge: '#6a6a72', line: '#b8b25e', width: 1 }, // street
-    { surface: '#34343a', surfaceHi: '#3e3e45', edge: '#7a7a84', line: '#c9c36a', width: 2 }, // avenue
-    { surface: '#2e2e34', surfaceHi: '#38383f', edge: '#8a8a94', line: '#d9d372', width: 3 }, // highway
-    { surface: '#6b5a48', surfaceHi: '#7a6853', edge: '#4a3d31', line: '#b8b25e', width: 1 }, // bridge deck
-  ];
-  return CLASSES.map((cls, type) => {
+  return ROAD_MATERIALS.map((cls, type) => {
     const out: HTMLCanvasElement[] = [];
     for (let mask = 0; mask < 16; mask++) {
       const [c, ctx] = canvas(TILE, TILE);

@@ -39,26 +39,7 @@
  * Deliberately small and reused. Thirty-three icons each inventing their own
  * blue is how a set stops looking like a set.
  */
-const C = {
-  steel: '#8494ad',
-  steelLit: '#aebbd0',
-  steelDim: '#5b6b85',
-  ink: '#1b2331',
-  paper: '#dfe7f3',
-  amber: '#ffc23d',
-  amberDeep: '#f08a1c',
-  cyan: '#5cd0f0',
-  cyanDeep: '#2f9cc4',
-  green: '#5fc76c',
-  greenDeep: '#3a9a4a',
-  red: '#f2706d',
-  redDeep: '#cc4a48',
-  gold: '#ffd24a',
-  goldInk: '#7a5a10',
-  blue: '#6ea8fe',
-  blueDeep: '#4179d6',
-  brown: '#a4703f',
-} as const;
+import { ICON_PALETTE as C } from '../render/visual';
 
 export type IconId =
   // build categories
