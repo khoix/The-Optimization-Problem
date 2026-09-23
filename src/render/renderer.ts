@@ -539,7 +539,7 @@ export class Renderer {
     c.clip();
   }
 
-  /** Lazily built front walls, keyed off each roof sprite's own palette. */
+  /** Lazily built front walls, keyed by architectural material family. */
   private facades = new Map<BuildingType, Facade | null>();
   private facadeFor(type: BuildingType): Facade | null {
     if (!this.facades.has(type)) {
@@ -728,11 +728,27 @@ export class Renderer {
     for (const b of sorted) {
       const def = BUILDING_DEFS[b.type];
       const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
-      if (dx + def.w * TILE < 0 || dy + def.h * TILE < 0 || dx > W || dy > H) continue;
+      const bhPx = heightOf(b.type);
+      const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
+      const rx = dx + px, ry = dy - bhPx + py;
+      // Cull the projected mass as well as its footprint: a roof can still be
+      // visible when the ground-level base has passed below the viewport.
+      if (Math.max(dx, rx) + def.w * TILE < 0 || Math.max(dy, ry) + def.h * TILE < 0
+        || Math.min(dx, rx) > W || Math.min(dy, ry) > H) continue;
       const spr = this.buildings.get(b.type);
       if (!spr) continue;
       if (b.progress < 1) {
         w.drawImage(this.constructionFor(def.w, def.h), dx, dy);
+        if (b.progress > 0.25) {
+          // The frame gains cross-members before cladding appears.
+          w.fillStyle = '#c0ab80';
+          for (let x = 4; x < def.w * TILE - 3; x += 8) {
+            w.fillRect(dx + x, dy + 4, 1, def.h * TILE - 8);
+          }
+          w.fillStyle = '#6a6457';
+          for (let y = 6; y < def.h * TILE - 3; y += 8)
+            w.fillRect(dx + 3, dy + y, def.w * TILE - 6, 1);
+        }
         if (b.progress > 0.5) {
           w.globalAlpha = (b.progress - 0.5) * 2 * 0.8;
           w.drawImage(spr.albedo, dx, dy);
@@ -743,9 +759,6 @@ export class Renderer {
       // Height pass. The roof rises by the building's height, sheared by its
       // distance off the optical axis; the facade fills the gap down to the
       // footprint the building actually stands on.
-      const bhPx = heightOf(b.type);
-      const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
-      const rx = dx + px, ry = dy - bhPx + py;
       const fac = this.facadeFor(b.type);
       // Occlusion relief. Mass that can hide ground goes translucent while a
       // build tool is out, so a tower never costs the player the tiles behind
@@ -802,6 +815,14 @@ export class Renderer {
         w.fillRect(darkEdge, ry + 1, 1, lit - 2);
       }
       this.drawEvolutionDetails(g, b, rx, ry, nightF);
+      // Local pollution leaves restrained runoff under the roof edge. This
+      // reads on the structure itself without adding another atmosphere pass.
+      const grime = Math.min(0.28, g.map[b.y * g.mapW + b.x].pollution * 0.5);
+      if (grime > 0.025 && fac) {
+        w.fillStyle = `rgba(53,43,29,${grime})`;
+        for (let x = 3 + b.id % 4; x < def.w * TILE - 2; x += 9)
+          w.fillRect(rx + x, ry + def.h * TILE, 2, Math.min(bhPx, 3 + (x + b.id) % 7));
+      }
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
         w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
@@ -1314,8 +1335,11 @@ export class Renderer {
         ];
         const [bg, fg] = palette[b.id % 4];
         const cx = dx + def.w * TILE - 6, cy = dy + 2;
+        w.fillStyle = '#10182188'; w.fillRect(cx + 1, cy + 1, 5, 4);
         w.fillStyle = bg; w.fillRect(cx, cy, 5, 4);
-        w.fillStyle = fg; w.fillRect(cx + 1, cy + 1, 3, 2);
+        // Tiny glyphs supplement the ownership palette with a shape cue.
+        w.fillStyle = fg; w.fillRect(cx + 1, cy + 1, 1, 2);
+        w.fillRect(cx + 2, cy + 1 + b.id % 2, 2, 1);
         if (nightF > 0.3) {
           this.ectx.globalAlpha = nightF * 0.8;
           this.ectx.fillStyle = fg;
@@ -1332,9 +1356,12 @@ export class Renderer {
       for (let i = 0; i < extra; i++) {
         const ux = dx + 3 + i * 8;
         if (ux + 6 > dx + def.w * TILE - 2) break;
+        w.fillStyle = '#19232b88'; w.fillRect(ux + 1, baseY + 1, 6, 4);
         w.fillStyle = '#8c9298'; w.fillRect(ux, baseY, 6, 4);
+        w.fillStyle = '#bdc2b4'; w.fillRect(ux, baseY, 6, 1);
         w.fillStyle = '#5e646a'; w.fillRect(ux + 1, baseY + 1, 4, 2);
         w.fillStyle = '#33383e'; w.fillRect(ux + 2, baseY + 2, 2, 1);
+        if (i > 0) { w.fillStyle = '#8b9fa1'; w.fillRect(ux - 2, baseY + 1, 2, 1); }
       }
     }
   }

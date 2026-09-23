@@ -26,6 +26,20 @@ for (const overlay of ['power', 'water', 'roads', 'pollution'])
   surfaceScenes[`overlay-${overlay}`] = { ...scenes.early, overlay };
 for (const preview of ['place', 'replace', 'blocked', 'demolish'])
   surfaceScenes[`preview-${preview}`] = { ...scenes.early, preview };
+// Three structures per plate keeps even the tallest silhouettes visible at 4×.
+const architectureGroups = [
+  ['house', 'apartment', 'midrise'], ['highrise', 'arcology', 'office'],
+  ['school', 'library', 'community_center'], ['sports_complex', 'museum', 'hospital'],
+  ['park', 'plaza', 'retail'], ['solar_farm', 'solar_array', 'coal_plant'],
+  ['nuclear_plant', 'water_plant', 'water_reclamation'], ['factory', 'auto_factory', 'edge_dc'],
+  ['cloud_dc', 'ai_campus', 'gov_dc'], ['med_dc', 'community_dc'],
+];
+export const architectureScenes = Object.fromEntries(architectureGroups.flatMap((types, group) =>
+  [0.5, 2, 4].flatMap((zoom) => [12, 23].map((hour) =>
+    [`buildings-${group}-${zoom}-${hour}`, { ...scenes.early, architecture: types, zoom, hour }]))));
+for (const lifecycle of ['foundation', 'frame', 'cladding', 'offline', 'aged', 'polluted', 'corporate', 'relief'])
+  architectureScenes[`lifecycle-${lifecycle}`] = { ...scenes.early,
+    architecture: ['house', 'factory', 'cloud_dc'], zoom: 4, lifecycle };
 const viewports = {
   desktop: { width: 1340, height: 860 },
   phone: { width: 390, height: 844 },
@@ -56,6 +70,21 @@ export async function captureScene(browser, scene, viewport, output) {
       api.invalidateNetwork(g);
       const cx = Math.floor(g.mapW * 0.52), cy = Math.floor(g.mapH * 0.5);
       const placed = [];
+      if (config.architecture) {
+        // An explicit test lot, independent of scenario economy and terrain.
+        // Only this review mode flattens its map; normal scenario fixtures do not.
+        g.buildings.clear();
+        for (const tile of g.map) {
+          tile.terrain = 'grass'; tile.buildingId = -1; tile.road = false;
+          tile.pollution = config.lifecycle === 'polluted' ? 0.5 : 0;
+        }
+        config.architecture.forEach((type, i) => {
+          const b = api.placeBuilding(g, type, cx - 8 + i * 6, cy, { free: true, instant: true });
+          if (!b) throw new Error(`Architecture fixture failed: ${type}`);
+          placed.push(type);
+        });
+        api.touchMap(g); api.invalidateNetwork(g);
+      }
       if (config.dense) {
         const types = ['highrise', 'apartment', 'office', 'cloud_dc', 'hospital',
           'factory', 'school', 'park', 'ai_campus', 'nuclear_plant', 'arcology', 'water_plant'];
@@ -80,9 +109,18 @@ export async function captureScene(browser, scene, viewport, output) {
       // Commissioned art fixtures: illuminate the material set independently
       // of economic viability. Simulation invariants remain in the M57 suite.
       for (const b of g.buildings.values()) { b.active = true; b.age = config.dense ? 80 : 0; }
+      if (config.architecture) {
+        for (const b of g.buildings.values()) {
+          b.progress = config.lifecycle === 'foundation' ? 0.1 : config.lifecycle === 'frame' ? 0.4 : config.lifecycle === 'cladding' ? 0.8 : 1;
+          b.active = config.lifecycle !== 'offline';
+          b.age = config.lifecycle === 'aged' ? 300 : 0;
+        }
+        g.corporateInfluence = config.lifecycle === 'corporate' ? 0.9 : 0;
+      }
       r.resetSession();
       r.setZoomDirect(config.zoom || 2, innerWidth / 2, innerHeight / 2);
       r.centerOn(cx, cy);
+      if (config.architecture) r.centerOn(cx, cy + 1);
       if (config.shore) {
         // Pick an actual inland shoreline, not empty ocean or a map corner.
         const candidates = g.map.map((t, i) => ({ t, i }))
@@ -109,6 +147,7 @@ export async function captureScene(browser, scene, viewport, output) {
       const uiState = { hoverTile: null, cursorWorld: null, xrayRadial: false,
         buildType: null, buildTile: null, canPlaceHere: false, buildReplaces: false,
         demolish: null, selectedBuildingId: null, overlay: config.overlay || null };
+      if (config.lifecycle === 'relief') uiState.buildType = 'house';
       if (config.overlay === 'pollution') {
         for (let y = cy - 5; y <= cy + 5; y++) for (let x = cx - 5; x <= cx + 5; x++)
           g.map[y * g.mapW + x].pollution = 0.35;
@@ -127,9 +166,17 @@ export async function captureScene(browser, scene, viewport, output) {
       }
       r.render(g, uiState);
       const canvas = document.querySelector('#game');
+      const bounds = config.architecture ? [...g.buildings.values()].map((b) => {
+        const d = api.BUILDING_DEFS[b.type], h = r.facadeFor(b.type)?.height || 0;
+        const x = b.x * 16 - Math.floor(r.camX), y = b.y * 16 - Math.floor(r.camY);
+        const rx = x + (x - r.viewW / 2) / (r.viewW / 2) * h * 0.34;
+        const ry = y - h + (y - r.viewH / 2) / (r.viewH / 2) * h * 0.34 * 0.42;
+        return { type: b.type, left: rx * r.zoom, right: (rx + d.w * 16) * r.zoom,
+          top: ry * r.zoom, bottom: (y + d.h * 16) * r.zoom };
+      }) : [];
       return { seed: g.seed, scenario: g.scenario, tick: g.tick, phase: g.asi.phase,
         observer: g.asi.observer, hour: r.hour, rain: r.rain, snowing: r.snowing,
-        buildings: g.buildings.size, placed, agents: r.life.agents.length,
+        buildings: g.buildings.size, placed, bounds, agents: r.life.agents.length,
         particles: r.life.particles.length, zoom: r.zoom, camera: [r.camX, r.camY],
         body: document.body.className, canvas: canvas.toDataURL(),
         state: JSON.stringify([...g.buildings.values()]),
@@ -140,7 +187,11 @@ export async function captureScene(browser, scene, viewport, output) {
     assert.equal(metadata.rain, scene.rain);
     assert.equal(metadata.observer, scene.phase === 6);
     if (scene.zoom) assert.equal(metadata.zoom, scene.zoom, 'requested review zoom is actually reached');
-    assert.ok(metadata.buildings >= 15, 'founding settlement exists');
+    if (scene.architecture) {
+      assert.deepEqual(metadata.placed, scene.architecture, 'every requested type is present');
+      for (const b of metadata.bounds) assert.ok(b.left >= 0 && b.right <= viewport.width
+        && b.top >= 0 && b.bottom <= viewport.height - 132, `${b.type}: complete mass visible above desktop controls`);
+    } else assert.ok(metadata.buildings >= 15, 'founding settlement exists');
     if (scene.dense) assert.ok(metadata.placed.length >= 24, 'dense scene populated');
     if (scene.rain) assert.ok(metadata.particles > 0, 'precipitation is populated');
     if (scene.phase >= 4) assert.match(metadata.body, /phase4/);
@@ -157,7 +208,7 @@ export async function captureScene(browser, scene, viewport, output) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const out = resolve(process.env.VISUAL_REVIEW_DIR || 'artifacts/visual-review');
-  const catalog = process.env.VISUAL_SURFACES ? surfaceScenes : scenes;
+  const catalog = process.env.VISUAL_ARCHITECTURE ? architectureScenes : process.env.VISUAL_SURFACES ? surfaceScenes : scenes;
   const sceneNames = process.env.VISUAL_SCENES?.split(',') || Object.keys(catalog);
   for (const name of sceneNames) assert.ok(catalog[name], `Unknown scene: ${name}`);
   await mkdir(out, { recursive: true });
@@ -165,7 +216,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const manifest = { seed: 90210, captures: [] };
   try {
     // 1280×800 fits the renderer's world-buffer budget at a true 0.5× overview.
-    for (const [view, viewport] of Object.entries(process.env.VISUAL_SURFACES ? { desktop: { width: 1280, height: 800 } } : viewports)) {
+    for (const [view, viewport] of Object.entries(process.env.VISUAL_SURFACES || process.env.VISUAL_ARCHITECTURE ? { desktop: { width: 1280, height: 800 } } : viewports)) {
       for (const name of sceneNames) {
         const file = `${view}-${name}.png`;
         const result = await captureScene(browser, catalog[name], viewport, resolve(out, file));

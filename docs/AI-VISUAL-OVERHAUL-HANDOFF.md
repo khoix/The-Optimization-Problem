@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 3 in progress
+# Visual overhaul — Execution 3
 
-Branch: `codex/visual-overhaul`. Execution 3 base: `cfebd50`.
-Scope: completed world surfaces and first compute-facade architecture checkpoint. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 3 continuation base: `0d4f219`.
+Scope: world surfaces, architectural identity, construction and lifecycle art. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -29,7 +29,7 @@ not by adding another effect layer. The city is the subject, the console its ins
 | Area / entry point | Finding and constraint for subsequent work |
 |---|---|
 | `src/render/sprites.ts` | Deterministic procedural albedo/emissive atlases, cached lazily. Quiet clustered grass, layered stone plates, sand bands, distinct forest floor and stepped material edges replace the noisy ground treatment. Roads have five materials × sixteen connectivity masks. Preserve mask/bridge semantics. |
-| `src/render/height.ts` | Explicit per-type heights and four facade families: glass, masonry, industrial, civic. Roof-edge-derived facade colors keep volumes coherent, but roof/window rhythms need stronger type identity. Keep exhaustive height mapping and occlusion relief. |
+| `src/render/height.ts` | Explicit per-type heights and five facade families: glass, masonry, industrial, civic, compute. Occupied walls use material pigments rather than sampled lawn/paving edges. Midrise is masonry; highrise/arcology are glass. Keep exhaustive height mapping and occlusion relief. |
 | `src/render/renderer.ts` | Pass order: cached terrain → lamps → agents → trees → depth-sorted buildings → water reflection → haze/particles/clouds → diagnostics/light → placement/selection → grade/upscale → tilt-shift → bloom/shafts/vignette. Do not reorder casually; earlier emissives feed later passes. |
 | Renderer caches / performance | `mapVersion` + dirty tiles govern ground invalidation; building ordering also caches by state. `resetSession()` must accompany fixture swaps. Overview detail fades from zoom 0.55 to 1.0; world-buffer budget is 4.4M pixels. Preserve these controls. |
 | `src/render/agents.ts` | Traffic, pedestrians, smoke, steam and precipitation use real-time randomness. Observer mode regularizes traffic and thins people. Review fixtures seed randomness locally; production randomness is unchanged. |
@@ -146,43 +146,77 @@ long-running motion, or physical mobile GPUs. Extend only as the next pass needs
   browser engines other than Chromium and sustained-animation performance remain
   untested. Settings/observer-ticker findings above remain out of scope.
 
-## Execution 3 partial checkpoint
+## Execution 3 architecture and exceptions
 
-- Budget: 30% × 20 = 6 minutes. Start 2026-09-23 19:19:33 UTC;
-  implementation cutoff 19:21:33; hard stop 19:25:33; save buffer 4 minutes.
-- Completed the first architectural distinction in `src/render/height.ts`:
-  compute now uses sealed graphite service bays and ventilation slots instead
-  of the occupied glass-window pattern used by towers. Edge and specialized
-  facilities use 6px bays, cloud 8px, AI campus 10px. Cyan status strips and
-  entrance lighting live in the emissive layer; daytime surfaces stay dark.
-- All six compute types receive this treatment. Heights, footprint widths,
-  parallax, sorting, occlusion, roof drawers and simulation are unchanged.
-- `test/suites/m64.mjs` checks all six compute facades in the built renderer:
-  geometry, dark albedo, cool emitters, distinct facade images and page errors.
-- `npm run check`, build (through the test runner), `npm test -- m62 m64`,
-  `node --check test/suites/m64.mjs` and `git diff --check` passed. M62 covers
-  deterministic replay, populated night, phone rain/snow/late/observer rendering.
-  The full regression suite exceeds the 6-minute budget and was not rerun.
-  No lint/formatter is configured. The existing npm http-proxy environment
-  warning persists; no new build warnings were introduced.
-- `VISUAL_SCENES=dense,night npm run review:visual -- --no-build` passed six
-  desktop/phone/landscape captures and deterministic replay. Desktop day/night
-  images were visually inspected: dark compute bays and cyan status strips
-  stay distinct from occupied warm-window towers. An initial review invocation
-  used the nonexistent scene name `day`; corrected to the existing `dense`.
-  Close/overview, all-type lifecycle coverage and dedicated viewport-edge
-  parallax checks remain untested in this checkpoint.
-- E3 remains incomplete: roofs and category-wide architectural identity,
-  construction/lifecycle, aging/pollution/corporate details, all-type review
-  scenes and edge/zoom/day/night inspection still require work. Do not start E4.
+The first 30% checkpoint (`0d4f219`) introduced sealed compute facades and M64.
+This 95% continuation treats all 29 non-road building drawers. Existing heights
+(including zero-height park/plaza and 3px solar fields), legal footprints,
+parallax strength, base-depth sorting and x-ray behavior are preserved.
+
+| Types | Material and detail decisions |
+|---|---|
+| House, apartment, midrise | Warm masonry, door lintels, sparse windows; chimney/porch at low density, roof terrace at apartment density, framed courtyard at midrise density. Apartment/midrise balconies provide a horizontal rhythm. |
+| Highrise, arcology, office | Glass mullions distinguish highrise/arcology, with a recessed crown/lift plant and planted arcology bands. Office gains an atrium/service spine but retains the existing industrial-category ribbed facade. Heights remain 48/72/32px. |
+| School, library, community center | Approachable pale civic walls with pilasters and clear entrances; brick clerestory school, stone portico/skylight library, and ribbed timber community hall roofs. |
+| Sports complex, museum, hospital | Stepped spectator seating/pool bands; pale museum wing/atrium/steps; hospital roof plant, cross and explicit H-shaped helipad. Existing night symbols remain separate emitters. |
+| Park, plaza, retail | Layered shrub canopy, planters and plinth; warm retail awnings/sign lettering with dark daytime glazing. Park/plaza stay flat. Retail retains its existing industrial facade classification and service bays. |
+| Solar farm, solar array, coal plant | Low panel fields gain an inverter and service routes; farm LED moves off the solar glass to its inverter. Coal retains twin stacks and gains a conveyor/service structure. |
+| Nuclear plant, water plant, water reclamation | Chamfered containment crowns/tower rim; connected treatment pipes and pump plant; membrane works gain pipe couplings and rooftop plant. All remain industrial utilities. |
+| Factory, automated factory | Warm sawtooth roof and dock lintel versus cool, repeated roof plant and logistics details. Generated walls have ribbing and loading doors. |
+| Edge, cloud, AI compute | Existing sealed graphite/cyan facade language; raised fan units, connected cooling lines, cloud service spine, and repeated campus chiller highlights. Campus stays monolithic. |
+| Government, medical, community compute | Navy security bunker/fence posts; pale medical roof/teal routing; reused patchwork panels with salvaged equipment and warm roof doorway. Their compute facade status lights remain cool. |
+
+- `roofPlant()` supplies a shared casing, shadow, lit edge and grille. Lot-wide
+  noise is quieter so architectural detail dominates. No asset dependency added.
+- Construction retains the original progress values and late cladding fade;
+  concrete footings and a 25%-progress frame make earlier stages distinct.
+- Existing age thresholds still add cooling equipment; new contact shadows,
+  casing lips and connecting pipes make that accretion readable.
+- Corporate influence retains its existing thresholds and palettes, with
+  mounted glyph signage. Local tile pollution adds restrained facade runoff.
+- Fixed a genuine edge-culling defect: projected roofs remain drawn when their
+  footprint has passed below the view. M65 reproduced the missing roof before
+  the fix and passed afterwards. No simulation or camera geometry changed.
+
+## Execution 3 validation and budget
+
+- Budget: 95% × 20 = 19 minutes. Start 2026-09-23 22:15:17 UTC;
+  implementation cutoff 22:30:17; hard stop 22:34:17; save buffer 4 minutes.
+- `npm run check`, build via the runner, `npm test -- m64 m65`, MJS syntax
+  checks and `git diff --check` passed. M65 covers all 29 distinct atlases,
+  footprint/emissive dimensions, state preservation and viewport-edge drawing.
+- Final architecture review: 68 captures and deterministic replay passed;
+  all 29 types are represented and all eight lifecycle canvas hashes differ.
+  Day/night contact sheets and representative close/normal/overview images
+  were visually inspected. The ordinary gallery passed 21 captures and replay;
+  every building-state hash matches E2.
+- Regression: all 18 suites passed across runs. The full `npm test` log passed
+  M44–M49 but stopped advancing in M50's unbounded boot-progress sampling loop;
+  it did not produce a full-suite summary. M50 passed alone (31 assertions).
+  A bounded continuation passed M51–M55 and M57 before its time limit; a final
+  `npm test -- --no-build m57 m58 m61 m62 m63 m64 m65` passed 7/7. No tests were
+  weakened or skipped. Treat the uninterrupted runner stall as a harness caveat.
+- New review mode: `VISUAL_ARCHITECTURE=1 npm run review:visual` uses a staged,
+  flattened lot. Ten groups cover every type at 0.5×, 2× and 4×, day and night.
+  Eight additional plates cover foundation/frame/cladding, offline, aged,
+  polluted, corporate and build-tool relief states. Use `VISUAL_REVIEW_DIR`
+  to retain it separately from the unchanged 21-scene scenario review.
+- The first close-up review clipped its leftmost building. The corrected
+  fixtures use closer spacing and assert complete projected bounds above the
+  desktop controls. An initial edge-test coordinate was also corrected to use
+  the renderer's overscanned view bounds before reproducing the actual bug.
+- No configured lint/formatter; surrounding style and syntax/diff checks apply.
+  The existing npm http-proxy environment warning persists. Physical devices,
+  non-Chromium engines and sustained-animation performance remain untested.
+  The previous settings/observer ticker findings remain for the UI pass.
 
 ## Exact continuation
 
-Resume Execution 3 with the building drawers in `src/render/sprites.ts` and
-`makeFacade` / the height table in `src/render/height.ts`. Keep the completed
-terrain/road language and review workflow. Build stronger per-class silhouettes,
-roof equipment and material identity while preserving footprints, sorting,
-parallax and occlusion relief. Use the dense/day/night/late/observer fixtures;
-add targeted building views where needed. Do not reopen terrain or begin the
-later lighting/post-processing/HUD redesigns. Retain the new compute facade
-style and complete the remaining E3 scope before moving to Execution 4.
+Execution 4 starts with `src/render/renderer.ts` lighting/post-processing passes,
+`src/render/visual.ts` ambient/light constants and `src/render/agents.ts` motion.
+Reuse the completed terrain and architecture; do not redesign them. Review
+day/night transitions, shadow/contact treatment, point lights, bloom, reflections,
+weather, ambient life, grading, depth and observer atmosphere against the existing
+galleries. Museum/large skylight emitters can saturate under the current bloom;
+assess light intensity in E4 rather than repainting their architecture.
+Execution 4 has not started.

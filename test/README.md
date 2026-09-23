@@ -21,6 +21,14 @@ actually reached. Use `VISUAL_REVIEW_DIR` to keep it separate from the default
 gallery. `npm test -- m63` checks terrain/road atlas properties and neighbor
 redraws after rock clearance.
 
+`VISUAL_ARCHITECTURE=1 npm run review:visual` reviews every non-road building
+at 0.5×, 2× and 4× in daylight and at night, plus eight construction/lifecycle
+and occlusion-relief plates (68 captures). Its deliberately flattened test lot
+isolates architectural differences; it is not a playable economic scenario.
+Bounds assertions keep complete buildings above the desktop controls. M64
+checks compute facade materials; M65 checks all 29 atlases, footprint/emissive
+alignment, state preservation and tall-building viewport-edge rendering.
+
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not
 look, point `PLAYWRIGHT_CHROMIUM` at the executable:
