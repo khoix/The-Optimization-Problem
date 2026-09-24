@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 4
+# Visual overhaul — Execution 5
 
-Branch: `codex/visual-overhaul`. Execution 4 base: `27c1240`.
-Scope: lighting, atmosphere, motion and cinematic polish. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 5 base: `dec8906`.
+Scope: interface and presentation overhaul. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -306,3 +306,119 @@ Do not alter authority progression or observer controls. Remaining E4 limitation
 physical mobile GPU/browser review and continuous interactive feel remain human
 review tasks; precipitation quantities and traffic mechanics intentionally retain
 their existing behavior. No unresolved implementation item is scheduled for E4.
+
+## Execution 5 — interface and presentation
+
+Budget: 95% of 20 minutes = 19 minutes. Start 10:51:07 UTC on 2026-09-24;
+implementation cutoff 11:06:07; hard stop 11:10:07. Execution 6 is not started.
+That attempt left its changes in the working tree without a commit or remote
+synchronization. This continuation starts at 21:15:20 UTC on the same date,
+again at 95%: implementation cutoff 21:30:20 and hard stop 21:34:20. The final
+four minutes are reserved for preservation and verification.
+
+### Interface language
+
+- The early administration uses warm graphite panels, parchment-white primary
+  text, lighter secondary copy, and restrained brass control accents. Semantic
+  good/warning/bad colors and the established cyan title/hairline motifs remain.
+  Cyan therefore accents the initial instrument rather than coloring every
+  selected setting and primary action.
+- Shared panel/row tokens reach drawers, inspector, explanation/hover cards,
+  menus, save/load/archive, events, reports, alerts, treasury and guide. Existing
+  two-tone SVG icons and the incoming-event versus player-opened panel distinction
+  remain intact; no icons, narrative copy, controls or information were removed.
+- Construction descriptions, policy text, settings descriptions and secondary
+  copy are more readable. Financial/resource values explicitly use tabular digits.
+  Active controls gain a solid underline/edge in addition to color. Generic
+  buttons, role-buttons, inputs and selects receive keyboard focus treatment.
+- Boot progress and its entry button share the brass accent. The independent
+  early stylesheet retains identical shared variables with the main CSS.
+  Warm title-city roofs/facades have stronger material separation; animation
+  timing, procedural generation, cold sweep and audio-unlock flow are unchanged.
+- Scenario thumbnails now reuse the established terrain and street pigments.
+  M49's independent expected color table was updated; all terrain identity,
+  seed/region matching, reroll and cache assertions remain unchanged.
+
+### Progression and responsive behavior
+
+- Existing phase classes continue to come exclusively from UI refresh. Phase 4
+  changes shared panel, row and control tokens to cool steel, including dialogs
+  and guide surfaces. Phase 5 uses system cyan and reduces control/panel corner
+  radii to 2px. Observer uses pale restrained accents; existing administrative
+  lockout, warning treatment and readable monitoring controls are preserved.
+- Dialogs are flex columns bounded by viewport and measured civic-bar height;
+  their prose/settings region scrolls while headings/actions retain their size.
+  Title dialogs get the full viewport allowance. No save/menu semantics changed.
+- Observer status wraps instead of clipping. Short touch landscape reserves a
+  full-width status line above the controls; the observer banner is also bounded
+  and scrollable. Existing responsive toolbar and touch target rules remain.
+- Both OS reduced motion and the in-game preference suppress interface
+  animations/transitions, including pseudo-elements. World animation is unchanged.
+
+### Files and review workflow
+
+Production: `src/style.css`, `src/boot.css`, `src/render/titlecity.ts`,
+`src/ui/thumbnail.ts`, and `src/ui/guide.ts`. Verification: `test/suites/m49.mjs`, new M67,
+`test/README.md`, and this handoff. No dependency, simulation, save or UI action
+handler changes were needed.
+
+`UI_REVIEW_DIR=artifacts/ui-review npm test -- m67` captures the actual player
+routes through title, guide, settings, scenario selection, construction and four
+civic drawers, then stages phase 4/5/observer through the real refresh path.
+It checks bounds, numeric typography, keyboard focus, phase accents, observer
+status wrapping and reduced motion on four viewports. Use
+`UI_REVIEW_VIEWPORT=desktop|narrow|phone|landscape` for one bounded viewport run
+(choose one literal value); omitting it always exercises all four.
+
+M67 first failed against E4's build on the absent civic accent. A subsequent
+focus failure was a fixture error: `.bar-tool` matched the invisible spacer.
+The check now focuses the real Roads control with keyboard modality, and also
+waits for region navigation to finish before inspecting controls. Missing civic
+controls are explicit failures, never silently skipped.
+
+Short touch landscape exposed a real guide error: its hidden illustration had
+a zero-sized canvas, and the renderer passed an empty blur buffer to `drawImage`.
+M67 reproduced the page error before the fix. The guide now pauses map drawing
+while hidden, keeps its frame loop alive, and resizes/recenters when visible
+again. The regression also rotates landscape to portrait and back without
+reopening the guide, checking that its canvas dimensions recover.
+
+### Final validation and continuation
+
+The continuation's full `npm test` completed successfully at 21:26:42 UTC:
+**20/20 suites passed** (M44, M46–M55, M57, M58, M61–M67). This includes the
+production build and every existing UI, simulation and renderer regression.
+No assertions were skipped or weakened. Earlier E5 attempts that exhausted
+their command timeouts did not constitute full-suite passes; this completed
+run supersedes those incomplete validation attempts.
+
+- `npm run check`: passed.
+- `npm run build`, executed by `npm test`: passed.
+- `npm test -- --no-build m67`: passed all four viewports on the final source.
+- `UI_REVIEW_VIEWPORT=landscape npm test -- --no-build m67`: passed, including
+  rotation recovery and zero browser page errors.
+- `node --check test/suites/m49.mjs` and `node --check test/suites/m67.mjs`:
+  passed. `git diff --check`: passed.
+- No lint or formatter script is configured. Existing source style, syntax
+  checks and whitespace checks are the derived harness checks. The existing
+  npm `http-proxy` environment warning persists; no new build warning appeared.
+
+Visual inspection covered desktop title, settings, guide, civic/indicator
+surfaces; phone settings, region selection and observer; narrow desktop
+politics; and short-landscape guide and observer. M67 exercises construction,
+indicators, policies, allocation and politics through actual controls on all
+four viewports, plus keyboard focus, phase accents and reduced motion. Existing
+suites cover inspector, alerts, save/import/export, archive, reports and the
+remaining menus. Physical-device touch feel and mobile GPU performance remain
+human review tasks; browser touch emulation is not a physical-device check.
+
+E5 implementation and validation are complete. The continuation made no further
+production-code changes after the prior landscape fix. Save the nine-file
+change as `Refine civic interface and late-game presentation`, synchronize
+`codex/visual-overhaul`, and verify matching local/remote trees and a clean
+working tree. The final execution report records the synchronized commit.
+
+Next execution: start E6's final integration and visual validation from this
+E5 branch. Reuse the established world and UI art, the M67 four-viewport review
+command, and the existing visual-review fixtures. No E6 work was begun here;
+no unresolved E5 regression was observed in the completed automated checks.

@@ -75,9 +75,9 @@ const readThumb = (page, id) => page.evaluate((row) => {
   c.getContext('2d').drawImage(img, 0, 0);
   const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
   const NAME = {
-    '4a7f3c': 'grass', '2f5a28': 'forest', 'c9b06a': 'sand',
-    '6e6f6a': 'rock', '2e5f8f': 'water',
-    '585d66': 'paved', 'd8cdb6': 'built',
+    '526f43': 'grass', '38583b': 'forest', 'bda575': 'sand',
+    '767b78': 'rock', '2d5669': 'water',
+    '343b40': 'paved', 'd8cdb6': 'built',
   };
   const out = [];
   for (let i = 0; i < d.length; i += 4) {

@@ -39,11 +39,11 @@ const C = {
   coldGlow: 'rgba(140, 216, 255, 0.22)',
   sweep: '#7ae9ff',
 };
-const ROOFS = ['#1f2733', '#24262b', '#1c2431', '#242730', '#1e252d'];
+const ROOFS = ['#2d3033', '#35312d', '#283139', '#333732', '#303035'];
 /** The same roofs after the sweep: the warmth taken out of the grey. */
 const ROOFS_COLD = ['#212a35', '#232932', '#1f2833', '#232a34', '#212832'];
 /** The lit face below each roof. Darker, because it is not facing the sky. */
-const SIDES = ['#12181f', '#16171a', '#111720', '#15161c', '#12171c'];
+const SIDES = ['#1b2226', '#24201d', '#18212a', '#23251f', '#1d2025'];
 const SIDES_COLD = ['#131a22', '#151a21', '#121922', '#141a21', '#131921'];
 
 const SECONDS_TO_BUILD = 1.5;

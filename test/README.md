@@ -40,6 +40,20 @@ M66 checks eased day/night boundaries, actual transition rendering, unchanged
 simulation state and the existing buffer ceiling. Compare same-host manifests;
 absolute wall-clock thresholds are intentionally not CI assertions.
 
+`UI_REVIEW_DIR=artifacts/ui-review npm test -- m67` exercises and captures the
+title, guide, settings, region picker, civic bar, construction/indicator/policy/
+allocation/politics drawers, and phase 4/5/observer presentation. It uses desktop
+(1340×860), narrow desktop (960×700), phone (390×844) and short landscape
+(740×380), including touch emulation and reduced motion. Assertions check live
+control routes, viewport fit, numeric typography, keyboard focus, phase accents,
+observer status wrapping and animation suppression. Omit `UI_REVIEW_DIR` for
+assertions without PNG capture; `UI_REVIEW_VIEWPORT=phone` selects one of those
+four viewports for a bounded rerun. The default still tests all four.
+The landscape case also rotates the open guide to portrait and back, checking
+that the hidden map illustration resumes with valid canvas dimensions.
+Existing M44–M61 suites cover inspector, alerts,
+save/load/import/export, event/report dialogs and the remaining menu routes.
+
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not
 look, point `PLAYWRIGHT_CHROMIUM` at the executable:

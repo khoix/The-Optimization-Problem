@@ -456,7 +456,15 @@ export class Guide {
     const dt = Math.max(0, Math.min(0.1, (now - this.lastFrame) / 1000));
     this.lastFrame = now;
     const p = PAGES[this.page];
-    if (p.figure.kind === 'map') {
+    // Short touch landscape hides the illustration. Rendering its zero-sized
+    // canvas would send an empty blur buffer to drawImage. Keep the loop alive
+    // so rotating back restores the illustration without reopening the guide.
+    const width = this.canvas.clientWidth, height = this.canvas.clientHeight;
+    if (p.figure.kind === 'map' && width > 0 && height > 0) {
+      if (this.canvas.width !== width || this.canvas.height !== height) {
+        this.renderer.resize();
+        this.renderer.centerOn(p.figure.at[0], p.figure.at[1]);
+      }
       this.renderer.update(this.scene, dt, 1);
       // The illustration's weather is not a variable the reader can act on,
       // and rain over a page about road access is just noise.
