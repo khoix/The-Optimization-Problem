@@ -5,7 +5,57 @@ npm run check      # types only, no build
 npm test           # build, serve, drive a browser through every suite
 npm test -- m54    # one suite
 npm test -- --no-build
+npm run review:visual  # 30 fixed art-review captures plus a replay check
 ```
+
+Visual review writes a PNG gallery and state manifest to
+`artifacts/visual-review/` (ignored). It uses the same browser and built app as
+the suites. See [the visual handoff](../docs/AI-VISUAL-OVERHAUL-HANDOFF.md) for
+fixture assumptions, capture controls, and art direction. `npm test -- m62`
+checks the new workflow without writing screenshots.
+The default gallery includes all four seasons and a heavy-traffic fixture that
+uses the real road-capacity calculation and agent spawner. Its manifest reports
+season, car count and congestion, with a minimum of 40 cars at full congestion.
+
+`VISUAL_SURFACES=1 npm run review:visual` captures all four scenario terrains
+at overview, normal and close zoom, plus utility overlays and placement/removal
+feedback. It uses a 1280×800 viewport and asserts that each requested zoom is
+actually reached. Use `VISUAL_REVIEW_DIR` to keep it separate from the default
+gallery. `npm test -- m63` checks terrain/road atlas properties and neighbor
+redraws after rock clearance.
+
+`VISUAL_ARCHITECTURE=1 npm run review:visual` reviews every non-road building
+at 0.5×, 2× and 4× in daylight and at night, plus eight construction/lifecycle
+and occlusion-relief plates (68 captures). Its deliberately flattened test lot
+isolates architectural differences; it is not a playable economic scenario.
+Bounds assertions keep complete buildings above the desktop controls. M64
+checks compute facade materials; M65 checks all 29 atlases, footprint/emissive
+alignment, state preservation and tall-building viewport-edge rendering.
+
+`VISUAL_LIGHTING=1 VISUAL_PROFILE=1 npm run review:visual` captures nine lighting
+states on desktop, phone and landscape: dawn, noon, dusk, midnight, storm, snow,
+compute district, polluted industry and extended observation. The manifest adds
+12 warm renderer timing samples (after four warmups), per-pass timings, buffer
+dimensions, 11 transition hashes and four animation samples, plus a PNG filmstrip.
+Timing uses a preserved real clock while
+animation stays frozen; it measures CPU submission, not GPU presentation.
+M66 checks eased day/night boundaries, actual transition rendering, unchanged
+simulation state and the existing buffer ceiling. Compare same-host manifests;
+absolute wall-clock thresholds are intentionally not CI assertions.
+
+`UI_REVIEW_DIR=artifacts/ui-review npm test -- m67` exercises and captures the
+title, guide, settings, region picker, civic bar, construction/indicator/policy/
+allocation/politics drawers, and phase 4/5/observer presentation. It uses desktop
+(1340×860), narrow desktop (960×700), phone (390×844) and short landscape
+(740×380), including touch emulation and reduced motion. Assertions check live
+control routes, viewport fit, numeric typography, keyboard focus, phase accents,
+observer status wrapping and animation suppression. Omit `UI_REVIEW_DIR` for
+assertions without PNG capture; `UI_REVIEW_VIEWPORT=phone` selects one of those
+four viewports for a bounded rerun. The default still tests all four.
+The landscape case also rotates the open guide to portrait and back, checking
+that the hidden map illustration resumes with valid canvas dimensions.
+Existing M44–M61 suites cover inspector, alerts,
+save/load/import/export, event/report dialogs and the remaining menu routes.
 
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not

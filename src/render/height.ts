@@ -106,20 +106,20 @@ export interface Facade {
 }
 
 /** How a district's walls are built, which is what makes districts distinguishable. */
-type WallStyle = 'glass' | 'masonry' | 'industrial' | 'civic';
+type WallStyle = 'glass' | 'masonry' | 'industrial' | 'civic' | 'compute';
 
 function wallStyleOf(type: BuildingType): WallStyle {
   const def = BUILDING_DEFS[type];
-  if (def.category === 'compute') return 'glass';
+  if (def.category === 'compute') return 'compute';
   if (def.category === 'power' || def.category === 'industry') return 'industrial';
   if (def.category === 'civic' || def.category === 'amenity') return 'civic';
   // Tall housing is curtain wall; low housing is brick and render.
-  return heightOf(type) >= 24 ? 'glass' : 'masonry';
+  return type === 'highrise' || type === 'arcology' || type === 'office' ? 'glass' : 'masonry';
 }
 
 /**
  * Build the front wall for one building type: a band the width of the footprint,
- * keyed to the roof's own palette so it cannot look bolted on, with a window
+ * keyed to its material family, with a window
  * pattern that is deterministic per type — a given building always looks like
  * itself across sessions.
  */
@@ -140,7 +140,12 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
   const [albedo, a] = mk();
   const [emissive, e] = mk();
 
-  const [br, bg, bb] = edgeColor(roof);
+  // A footprint edge can be lawn or paving, not a wall. Use material pigments
+  // for occupied buildings so yards no longer produce green/brown tower walls.
+  const [br, bg, bb] = style === 'masonry' ? [174, 145, 113]
+    : style === 'civic' ? [187, 180, 157]
+    : style === 'industrial' ? [133, 139, 131]
+    : style === 'glass' ? [115, 141, 155] : edgeColor(roof);
   const shade = (k: number, alpha = 1) =>
     `rgba(${Math.round(br * k)},${Math.round(bg * k)},${Math.round(bb * k)},${alpha})`;
 
@@ -165,7 +170,27 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
     return seed / 4294967296;
   };
 
-  if (style === 'industrial') {
+  if (style === 'compute') {
+    // Sealed service bays distinguish machine halls from occupied glass towers.
+    // Larger facilities repeat wider modules; lights remain a separate layer.
+    const bay = type === 'ai_campus' ? 10 : type === 'cloud_dc' ? 8 : 6;
+    a.fillStyle = '#28313b';
+    a.fillRect(1, 1, w - 2, h - 2);
+    for (let sx = 2; sx < w - 2; sx += bay) {
+      a.fillStyle = '#43515b';
+      a.fillRect(sx, 1, 1, h - 2);
+      for (let sy = 3; sy < h - 5; sy += 4) {
+        a.fillStyle = '#151e27';
+        a.fillRect(sx + 1, sy, Math.min(bay - 2, w - sx - 3), 2);
+      }
+      a.fillStyle = '#315661';
+      a.fillRect(sx + 2, 2, 2, 1);
+      e.fillStyle = 'rgba(112,216,232,0.75)';
+      e.fillRect(sx + 2, 2, 2, 1);
+    }
+    a.fillStyle = '#17202a';
+    a.fillRect(1, h - 3, w - 2, 2);
+  } else if (style === 'industrial') {
     // Ribbed cladding with few openings: sheds and plant, not offices.
     for (let x = 2; x < w - 1; x += 3) {
       a.fillStyle = 'rgba(255,255,255,0.05)';
@@ -188,7 +213,7 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
   } else {
     // Storey grid. Glass runs as continuous bands; masonry and civic are
     // punched openings with piers between them.
-    const storey = style === 'glass' ? 4 : 5;
+    const storey = type === 'arcology' ? 7 : style === 'glass' ? 5 : 6;
     const litChance = style === 'glass' ? 0.42 : style === 'civic' ? 0.5 : 0.3;
     for (let sy = 2; sy + 2 <= h - 1; sy += storey) {
       if (style === 'glass') {
@@ -214,12 +239,49 @@ export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade 
     }
   }
 
+  // Structural rhythm is visible before window detail at overview scale.
+  if (style === 'civic') {
+    a.fillStyle = shade(0.94);
+    for (let x = 2; x < w - 2; x += 8) a.fillRect(x, 1, 1, h - 2);
+    a.fillRect(1, h - 2, w - 2, 1);
+  } else if (style === 'masonry') {
+    a.fillStyle = shade(0.9, 0.35);
+    for (let y = 5; y < h - 3; y += 6) a.fillRect(1, y, w - 2, 1);
+    if (type === 'apartment' || type === 'midrise') {
+      for (let y = 5; y < h - 4; y += 6) for (let x = 3; x < w - 5; x += 8) {
+        a.fillStyle = '#424d4e'; a.fillRect(x, y, 5, 2);
+        a.fillStyle = '#adab95'; a.fillRect(x, y, 5, 1);
+      }
+    }
+  } else if (style === 'glass') {
+    a.fillStyle = '#91a4a5';
+    for (let x = 1; x < w - 1; x += type === 'office' ? 8 : 12) a.fillRect(x, 1, 1, h - 2);
+    if (type === 'arcology') {
+      for (let y = 13; y < h - 5; y += 14) {
+        a.fillStyle = '#344e42'; a.fillRect(1, y, w - 2, 2);
+        a.fillStyle = '#8e9c86'; a.fillRect(1, y, w - 2, 1);
+        e.clearRect(1, y, w - 2, 2);
+      }
+    }
+  } else if (style === 'industrial' && h >= 10) {
+    // Ground-level service doors and lintels, not another occupied floor.
+    for (let x = 4; x < w - 9; x += 14) {
+      a.fillStyle = '#303d42'; a.fillRect(x, h - 6, 7, 5);
+      a.fillStyle = '#a2997a'; a.fillRect(x, h - 7, 7, 1);
+      a.fillStyle = '#61706e'; a.fillRect(x + 1, h - 4, 5, 1);
+      e.clearRect(x, h - 6, 7, 5);
+    }
+  }
+
   // Ground-floor entrance for anything people walk into.
-  if (h >= 10 && def.category !== 'power') {
+  if (h >= 5 && def.category !== 'power') {
     const dx = Math.floor(w / 2) - 1;
     a.fillStyle = 'rgba(24,21,18,0.92)';
     a.fillRect(dx, h - 4, 3, 4);
-    e.fillStyle = 'rgba(255,196,120,0.5)';
+    if (style === 'masonry' || style === 'civic') {
+      a.fillStyle = shade(1.08); a.fillRect(dx - 1, h - 5, 5, 1);
+    }
+    e.fillStyle = style === 'compute' ? 'rgba(112,216,232,0.5)' : 'rgba(255,196,120,0.5)';
     e.fillRect(dx, h - 3, 3, 2);
   }
   return { albedo, emissive, height: h };

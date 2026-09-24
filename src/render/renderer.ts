@@ -10,6 +10,7 @@ import {
   carSprites, pedestrianSprites, type TerrainSprites, type Sprite,
 } from './sprites';
 import { AmbientLife } from './agents';
+import { AMBIENT_KEYS, LIGHTING, MOTION, TERRAIN_PALETTE } from './visual';
 import { computeConnectivity, computeCoverage, covered } from '../game/network';
 import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } from './height';
 
@@ -68,9 +69,9 @@ const DEMOLISH_COLORS: Record<DemolishPreview['kind'], [string, string]> = {
 interface PointLight { x: number; y: number; r: number; color: string; intensity: number; }
 
 /** Sodium warm, for both the bulb and the pool it throws. */
-const LAMP_COLOR = '#ffe7b4';
+const LAMP_COLOR = LIGHTING.streetLamp;
 /** How far a lamp's light reaches, in world pixels. A tile and a bit. */
-const LAMP_RADIUS = 19;
+const LAMP_RADIUS = LIGHTING.streetLampRadius;
 /** Bulb inset from the kerb, and the centre line of a 16px tile. */
 const EDGE = 1;
 const MID = TILE / 2;
@@ -101,26 +102,14 @@ const LAMP_OFFSETS: Array<Array<[number, number]>> = [
 const POOL_THINNING = 2;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const smooth = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
 
-/** Ambient light keyframes across 24h: [hour, r, g, b]. */
-const AMBIENT_KEYS: Array<[number, number, number, number]> = [
-  [0, 44, 54, 96],
-  [4.5, 50, 58, 104],
-  [6, 200, 140, 110],
-  [8, 244, 226, 200],
-  [12, 255, 250, 238],
-  [16, 250, 236, 210],
-  [18.5, 235, 160, 110],
-  [20, 110, 90, 140],
-  [21.5, 54, 62, 106],
-  [24, 44, 54, 96],
-];
-
+/** Interpolate the shared 24-hour ambient light curve. */
 function ambientAt(hour: number): [number, number, number] {
   for (let i = 0; i < AMBIENT_KEYS.length - 1; i++) {
     const a = AMBIENT_KEYS[i], b = AMBIENT_KEYS[i + 1];
     if (hour >= a[0] && hour <= b[0]) {
-      const t = (hour - a[0]) / (b[0] - a[0] || 1);
+      const t = smooth((hour - a[0]) / (b[0] - a[0] || 1));
       return [lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t)];
     }
   }
@@ -551,7 +540,7 @@ export class Renderer {
     c.clip();
   }
 
-  /** Lazily built front walls, keyed off each roof sprite's own palette. */
+  /** Lazily built front walls, keyed by architectural material family. */
   private facades = new Map<BuildingType, Facade | null>();
   private facadeFor(type: BuildingType): Facade | null {
     if (!this.facades.has(type)) {
@@ -592,14 +581,20 @@ export class Renderer {
     if (g.mapVersion !== this.cachedMapVersion) this.syncTerrainCache(g);
     w.drawImage(this.terrainCache!, camX, camY, W, H, 0, 0, W, H);
 
-    const waterFrame = ((Math.floor(this.t * 2.2) % 3) + 3) % 3;
+    const waterFrame = ((Math.floor(this.t * MOTION.waterFramesPerSecond) % 3) + 3) % 3;
     const wetRoads = this.rain > 0.25 && !this.snowing;
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
         const tile = g.map[ty * g.mapW + tx];
         const dx = tx * TILE - camX, dy = ty * TILE - camY;
         if (tile.terrain === 'water') {
-          w.drawImage(this.terrain.water[waterFrame], dx, dy);
+          w.drawImage(this.terrain.water[(waterFrame + tile.variant) % 3], dx, dy);
+          let shore = 0;
+          if (ty > 0 && g.map[(ty - 1) * g.mapW + tx].terrain !== 'water') shore |= 1;
+          if (tx + 1 < g.mapW && g.map[ty * g.mapW + tx + 1].terrain !== 'water') shore |= 2;
+          if (ty + 1 < g.mapH && g.map[(ty + 1) * g.mapW + tx].terrain !== 'water') shore |= 4;
+          if (tx > 0 && g.map[ty * g.mapW + tx - 1].terrain !== 'water') shore |= 8;
+          if (shore) w.drawImage(this.terrain.shore[shore], dx, dy);
           // Water is animated, so it is drawn live rather than baked — which
           // means it lands on top of anything the terrain cache put here. A
           // bridge deck goes back over it, and its transparent margins let the
@@ -655,7 +650,10 @@ export class Renderer {
           this.ectx.globalAlpha = 1;
         }
       } else {
-        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1);
+        // A one-pixel stride, keyed to distance, leaves routes and speed intact.
+        // Observer pedestrians glide with the same mechanical precision as cars.
+        const stride = g.asi.observer ? 0 : Math.round(Math.sin((a.x + a.y) * 0.8 + a.variant) * 0.6);
+        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1 + stride);
       }
     }
 
@@ -734,11 +732,27 @@ export class Renderer {
     for (const b of sorted) {
       const def = BUILDING_DEFS[b.type];
       const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
-      if (dx + def.w * TILE < 0 || dy + def.h * TILE < 0 || dx > W || dy > H) continue;
+      const bhPx = heightOf(b.type);
+      const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
+      const rx = dx + px, ry = dy - bhPx + py;
+      // Cull the projected mass as well as its footprint: a roof can still be
+      // visible when the ground-level base has passed below the viewport.
+      if (Math.max(dx, rx) + def.w * TILE < 0 || Math.max(dy, ry) + def.h * TILE < 0
+        || Math.min(dx, rx) > W || Math.min(dy, ry) > H) continue;
       const spr = this.buildings.get(b.type);
       if (!spr) continue;
       if (b.progress < 1) {
         w.drawImage(this.constructionFor(def.w, def.h), dx, dy);
+        if (b.progress > 0.25) {
+          // The frame gains cross-members before cladding appears.
+          w.fillStyle = '#c0ab80';
+          for (let x = 4; x < def.w * TILE - 3; x += 8) {
+            w.fillRect(dx + x, dy + 4, 1, def.h * TILE - 8);
+          }
+          w.fillStyle = '#6a6457';
+          for (let y = 6; y < def.h * TILE - 3; y += 8)
+            w.fillRect(dx + 3, dy + y, def.w * TILE - 6, 1);
+        }
         if (b.progress > 0.5) {
           w.globalAlpha = (b.progress - 0.5) * 2 * 0.8;
           w.drawImage(spr.albedo, dx, dy);
@@ -749,9 +763,6 @@ export class Renderer {
       // Height pass. The roof rises by the building's height, sheared by its
       // distance off the optical axis; the facade fills the gap down to the
       // footprint the building actually stands on.
-      const bhPx = heightOf(b.type);
-      const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
-      const rx = dx + px, ry = dy - bhPx + py;
       const fac = this.facadeFor(b.type);
       // Occlusion relief. Mass that can hide ground goes translucent while a
       // build tool is out, so a tower never costs the player the tiles behind
@@ -808,6 +819,14 @@ export class Renderer {
         w.fillRect(darkEdge, ry + 1, 1, lit - 2);
       }
       this.drawEvolutionDetails(g, b, rx, ry, nightF);
+      // Local pollution leaves restrained runoff under the roof edge. This
+      // reads on the structure itself without adding another atmosphere pass.
+      const grime = Math.min(0.28, g.map[b.y * g.mapW + b.x].pollution * 0.5);
+      if (grime > 0.025 && fac) {
+        w.fillStyle = `rgba(53,43,29,${grime})`;
+        for (let x = 3 + b.id % 4; x < def.w * TILE - 2; x += 9)
+          w.fillRect(rx + x, ry + def.h * TILE, 2, Math.min(bhPx, 3 + (x + b.id) % 7));
+      }
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
         w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
@@ -824,8 +843,10 @@ export class Renderer {
       // emissive: windows at night; server LEDs always, blinking
       if (spr.emissive && b.active) {
         const isCompute = def.category === 'compute';
-        const blink = isCompute ? 0.55 + 0.45 * Math.sin(this.t * 6 + b.id * 2.1) : 1;
-        const strength = isCompute ? 0.35 + nightF * 0.65 : nightF;
+        // Server activity breathes gently; optimization settles into one cadence.
+        const order = g.asi.observer ? 1 : Math.min(1, g.asi.emergence / 100);
+        const blink = isCompute ? 0.88 + 0.12 * Math.sin(this.t * 1.8 + b.id * 2.1 * (1 - order)) : 1;
+        const strength = isCompute ? 0.24 + nightF * 0.58 : nightF * 0.8;
         if (strength > 0.05) {
           const a = strength * blink;
           w.globalAlpha = a;
@@ -959,9 +980,9 @@ export class Renderer {
 
     this.stamp('particles');
     // ------------------------------------------------------------ cloud shadows
-    if (this.rain < 0.4) {
+    if (this.rain < 0.55) {
       const cw = this.clouds.width;
-      w.globalAlpha = 0.5 * (1 - nightF * 0.8);
+      w.globalAlpha = 0.42 * (1 - nightF * 0.8) * (1 - smooth(this.rain / 0.55));
       const drift = (this.t * 4) % (g.mapW * TILE + cw * 2);
       w.drawImage(this.clouds, drift - cw - camX, g.mapH * TILE * 0.2 - camY);
       w.drawImage(this.clouds, drift * 0.7 - cw - camX + 300, g.mapH * TILE * 0.6 - camY);
@@ -1065,8 +1086,15 @@ export class Renderer {
           : ['rgba(110,220,130,0.3)', '#6edc82'];
       w.fillStyle = cFill;
       w.fillRect(dx, dy, def.w * TILE, def.h * TILE);
-      w.strokeStyle = cLine;
-      w.strokeRect(dx + 0.5, dy + 0.5, def.w * TILE - 1, def.h * TILE - 1);
+      this.outlineFootprint(w, dx, dy, def.w * TILE, def.h * TILE, cLine);
+      if (!ui.canPlaceHere) {
+        // An X carries refusal even when the player cannot distinguish red.
+        w.strokeStyle = cLine;
+        w.beginPath();
+        w.moveTo(dx + 3, dy + 3); w.lineTo(dx + def.w * TILE - 3, dy + def.h * TILE - 3);
+        w.moveTo(dx + def.w * TILE - 3, dy + 3); w.lineTo(dx + 3, dy + def.h * TILE - 3);
+        w.stroke();
+      }
     }
     // --------------------------------------------------------- demolish cursor
     if (ui.demolish) {
@@ -1093,8 +1121,8 @@ export class Renderer {
         w.stroke();
       }
       w.restore();
+      this.outlineFootprint(w, dx, dy, dw, dh, line);
       w.strokeStyle = line;
-      w.strokeRect(dx + 0.5, dy + 0.5, dw - 1, dh - 1);
       // A building is mostly not on the tile you clicked — outline the mass too,
       // or a tall block reads as though only its base is being taken.
       if (d.buildingId != null) {
@@ -1236,7 +1264,7 @@ export class Renderer {
       this.bctx.fillRect(0, 0, hw, hh);
       this.bctx.globalCompositeOperation = 'source-over';
       s.imageSmoothingEnabled = true;
-      s.globalAlpha = detail;
+      s.globalAlpha = detail * 0.72;
       s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
       s.globalAlpha = 1;
       s.imageSmoothingEnabled = !crisp;
@@ -1259,10 +1287,11 @@ export class Renderer {
       this.blctx.drawImage(this.emiss, 0, 0, W, H, 0, 0, W, H);
       this.blctx.filter = 'none';
       s.imageSmoothingEnabled = true; // smooth scale sells the glow
-      s.globalCompositeOperation = 'lighter';
-      s.globalAlpha = bloomStrength * 0.55;
+      // Screen preserves pale roof detail; additive blending clipped skylights.
+      s.globalCompositeOperation = 'screen';
+      s.globalAlpha = bloomStrength * 0.34;
       s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-      s.globalAlpha = bloomStrength * 0.5;
+      s.globalAlpha = bloomStrength * 0.18;
       s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
       s.globalAlpha = 1;
       s.globalCompositeOperation = 'source-over';
@@ -1278,7 +1307,7 @@ export class Renderer {
     if (!this.vignetteGrad) {
       const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(8,10,18,0.32)');
+      vg.addColorStop(1, 'rgba(8,10,18,0.24)');
       this.vignetteGrad = vg;
     }
     s.fillStyle = this.vignetteGrad;
@@ -1290,8 +1319,8 @@ export class Renderer {
     const h = this.hour;
     if (h >= 8 && h <= 17) return 0;
     if (h >= 21 || h <= 4.5) return 1;
-    if (h > 17 && h < 21) return (h - 17) / 4;
-    return 1 - (h - 4.5) / 3.5; // dawn
+    if (h > 17 && h < 21) return smooth((h - 17) / 4);
+    return 1 - smooth((h - 4.5) / 3.5); // dawn
   }
 
   /**
@@ -1313,8 +1342,11 @@ export class Renderer {
         ];
         const [bg, fg] = palette[b.id % 4];
         const cx = dx + def.w * TILE - 6, cy = dy + 2;
+        w.fillStyle = '#10182188'; w.fillRect(cx + 1, cy + 1, 5, 4);
         w.fillStyle = bg; w.fillRect(cx, cy, 5, 4);
-        w.fillStyle = fg; w.fillRect(cx + 1, cy + 1, 3, 2);
+        // Tiny glyphs supplement the ownership palette with a shape cue.
+        w.fillStyle = fg; w.fillRect(cx + 1, cy + 1, 1, 2);
+        w.fillRect(cx + 2, cy + 1 + b.id % 2, 2, 1);
         if (nightF > 0.3) {
           this.ectx.globalAlpha = nightF * 0.8;
           this.ectx.fillStyle = fg;
@@ -1331,9 +1363,12 @@ export class Renderer {
       for (let i = 0; i < extra; i++) {
         const ux = dx + 3 + i * 8;
         if (ux + 6 > dx + def.w * TILE - 2) break;
+        w.fillStyle = '#19232b88'; w.fillRect(ux + 1, baseY + 1, 6, 4);
         w.fillStyle = '#8c9298'; w.fillRect(ux, baseY, 6, 4);
+        w.fillStyle = '#bdc2b4'; w.fillRect(ux, baseY, 6, 1);
         w.fillStyle = '#5e646a'; w.fillRect(ux + 1, baseY + 1, 4, 2);
         w.fillStyle = '#33383e'; w.fillRect(ux + 2, baseY + 2, 2, 1);
+        if (i > 0) { w.fillStyle = '#8b9fa1'; w.fillRect(ux - 2, baseY + 1, 2, 1); }
       }
     }
   }
@@ -1349,7 +1384,7 @@ export class Renderer {
     const nightF = this.nightFactor();
     const dawn = Math.max(0, 1 - Math.abs(this.hour - 7) / 1.6);
     const dusk = Math.max(0, 1 - Math.abs(this.hour - 18) / 1.6);
-    const golden = Math.max(dawn, dusk) * (1 - this.rain * 0.8);
+    const golden = smooth(Math.max(dawn, dusk)) * (1 - this.rain * 0.8);
 
     if (golden > 0.03) {
       s.save();
@@ -1370,12 +1405,14 @@ export class Renderer {
 
     // storm-break shafts: vertical columns through torn cloud
     if (this.rain > 0.12 && this.rain < 0.55 && nightF < 0.6) {
+      const breakLight = smooth((this.rain - 0.12) / 0.12)
+        * (1 - smooth((this.rain - 0.35) / 0.2)) * (1 - smooth(nightF / 0.6));
       s.save();
       s.globalCompositeOperation = 'screen';
       for (let i = 0; i < 3; i++) {
         const x = ((this.t * 6 + i * sw * 0.37) % (sw + 200)) - 100;
         const grad = s.createLinearGradient(0, 0, 0, sh);
-        grad.addColorStop(0, 'rgba(220,230,245,0.055)');
+        grad.addColorStop(0, `rgba(220,230,245,${(0.045 * breakLight).toFixed(4)})`);
         grad.addColorStop(0.85, 'rgba(220,230,245,0)');
         s.fillStyle = grad;
         s.fillRect(x, 0, 60 + i * 26, sh);
@@ -1393,13 +1430,16 @@ export class Renderer {
         if (b.progress < 1 || !b.active) continue;
         const def = BUILDING_DEFS[b.type];
         if (def.category !== 'compute' || def.compute < 20) continue;
-        const px = (b.x * TILE + def.w * TILE / 2 - this.camX) * this.zoom;
-        const py = (b.y * TILE - this.camY) * this.zoom;
+        const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+        const height = heightOf(b.type);
+        const [sx, sy] = parallaxShift(dx, dy, height, this.viewW, this.viewH);
+        const px = (dx + sx + def.w * TILE / 2) * this.zoom;
+        const py = (dy - height + sy) * this.zoom;
         if (px < -60 || px > sw + 60 || py < -100 || py > sh + 100) continue;
-        const blink = 0.8 + 0.2 * Math.sin(this.t * 2.5 + b.id);
+        const blink = 0.92 + 0.08 * Math.sin(this.t * 1.8 + (g.asi.observer ? 0 : b.id));
         const hgt = (60 + def.w * 22) * this.zoom * 0.7;
         const grad = s.createLinearGradient(0, py, 0, py - hgt);
-        grad.addColorStop(0, `rgba(120,185,255,${(0.085 * nightF * blink).toFixed(3)})`);
+        grad.addColorStop(0, `rgba(120,185,255,${(0.06 * smooth((nightF - 0.35) / 0.65) * blink).toFixed(3)})`);
         grad.addColorStop(1, 'rgba(120,185,255,0)');
         s.fillStyle = grad;
         s.fillRect(px - def.w * TILE * this.zoom * 0.45, py - hgt, def.w * TILE * this.zoom * 0.9, hgt);
@@ -1417,7 +1457,7 @@ export class Renderer {
       // Perfection accumulates: the longer the system runs, the cleaner,
       // brighter, and less alive the light becomes.
       const t = Math.min(1, Math.max(0, g.tick - g.asi.phaseTick) / 120);
-      return `saturate(${(0.92 - t * 0.14).toFixed(2)}) brightness(${(1.04 + t * 0.05).toFixed(2)}) hue-rotate(${(-6 - t * 6).toFixed(1)}deg)`;
+      return `saturate(${(0.92 - t * 0.14).toFixed(2)}) brightness(${(1.02 + t * 0.02).toFixed(2)}) hue-rotate(${(-6 - t * 6).toFixed(1)}deg)`;
     }
     // Seasonal grading layered under the era drift: crisp desaturated winters,
     // green springs, warm summers, amber autumns.
@@ -1551,7 +1591,7 @@ export class Renderer {
           const p = Math.min(1, g.map[ty * g.mapW + tx].pollution * 2);
           if (p <= 0.02) continue;
           const r = 232, gg = Math.round(200 - 140 * p), b = Math.round(90 - 60 * p);
-          w.fillStyle = `rgba(${r},${gg},${b},${(0.14 + p * 0.5).toFixed(3)})`;
+          w.fillStyle = `rgba(${r},${gg},${b},${(0.12 + p * 0.38).toFixed(3)})`;
           w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
         }
       }
@@ -1562,7 +1602,7 @@ export class Renderer {
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
           const inside = grid[ty * g.mapW + tx];
-          w.fillStyle = inside ? `rgba(${tint},0.20)` : 'rgba(10,14,22,0.45)';
+          w.fillStyle = inside ? `rgba(${tint},0.18)` : 'rgba(10,14,22,0.30)';
           w.fillRect(tx * TILE - camX, ty * TILE - camY, TILE, TILE);
         }
       }
@@ -1691,7 +1731,31 @@ export class Renderer {
       case 'water': break; // animated, drawn live
       case 'sand': c.drawImage(this.terrain.sand[tile.variant], dx, dy); break;
       case 'rock': c.drawImage(this.terrain.rock[tile.variant], dx, dy); break;
+      case 'forest': c.drawImage(this.terrain.forest[tile.variant], dx, dy); break;
       default: c.drawImage(this.terrain.grass[tile.variant], dx, dy);
+    }
+    if (!tile.road && tile.terrain !== 'water') {
+      // Contained in this tile: the existing cardinal dirty-neighbor expansion
+      // repaints every affected edge when rock is cleared or forest is built on.
+      const neighbors = [[tx, ty - 1], [tx + 1, ty], [tx, ty + 1], [tx - 1, ty]];
+      neighbors.forEach(([nx, ny], edge) => {
+        if (nx < 0 || ny < 0 || nx >= g.mapW || ny >= g.mapH) return;
+        const other = g.map[ny * g.mapW + nx];
+        if (other.road || other.terrain === tile.terrain) return;
+        const color = other.terrain === 'water' ? TERRAIN_PALETTE.shore.bank
+          : tile.terrain === 'grass' && other.terrain === 'sand' ? TERRAIN_PALETTE.sand.shade
+          : tile.terrain === 'grass' && other.terrain === 'rock' ? TERRAIN_PALETTE.rock.shade
+          : tile.terrain === 'grass' && other.terrain === 'forest' ? TERRAIN_PALETTE.forest.base : null;
+        if (!color) return;
+        c.fillStyle = color;
+        for (let along = 0; along < TILE; along += 4) {
+          const depth = 1 + ((along / 4 + tile.variant) % 2);
+          if (edge === 0) c.fillRect(dx + along, dy, 4, depth);
+          if (edge === 1) c.fillRect(dx + TILE - depth, dy + along, depth, 4);
+          if (edge === 2) c.fillRect(dx + along, dy + TILE - depth, 4, depth);
+          if (edge === 3) c.fillRect(dx, dy + along, depth, 4);
+        }
+      });
     }
     if (tile.road) {
       let mask = 0;
@@ -1701,6 +1765,16 @@ export class Renderer {
       if (g.map[ty * g.mapW + tx - 1]?.road && tx - 1 >= 0) mask |= 8;
       c.drawImage(this.roads[tile.roadType ?? 1][mask], dx, dy);
     }
+  }
+
+  /** Dark keyline protects tool feedback against bright sand and striped roads. */
+  private outlineFootprint(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string): void {
+    c.save();
+    c.strokeStyle = '#101923'; c.lineWidth = 3;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    c.strokeStyle = color; c.lineWidth = 1;
+    c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    c.restore();
   }
 
   private constructionFor(w: number, h: number): HTMLCanvasElement {

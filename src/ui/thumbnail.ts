@@ -14,6 +14,7 @@
 
 import { newGame } from '../game/state';
 import { type ScenarioId } from '../game/scenarios';
+import { TERRAIN_PALETTE, ROAD_MATERIALS } from '../render/visual';
 
 /**
  * Ground colours, one per terrain, taken from the sprites that draw them.
@@ -22,14 +23,14 @@ import { type ScenarioId } from '../game/scenarios';
  * a tile there is no room for a tree — the canopy has to be the colour.
  */
 const GROUND: Record<string, string> = {
-  grass: '#4a7f3c',
-  forest: '#2f5a28',
-  sand: '#c9b06a',
-  rock: '#6e6f6a',
-  water: '#2e5f8f',
+  grass: TERRAIN_PALETTE.grass.base,
+  forest: TERRAIN_PALETTE.foliage.base,
+  sand: TERRAIN_PALETTE.sand.base,
+  rock: TERRAIN_PALETTE.rock.base,
+  water: TERRAIN_PALETTE.water.base,
 };
 /** The settlement, drawn over the ground it stands on. */
-const PAVED = '#585d66';
+const PAVED = ROAD_MATERIALS[1].surface;
 const BUILT = '#d8cdb6';
 
 /**

@@ -27,6 +27,7 @@ const DEV_PORT = 4174;
 
 const args = process.argv.slice(2);
 const noBuild = args.includes('--no-build');
+const visualReview = args.includes('--visual-review');
 const only = args.filter((a) => !a.startsWith('--'));
 
 const run = (cmd, cmdArgs, opts = {}) => new Promise((resolve) => {
@@ -56,7 +57,7 @@ if (!noBuild) {
   if (code !== 0) { console.error('\nbuild failed — nothing to test'); process.exit(code); }
 }
 
-const names = readdirSync(SUITES)
+const names = visualReview ? ['../visual-review.mjs'] : readdirSync(SUITES)
   .filter((f) => /^m\d+\.mjs$/.test(f))
   .sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10))
   .filter((f) => !only.length || only.includes(f.replace('.mjs', '')));

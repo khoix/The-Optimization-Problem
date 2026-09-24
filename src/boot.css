@@ -24,7 +24,8 @@
 :root {
   --asi: #7ae9ff;
   --accent: #5aa8e8;
-  --text-dim: #8a94a8;
+  --text-dim: #a4adb5;
+  --control-accent: #d2b784;
   --mono: 'Cascadia Code', 'Consolas', monospace;
 }
 /* The frame before the first paint belongs to the game too: without this the
@@ -150,12 +151,12 @@ body.booting { overflow: hidden; }
 }
 .boot-bar {
   height: 2px; border-radius: 2px; overflow: hidden;
-  background: rgba(122, 233, 255, 0.13);
+  background: rgba(210, 183, 132, 0.13);
 }
 .boot-bar > i {
   display: block; height: 100%; width: 0;
-  background: linear-gradient(to right, var(--accent), var(--asi));
-  box-shadow: 0 0 14px rgba(122, 233, 255, 0.75);
+  background: linear-gradient(to right, #897957, var(--control-accent));
+  box-shadow: 0 0 8px rgba(210, 183, 132, 0.3);
   transition: width 220ms cubic-bezier(0.3, 0, 0.2, 1);
 }
 .boot-status {
@@ -171,19 +172,19 @@ body.booting { overflow: hidden; }
   display: block; margin: 13px auto 0; padding: 11px 26px;
   font-family: var(--mono); font-size: 11.5px; letter-spacing: 2.4px;
   text-transform: uppercase; color: #eaf6ff; cursor: pointer;
-  background: rgba(20, 32, 48, 0.72); border: 1px solid rgba(122, 233, 255, 0.42);
+  background: rgba(35, 38, 38, 0.86); border: 1px solid var(--control-accent);
   border-radius: 4px;
   animation: boot-rise 460ms ease both, boot-pulse 2.4s ease-in-out 460ms infinite;
 }
-.boot-begin:hover { background: rgba(30, 48, 70, 0.9); border-color: var(--asi); }
-.boot-begin:focus-visible { outline: 2px solid var(--asi); outline-offset: 3px; }
+.boot-begin:hover { background: rgba(54, 56, 49, 0.94); border-color: var(--control-accent); }
+.boot-begin:focus-visible { outline: 2px solid var(--control-accent); outline-offset: 3px; }
 /* The bar stays — full, and the prompt sits under it. The step line goes: an
    uppercase "READY 100%" directly above "Tap to Begin" is the loading bar
    explaining itself to somebody who has already stopped reading it. */
 .boot-foot.done .boot-status { display: none; }
 @keyframes boot-pulse {
-  0%, 100% { box-shadow: 0 0 0 rgba(122, 233, 255, 0); }
-  50% { box-shadow: 0 0 26px rgba(122, 233, 255, 0.3); }
+  0%, 100% { box-shadow: 0 0 0 rgba(210, 183, 132, 0); }
+  50% { box-shadow: 0 0 18px rgba(210, 183, 132, 0.16); }
 }
 
 /* The finished frame, reachable two ways: somebody who does not want motion,
