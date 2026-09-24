@@ -17,6 +17,9 @@ export const scenes = {
   snow: { dense: true, hour: 15, rain: 0.8, tick: 240, phase: 2 },
   late: { dense: true, hour: 12, rain: 0, tick: 486, phase: 5 },
   observer: { dense: true, hour: 12, rain: 0, tick: 606, phase: 6 },
+  spring: { dense: true, hour: 12, rain: 0, tick: 243, phase: 2 },
+  autumn: { dense: true, hour: 12, rain: 0, tick: 249, phase: 2 },
+  traffic: { dense: true, hour: 12, rain: 0, tick: 246, phase: 2, traffic: true },
 };
 export const lightingScenes = {
   dawn: { ...scenes.dense, hour: 6.8 },
@@ -74,7 +77,9 @@ export async function captureScene(browser, scene, viewport, output) {
     // Freeze RAF, timers and wall time, then draw a fixed number of updates.
     // Pausing game speed alone still advances renderer animation and weather.
     await page.clock.install({ time: new Date('2026-01-01T12:00:00Z') });
-    await page.clock.pauseAt(new Date('2026-01-01T12:00:01Z'));
+    // Allow the browser command round trip under concurrent capture load.
+    // One second could already be in the past when pauseAt reached Chromium.
+    await page.clock.pauseAt(new Date('2026-01-01T12:01:00Z'));
     const metadata = await page.evaluate((config) => {
       const api = window.__api, g = window.__game, r = window.__renderer;
       const next = api.newGame(90210, config.scenario || 'verdant');
@@ -117,6 +122,8 @@ export async function captureScene(browser, scene, viewport, output) {
         }
       }
       g.tick = config.tick; g.speed = 0; g.pendingEvent = null;
+      // Stress real road capacity and the production agent spawner, not mock cars.
+      if (config.traffic) g.population = 10000;
       g.asi.phase = config.phase; g.asi.emergence = config.phase * 16;
       g.asi.observer = config.phase === 6; g.asi.phaseTick = 486;
       if (config.pollution) {
@@ -155,7 +162,7 @@ export async function captureScene(browser, scene, viewport, output) {
       let seed = 24680;
       Math.random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
       try {
-        for (let i = 0; i < 120; i++)
+        for (let i = 0; i < (config.traffic ? 3600 : 120); i++)
           r.life.update(g, 1 / 30, config.rain, r.nightFactor(), snow);
       } finally { Math.random = originalRandom; }
       r.rain = config.rain; r.snowing = snow && config.rain > 0;
@@ -242,6 +249,8 @@ export async function captureScene(browser, scene, viewport, output) {
       return { seed: g.seed, scenario: g.scenario, tick: g.tick, phase: g.asi.phase,
         observer: g.asi.observer, hour: r.hour, rain: r.rain, snowing: r.snowing,
         buildings: g.buildings.size, placed, bounds, profile, transitions, transitionStrip, agents: r.life.agents.length,
+        cars: r.life.agents.filter((a) => a.kind === 'car').length, congestion: r.life.congestion,
+        season: r.constructor.seasonOf(g.tick),
         particles: r.life.particles.length, zoom: r.zoom, camera: [r.camX, r.camY],
         body: document.body.className, canvas: canvas.toDataURL(),
         state: JSON.stringify([...g.buildings.values()]),
@@ -251,6 +260,12 @@ export async function captureScene(browser, scene, viewport, output) {
     assert.equal(metadata.hour, scene.hour);
     assert.equal(metadata.rain, scene.rain);
     assert.equal(metadata.observer, scene.phase === 6);
+    const month = scene.tick % 12;
+    assert.equal(metadata.season, month === 11 || month < 2 ? 0 : month < 5 ? 1 : month < 8 ? 2 : 3);
+    if (scene.traffic) {
+      assert.equal(metadata.congestion, 1, 'traffic fixture reaches road capacity');
+      assert.ok(metadata.cars >= 40, `heavy traffic has real cars: ${metadata.cars}`);
+    }
     if (scene.zoom) assert.equal(metadata.zoom, scene.zoom, 'requested review zoom is actually reached');
     if (scene.architecture) {
       assert.deepEqual(metadata.placed, scene.architecture, 'every requested type is present');

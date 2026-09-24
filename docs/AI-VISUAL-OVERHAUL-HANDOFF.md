@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 5
+# Visual overhaul — architecture and integration validation
 
-Branch: `codex/visual-overhaul`. Execution 5 base: `dec8906`.
-Scope: interface and presentation overhaul. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 6 base: `c58230a`.
+Scope: final integration and validation. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -21,34 +21,34 @@ not by adding another effect layer. The city is the subject, the console its ins
 | Shape / depth | Pixel-aligned 16px ground tiles; legible roof outline, darker facade, contact shadow. Preserve ground footprint, height sorting, parallax and x-ray relief. Large compute blocks must not resemble enlarged houses. |
 | Motion | Civic motion irregular but restrained; system motion increasingly synchronized. Favor slow environmental movement; no decorative whole-screen pulse. Respect existing reduced-motion preferences. Water's existing 2.2 frames/sec is centralized without changing it. |
 | Detail density | Use 2–4 value clusters per material. Texture must disappear before silhouettes at overview zoom; avoid evenly distributed high-contrast single-pixel noise. Landmark details belong at entrances, corners and roof equipment. |
-| UI hierarchy | Reuse `style.css` root tokens and `.console-panel`, `.row-btn`, `.flyout-head`. A 4px spacing unit, 8px control gaps, 12–16px panel padding, and existing 44px touch targets guide later restyling. Preserve title/value/secondary-text distinction and drawer anchoring. |
+| UI hierarchy | `style.css` root tokens and `.console-panel`, `.row-btn`, `.flyout-head` define shared materials. Tabular values, larger secondary copy and distinct active/focus states preserve hierarchy. Existing responsive target sizes and drawer anchoring remain. |
 | Progression | Phases 0–2: warmth and variety. Phase 3: more repetition with intact civic identity. Phases 4–5: cool and simplify existing controls in step with current authority changes. Phase 6: quiet, orderly monitoring; retain the observer exit/history controls. Never change transition thresholds. |
 
 ## Audit and architecture
 
-| Area / entry point | Finding and constraint for subsequent work |
+| Area / entry point | Current architecture and invariant |
 |---|---|
 | `src/render/sprites.ts` | Deterministic procedural albedo/emissive atlases, cached lazily. Quiet clustered grass, layered stone plates, sand bands, distinct forest floor and stepped material edges replace the noisy ground treatment. Roads have five materials × sixteen connectivity masks. Preserve mask/bridge semantics. |
 | `src/render/height.ts` | Explicit per-type heights and five facade families: glass, masonry, industrial, civic, compute. Occupied walls use material pigments rather than sampled lawn/paving edges. Midrise is masonry; highrise/arcology are glass. Keep exhaustive height mapping and occlusion relief. |
 | `src/render/renderer.ts` | Pass order: cached terrain → lamps → agents → trees → depth-sorted buildings → water reflection → haze/particles/clouds → diagnostics/light → placement/selection → grade/upscale → tilt-shift → bloom/shafts/vignette. Do not reorder casually; earlier emissives feed later passes. |
 | Renderer caches / performance | `mapVersion` + dirty tiles govern ground invalidation; building ordering also caches by state. `resetSession()` must accompany fixture swaps. Overview detail fades from zoom 0.55 to 1.0; world-buffer budget is 4.4M pixels. Preserve these controls. |
 | `src/render/agents.ts` | Traffic, pedestrians, smoke, steam and precipitation use real-time randomness. Observer mode regularizes traffic and thins people. Review fixtures seed randomness locally; production randomness is unchanged. |
-| `src/ui/ui.ts`, `src/style.css` | Civic bar, construction drawer, indicators, policies, politics, menu, inspector, settings, feed/toasts, and title share console materials. Dense values and tiny secondary copy compete for attention. The phone bar occupies substantial vertical space. Existing layout/interaction tests are valuable guards. |
+| `src/ui/ui.ts`, `src/style.css` | Civic bar, drawers, inspector, settings, feed/toasts and title share warm graphite materials, readable secondary copy and tabular values. Phase classes cool and simplify these tokens. M67 covers four responsive sizes, focus and reduced motion. |
 | `src/ui/icons.ts` | Two-tone SVG subjects already encode resource semantics; palette extracted without changing paths. Do not replace with an unrelated icon family. |
 | `src/boot.ts`, `src/boot.css`, `src/render/titlecity.ts` | Boot independently stages a city and sweeps warm lights cold before the sprite renderer is ready. Title/menu use the live city and the same console panel. Preserve early paint, staged load and audio-unlock gesture. |
-| ASI / observer | Renderer grading follows emergence and observer age. UI `refresh()` applies phase classes and restructures controls; fixtures exercise this code rather than adding classes directly. Short landscape observer ticker is visibly cramped/clipped; review in Execution 6. |
-| Other layout finding | Settings' tall modal can extend above the desktop viewport in the inspected state. Recheck with ordinary navigation in the UI/responsive pass; no fix attempted here. |
+| ASI / observer | Renderer grading follows emergence and observer age. UI `refresh()` applies phase classes and restructures controls; fixtures exercise this code rather than adding classes directly. Observer status wraps and reserves its own line in short touch landscape. |
+| Responsive dialogs / guide | Dialog height accounts for viewport and civic bar; content scrolls with actions retained. The guide avoids rendering its hidden zero-sized illustration and restores it on rotation. |
 
 ## Shared foundation
 
 `src/render/visual.ts` owns `TERRAIN_PALETTE`, `ROAD_MATERIALS`, `ICON_PALETTE`,
-`AMBIENT_KEYS`, `LIGHTING`, and `MOTION`. Execution 2 changes only the ground/road
-material families; icon colors, ambient light and timing retain their E1 values.
+`AMBIENT_KEYS`, `LIGHTING`, and `MOTION`. Terrain, roads, eased ambient light and
+restrained motion use these shared values; semantic icon colors are preserved.
 It has no DOM work, runtime dependencies, or simulation imports. CSS semantic and
 panel tokens remain canonical in `style.css :root`; boot keeps its independent
 critical styling. Do not merge distinct material and semantic roles just because
 two current swatches look similar. Building-specific pigments remain with their
-drawers until the architectural pass needs shared material abstractions.
+procedural drawers; facade families use the shared material palette.
 
 ## Reproduce the review
 
@@ -63,12 +63,15 @@ Use the existing `PLAYWRIGHT_CHROMIUM` environment override if Chromium is insta
 elsewhere. The runner builds and serves the actual bundle, owns its preview/dev
 servers, and closes them afterwards. No production debug API was added.
 
-- Default output: ignored `artifacts/visual-review/index.html`, 21 PNGs and `manifest.json`.
-- Seven states: early day, populated day, night, rain, snow, phase 5, observer.
+- Default output: ignored `artifacts/visual-review/index.html`, 30 PNGs and `manifest.json`.
+- Ten states: early day, populated day, night, rain, snow, phase 5, observer,
+  spring, autumn and heavy traffic.
 - Viewports: 1340×860, 390×844 touch portrait, 844×390 touch landscape; DPR 1.
 - Seed 90210, Verdant scenario, zoom 2, fixed camera/hour/month/phase; reduced motion.
 - Freeze browser RAF/timers after boot. Reset renderer; seed and warm ambient life
-  for exactly 120 steps. Capture real canvas and DOM. Restore `Math.random` afterwards.
+  for 120 steps (3600 for heavy traffic). Capture real canvas and DOM. Restore
+  `Math.random` afterwards. Traffic stages 10000 residents and asserts full road
+  congestion and at least 40 real cars; the manifest records cars and season.
 - Manifest records actual placed buildings, weather, camera, agents/particles,
   phase classes, and canvas/building-state hashes. Assert population, phase,
   precipitation, no document overflow, and no page errors. Repeat the first
@@ -90,7 +93,7 @@ sites use real placement rules and instant/free construction. Utilities and HUD
 totals are not economically reconciled. M57 remains the simulation-invariant test.
 The surface matrix covers scenario terrain, close/normal/overview scales and
 placement/removal feedback; it does not cover all input gestures, panel states,
-long-running motion, or physical mobile GPUs. Extend only as the next pass needs.
+long-running motion, or physical mobile GPUs.
 
 ## Execution 2 decisions and primitives
 
@@ -117,7 +120,7 @@ long-running motion, or physical mobile GPUs. Extend only as the next pass needs
   This handoff and `test/README.md` document the new review mode.
 - Existing terrain layout, coast stair-stepping and tile grid are preserved.
   This pass softens and articulates boundaries; it does not regenerate the map.
-  Scenario-picker thumbnail colors stay unchanged with the existing UI.
+  E5 subsequently aligned scenario-picker thumbnails with these material colors.
 
 ## Execution record
 
@@ -144,7 +147,7 @@ long-running motion, or physical mobile GPUs. Extend only as the next pass needs
   with the new art. Both galleries passed their same-host repeatability checks.
 - Browser uses the existing `PLAYWRIGHT_CHROMIUM` override. Physical devices,
   browser engines other than Chromium and sustained-animation performance remain
-  untested. Settings/observer-ticker findings above remain out of scope.
+  untested in E2. E5 subsequently resolved the settings/observer-ticker findings.
 
 ## Execution 3 architecture and exceptions
 
@@ -208,18 +211,7 @@ parallax strength, base-depth sorting and x-ray behavior are preserved.
 - No configured lint/formatter; surrounding style and syntax/diff checks apply.
   The existing npm http-proxy environment warning persists. Physical devices,
   non-Chromium engines and sustained-animation performance remain untested.
-  The previous settings/observer ticker findings remain for the UI pass.
-
-## Exact continuation
-
-Execution 4 starts with `src/render/renderer.ts` lighting/post-processing passes,
-`src/render/visual.ts` ambient/light constants and `src/render/agents.ts` motion.
-Reuse the completed terrain and architecture; do not redesign them. Review
-day/night transitions, shadow/contact treatment, point lights, bloom, reflections,
-weather, ambient life, grading, depth and observer atmosphere against the existing
-galleries. Museum/large skylight emitters can saturate under the current bloom;
-assess light intensity in E4 rather than repainting their architecture.
-Execution 4 supersedes that starting point; see the current handoff below.
+  E5 subsequently resolved the settings/observer-ticker findings.
 
 ## Execution 4 — lighting, atmosphere and motion
 
@@ -261,7 +253,8 @@ Transition strips include 11 light/weather boundaries and four animation frames.
 M66 asserts smooth day/night boundaries, small pixel deltas around thresholds,
 actual animation, unchanged simulation state, and the existing buffer budget.
 
-Same-host median CPU submission milliseconds (baseline → final repeat):
+Same-host median CPU submission milliseconds (pre-E4, after E3 → E4 repeat;
+this is not the pre-overhaul baseline):
 
 | Viewport | Noon | Midnight | Extended observer |
 |---|---:|---:|---:|
@@ -300,9 +293,7 @@ E6; no hardware or cross-browser performance claim is made.
   is retained on `codex/visual-overhaul-e4-local` because API commit metadata
   differs; file contents and tree identity must match before switching branches.
 
-Execution 5 starts at the HUD/UI scope in the supplied six-execution plan, using
-the existing tokens, console panels and semantic controls described above.
-Do not alter authority progression or observer controls. Remaining E4 limitations:
+Remaining E4 limitations:
 physical mobile GPU/browser review and continuous interactive feel remain human
 review tasks; precipitation quantities and traffic mechanics intentionally retain
 their existing behavior. No unresolved implementation item is scheduled for E4.
@@ -412,13 +403,79 @@ suites cover inspector, alerts, save/import/export, archive, reports and the
 remaining menus. Physical-device touch feel and mobile GPU performance remain
 human review tasks; browser touch emulation is not a physical-device check.
 
-E5 implementation and validation are complete. The continuation made no further
-production-code changes after the prior landscape fix. Save the nine-file
-change as `Refine civic interface and late-game presentation`, synchronize
-`codex/visual-overhaul`, and verify matching local/remote trees and a clean
-working tree. The final execution report records the synchronized commit.
+E5 was committed and synchronized as `c58230a`, with matching local/remote trees
+and a clean working tree verified at 21:28:26 UTC. No unresolved E5 regression
+was observed in its completed automated checks. The records above describe
+the historical executions; current E6 validation follows below.
 
-Next execution: start E6's final integration and visual validation from this
-E5 branch. Reuse the established world and UI art, the M67 four-viewport review
-command, and the existing visual-review fixtures. No E6 work was begun here;
-no unresolved E5 regression was observed in the completed automated checks.
+## Execution 6 — integration validation record
+
+Budget: 57% of 20 minutes = 11 minutes 24 seconds. Start 21:41:06 UTC on
+2026-09-24; implementation cutoff 21:48:30; hard stop 21:52:30. Production
+source is unchanged from E5. Changes are review fixtures, release notes and
+this final-architecture documentation, including removal of stale findings.
+
+The review now covers spring, autumn and heavy traffic explicitly. Each traffic
+capture produced 90 real cars at full road congestion on desktop, phone and
+landscape. These are staged stress fixtures, not economically viable saves.
+The original 21 integrated captures, 20 scenario/overlay/placement captures,
+68 architecture/lifecycle captures, and 9 added season/traffic captures passed
+their assertions and deterministic replay checks. Selected full-size images
+were inspected for dense/day/night readability, snow/mobile controls, late
+landscape controls, tall night facades, construction, coastline overview and
+traffic. Browser suites exercise live control routes in addition to galleries.
+
+A profile run reproduced a harness race: `clock.pauseAt` could target a time
+already passed during a slow browser command round trip. Its fixed timestamp
+now allows a minute instead of a second; no game clock or production behavior
+changed. The identical baseline/final review harness then completed both
+nine-scene timing sweeps and replay checks. No assertions were weakened.
+
+### Pre-overhaul comparison
+
+`docs/visual-performance-e6.json` preserves the 12 measured samples per scene,
+after four warmups, for original commit `94395c7` and E5 `c58230a`.
+Scene-state hashes match and all six canvas buffer dimensions are unchanged.
+Median CPU submission milliseconds:
+
+| Viewport | Noon: original → final | Midnight | Extended observer |
+|---|---:|---:|---:|
+| Desktop | 61.70 → 69.25 | 94.95 → 66.65 | 104.15 → 78.90 |
+| Phone | 6.30 → 8.35 | 17.15 → 16.40 | 15.00 → 23.55 |
+| Landscape | 11.70 → 14.90 | 29.30 → 28.10 | 22.40 → 24.50 |
+
+These software-Chromium measurements ran alongside other browser workloads.
+They do not establish device FPS or attribute a performance regression. The
+phone observer increase especially needs an isolated repeat before performance
+sign-off; no speculative renderer optimization was made from noisy data.
+
+CI is configured for main pushes and pull requests, not this feature branch.
+The connected repository returned no PR workflow runs for E5 `c58230a`; this
+is not a CI pass. No PR was requested. Physical-device touch/GPU behavior,
+other browser engines and prolonged human play remain unverified.
+
+E6 remains open for an isolated original-versus-final profiling repeat. Use
+the same `VISUAL_LIGHTING=1 VISUAL_PROFILE=1 VISUAL_SCENES=noon,midnight,observer`
+review fixture on both builds, with no concurrent browser jobs. Investigate
+only reproducible, attributable regressions; do not reopen the visual design.
+
+### Validation commands and results
+
+- `npm run check`, `npm run build`, `node --check test/visual-review.mjs`, and
+  `git diff --check`: passed. No lint/formatter is configured; the existing npm
+  environment warning persists.
+- `npm run review:visual -- --no-build`, then `VISUAL_SURFACES=1` and
+  `VISUAL_ARCHITECTURE=1` variants: 21, 20 and 68 captures plus replay passed.
+- `VISUAL_SCENES=spring,autumn,traffic` variant: 9 captures plus replay passed.
+- `VISUAL_LIGHTING=1` without profiling: all 27 captures plus replay passed.
+  Total visual coverage is 145 captures. The initial full profiled lighting
+  sweep hit its command timeout; visual coverage was completed separately.
+- Focused `VISUAL_LIGHTING=1 VISUAL_PROFILE=1
+  VISUAL_SCENES=noon,midnight,observer` sweeps: 9 original and 9 final captures
+  plus replay passed after the clock fixture repair.
+- `npm test` was run with a 515-second deadline: M44 through M65 completed
+  successfully (18 suites); M66's desktop check passed before the command
+  timeout. This run is not recorded as a full-suite pass.
+- `npm test -- --no-build m66 m67`: 2/2 suites passed, including all four M67
+  viewports, at 21:51:04 UTC. All 20 suites therefore passed across the two
+  E6 runs. No production source changed during this execution.

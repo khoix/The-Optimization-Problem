@@ -5,7 +5,7 @@ npm run check      # types only, no build
 npm test           # build, serve, drive a browser through every suite
 npm test -- m54    # one suite
 npm test -- --no-build
-npm run review:visual  # 21 fixed art-review captures plus a replay check
+npm run review:visual  # 30 fixed art-review captures plus a replay check
 ```
 
 Visual review writes a PNG gallery and state manifest to
@@ -13,6 +13,9 @@ Visual review writes a PNG gallery and state manifest to
 the suites. See [the visual handoff](../docs/AI-VISUAL-OVERHAUL-HANDOFF.md) for
 fixture assumptions, capture controls, and art direction. `npm test -- m62`
 checks the new workflow without writing screenshots.
+The default gallery includes all four seasons and a heavy-traffic fixture that
+uses the real road-capacity calculation and agent spawner. Its manifest reports
+season, car count and congestion, with a minimum of 40 cars at full congestion.
 
 `VISUAL_SURFACES=1 npm run review:visual` captures all four scenario terrains
 at overview, normal and close zoom, plus utility overlays and placement/removal

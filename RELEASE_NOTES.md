@@ -14,6 +14,22 @@ something else, and that is worth recording.
 
 ---
 
+## Visual overhaul — `codex/visual-overhaul`
+
+- Shared terrain and road materials, coherent shore edges, quieter vegetation,
+  distinct procedural architecture for all 29 non-road building types, and
+  material-specific facade and construction details.
+- Eased day/night lighting, restrained emissive effects and ambient motion,
+  seasonal/weather presentation, and progressive observer atmosphere.
+- Warm civic panels transition to cooler, simpler late-game controls. Improved
+  numeric typography, responsive dialogs, focus states and reduced-motion support.
+- Fixed tall-building viewport-edge clipping and hidden guide-canvas rendering
+  during short-landscape use; guide illustrations recover after rotation.
+- Deterministic browser review covers scenarios, zoom levels, architecture,
+  lighting, seasons, traffic and responsive UI. See the visual handoff for
+  measured results and limitations. Simulation, saves, progression and control
+  semantics are preserved; no runtime asset dependency was added.
+
 ## Prototype — `c48bcf8`
 
 The first playable build, implementing the game proposal end to end.
