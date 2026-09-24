@@ -1,7 +1,7 @@
-# Visual overhaul — Execution 3
+# Visual overhaul — Execution 4
 
-Branch: `codex/visual-overhaul`. Execution 3 continuation base: `0d4f219`.
-Scope: world surfaces, architectural identity, construction and lifecycle art. No gameplay,
+Branch: `codex/visual-overhaul`. Execution 4 base: `27c1240`.
+Scope: lighting, atmosphere, motion and cinematic polish. No gameplay,
 save-format, footprint, controls, narrative timing, or asset dependency changes.
 
 ## Settled direction
@@ -219,4 +219,90 @@ day/night transitions, shadow/contact treatment, point lights, bloom, reflection
 weather, ambient life, grading, depth and observer atmosphere against the existing
 galleries. Museum/large skylight emitters can saturate under the current bloom;
 assess light intensity in E4 rather than repainting their architecture.
-Execution 4 has not started.
+Execution 4 supersedes that starting point; see the current handoff below.
+
+## Execution 4 — lighting, atmosphere and motion
+
+Budget: 83% of 20 minutes = 16m36s. Start 03:18:33 UTC; implementation cutoff
+03:31:09; hard stop 03:35:09 on 2026-09-24. No Execution 5 work was started.
+
+### Decisions and thresholds
+
+- Preserve the warm-day/blue-night palette, directional shadows, contact AO,
+  sodium street lamps, building point lights, coast reflections, precipitation,
+  pollution haze, smoke/steam and seasonal presentation. No new renderer pass,
+  full-size buffer, dependency, sprite redesign or simulation rule was added.
+- Ease ambient keys and dawn/dusk night factors with clamped smoothstep.
+  Existing day/night endpoints (04:30, 08:00, 17:00, 21:00) remain unchanged.
+- Bloom now uses screen blending with 0.34 blurred / 0.18 sharp contributions;
+  civic emission tops out at 0.8, compute at 0.82. This retains roof/skylight
+  boundaries instead of washing them out. Overview detail gates remain intact.
+- Compute activity is a restrained 1.8-radian/sec pulse (0.76–1.0), gradually
+  phase-aligning with emergence and fully synchronized in observer mode.
+  Pedestrian stride shifts only the drawn sprite by one world pixel; observer
+  pedestrians glide. Existing traffic speed, routing, capacity and counts stay
+  unchanged, retaining the established organic/observer contrast.
+- Cloud shadow opacity eases to zero at rain 0.55. Storm-break shafts fade in
+  across 0.12–0.24 and out across 0.35–0.55, with a night fade through 0.6.
+  Golden shafts ease in/out; compute pillars fade from night factor 0.35 and
+  originate at the actual elevated/parallax-shifted roof, not the footprint.
+- Tilt-shift opacity is 72% of the existing zoom detail factor; vignette edge
+  alpha is 0.24. Observer brightness rises only from 1.02 to 1.04, retaining
+  the established progressive cool/desaturated grade without pale clipping.
+
+### Review and performance
+
+`VISUAL_LIGHTING=1 VISUAL_PROFILE=1 npm run review:visual` adds nine staged
+lighting states across desktop, phone and landscape. Compute and industrial
+districts deliberately concentrate their relevant building types. Profiling
+preserves a native performance clock while animation is frozen, discards four
+warmups, and records 12 CPU submission samples with existing per-pass marks.
+Transition strips include 11 light/weather boundaries and four animation frames.
+M66 asserts smooth day/night boundaries, small pixel deltas around thresholds,
+actual animation, unchanged simulation state, and the existing buffer budget.
+
+Same-host median CPU submission milliseconds (baseline → final repeat):
+
+| Viewport | Noon | Midnight | Extended observer |
+|---|---:|---:|---:|
+| 1340×860 desktop | 33.90 → 33.45 | 46.50 → 41.20 | 44.85 → 41.80 |
+| 390×844 phone | 3.85 → 4.30 | 8.70 → 9.80 | 8.50 → 10.10 |
+| 844×390 landscape | 5.15 → 6.25 | 10.95 → 12.25 | 10.25 → 10.20 |
+
+All six measured canvas buffer dimensions match the baseline exactly. These
+are software-rendered host measurements, not GPU presentation or device FPS.
+An initial concurrent capture run was noisier; the table uses the subsequent
+repeat. Phone increases of 0.45–1.60 ms warrant physical-device verification in
+E6; no hardware or cross-browser performance claim is made.
+
+### Validation and continuation
+
+- Typecheck and production build passed; changed MJS syntax and diff whitespace
+  checks passed. No lint/formatter script is configured in this repository.
+- M66 failed against the unchanged E3 build at the dawn easing assertion, then
+  passed on desktop and phone after the renderer changes. M62/M66 passed 2/2.
+- Original 21-scene matrix, new 27-scene lighting matrix, and two 4× civic-roof
+  night plates passed with deterministic replays. Inspected dawn/night, compute,
+  phone storm, civic skylights and transition strips; silhouettes remain legible.
+- A truncated local Chromium executable initially crashed with SIGSEGV before
+  page load. Restoring the existing local compressed package fixed it; no project
+  dependency or test configuration changed.
+- `npm test` completed with **19/19 suites passing**, including M50, M57
+  simulation invariants, all earlier visual suites and M66. No tests were
+  skipped, weakened or suppressed. The existing npm environment warning about
+  `http-proxy` remains unrelated to this change.
+- Final animation capture/replay passed on all three viewports: four distinct
+  animation frames each; near-boundary mean RGB differences were 0.002–0.717
+  levels on a 0–255 scale. Final diff review maps every hunk to E4.
+- Save protocol: commit locally, create the identical Git tree through the
+  connected repository API, fast-forward `codex/visual-overhaul`, fetch and
+  verify matching local/remote commit and clean tree. The local pre-sync commit
+  is retained on `codex/visual-overhaul-e4-local` because API commit metadata
+  differs; file contents and tree identity must match before switching branches.
+
+Execution 5 starts at the HUD/UI scope in the supplied six-execution plan, using
+the existing tokens, console panels and semantic controls described above.
+Do not alter authority progression or observer controls. Remaining E4 limitations:
+physical mobile GPU/browser review and continuous interactive feel remain human
+review tasks; precipitation quantities and traffic mechanics intentionally retain
+their existing behavior. No unresolved implementation item is scheduled for E4.

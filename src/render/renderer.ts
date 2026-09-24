@@ -102,13 +102,14 @@ const LAMP_OFFSETS: Array<Array<[number, number]>> = [
 const POOL_THINNING = 2;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const smooth = (t: number) => { const u = Math.max(0, Math.min(1, t)); return u * u * (3 - 2 * u); };
 
 /** Interpolate the shared 24-hour ambient light curve. */
 function ambientAt(hour: number): [number, number, number] {
   for (let i = 0; i < AMBIENT_KEYS.length - 1; i++) {
     const a = AMBIENT_KEYS[i], b = AMBIENT_KEYS[i + 1];
     if (hour >= a[0] && hour <= b[0]) {
-      const t = (hour - a[0]) / (b[0] - a[0] || 1);
+      const t = smooth((hour - a[0]) / (b[0] - a[0] || 1));
       return [lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t)];
     }
   }
@@ -649,7 +650,10 @@ export class Renderer {
           this.ectx.globalAlpha = 1;
         }
       } else {
-        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1);
+        // A one-pixel stride, keyed to distance, leaves routes and speed intact.
+        // Observer pedestrians glide with the same mechanical precision as cars.
+        const stride = g.asi.observer ? 0 : Math.round(Math.sin((a.x + a.y) * 0.8 + a.variant) * 0.6);
+        w.drawImage(this.peds[a.variant % this.peds.length], dx - 1, dy - 1 + stride);
       }
     }
 
@@ -839,8 +843,10 @@ export class Renderer {
       // emissive: windows at night; server LEDs always, blinking
       if (spr.emissive && b.active) {
         const isCompute = def.category === 'compute';
-        const blink = isCompute ? 0.55 + 0.45 * Math.sin(this.t * 6 + b.id * 2.1) : 1;
-        const strength = isCompute ? 0.35 + nightF * 0.65 : nightF;
+        // Server activity breathes gently; optimization settles into one cadence.
+        const order = g.asi.observer ? 1 : Math.min(1, g.asi.emergence / 100);
+        const blink = isCompute ? 0.88 + 0.12 * Math.sin(this.t * 1.8 + b.id * 2.1 * (1 - order)) : 1;
+        const strength = isCompute ? 0.24 + nightF * 0.58 : nightF * 0.8;
         if (strength > 0.05) {
           const a = strength * blink;
           w.globalAlpha = a;
@@ -974,9 +980,9 @@ export class Renderer {
 
     this.stamp('particles');
     // ------------------------------------------------------------ cloud shadows
-    if (this.rain < 0.4) {
+    if (this.rain < 0.55) {
       const cw = this.clouds.width;
-      w.globalAlpha = 0.5 * (1 - nightF * 0.8);
+      w.globalAlpha = 0.42 * (1 - nightF * 0.8) * (1 - smooth(this.rain / 0.55));
       const drift = (this.t * 4) % (g.mapW * TILE + cw * 2);
       w.drawImage(this.clouds, drift - cw - camX, g.mapH * TILE * 0.2 - camY);
       w.drawImage(this.clouds, drift * 0.7 - cw - camX + 300, g.mapH * TILE * 0.6 - camY);
@@ -1258,7 +1264,7 @@ export class Renderer {
       this.bctx.fillRect(0, 0, hw, hh);
       this.bctx.globalCompositeOperation = 'source-over';
       s.imageSmoothingEnabled = true;
-      s.globalAlpha = detail;
+      s.globalAlpha = detail * 0.72;
       s.drawImage(this.blurTmp, 0, 0, hw, hh, 0, 0, sw, sh);
       s.globalAlpha = 1;
       s.imageSmoothingEnabled = !crisp;
@@ -1281,10 +1287,11 @@ export class Renderer {
       this.blctx.drawImage(this.emiss, 0, 0, W, H, 0, 0, W, H);
       this.blctx.filter = 'none';
       s.imageSmoothingEnabled = true; // smooth scale sells the glow
-      s.globalCompositeOperation = 'lighter';
-      s.globalAlpha = bloomStrength * 0.55;
+      // Screen preserves pale roof detail; additive blending clipped skylights.
+      s.globalCompositeOperation = 'screen';
+      s.globalAlpha = bloomStrength * 0.34;
       s.drawImage(this.bloomTmp, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
-      s.globalAlpha = bloomStrength * 0.5;
+      s.globalAlpha = bloomStrength * 0.18;
       s.drawImage(this.emiss, 0, 0, W, H, -fx, -fy, W * this.zoom, H * this.zoom);
       s.globalAlpha = 1;
       s.globalCompositeOperation = 'source-over';
@@ -1300,7 +1307,7 @@ export class Renderer {
     if (!this.vignetteGrad) {
       const vg = s.createRadialGradient(sw / 2, sh / 2, Math.min(sw, sh) * 0.45, sw / 2, sh / 2, Math.max(sw, sh) * 0.75);
       vg.addColorStop(0, 'rgba(0,0,0,0)');
-      vg.addColorStop(1, 'rgba(8,10,18,0.32)');
+      vg.addColorStop(1, 'rgba(8,10,18,0.24)');
       this.vignetteGrad = vg;
     }
     s.fillStyle = this.vignetteGrad;
@@ -1312,8 +1319,8 @@ export class Renderer {
     const h = this.hour;
     if (h >= 8 && h <= 17) return 0;
     if (h >= 21 || h <= 4.5) return 1;
-    if (h > 17 && h < 21) return (h - 17) / 4;
-    return 1 - (h - 4.5) / 3.5; // dawn
+    if (h > 17 && h < 21) return smooth((h - 17) / 4);
+    return 1 - smooth((h - 4.5) / 3.5); // dawn
   }
 
   /**
@@ -1377,7 +1384,7 @@ export class Renderer {
     const nightF = this.nightFactor();
     const dawn = Math.max(0, 1 - Math.abs(this.hour - 7) / 1.6);
     const dusk = Math.max(0, 1 - Math.abs(this.hour - 18) / 1.6);
-    const golden = Math.max(dawn, dusk) * (1 - this.rain * 0.8);
+    const golden = smooth(Math.max(dawn, dusk)) * (1 - this.rain * 0.8);
 
     if (golden > 0.03) {
       s.save();
@@ -1398,12 +1405,14 @@ export class Renderer {
 
     // storm-break shafts: vertical columns through torn cloud
     if (this.rain > 0.12 && this.rain < 0.55 && nightF < 0.6) {
+      const breakLight = smooth((this.rain - 0.12) / 0.12)
+        * (1 - smooth((this.rain - 0.35) / 0.2)) * (1 - smooth(nightF / 0.6));
       s.save();
       s.globalCompositeOperation = 'screen';
       for (let i = 0; i < 3; i++) {
         const x = ((this.t * 6 + i * sw * 0.37) % (sw + 200)) - 100;
         const grad = s.createLinearGradient(0, 0, 0, sh);
-        grad.addColorStop(0, 'rgba(220,230,245,0.055)');
+        grad.addColorStop(0, `rgba(220,230,245,${(0.045 * breakLight).toFixed(4)})`);
         grad.addColorStop(0.85, 'rgba(220,230,245,0)');
         s.fillStyle = grad;
         s.fillRect(x, 0, 60 + i * 26, sh);
@@ -1421,13 +1430,16 @@ export class Renderer {
         if (b.progress < 1 || !b.active) continue;
         const def = BUILDING_DEFS[b.type];
         if (def.category !== 'compute' || def.compute < 20) continue;
-        const px = (b.x * TILE + def.w * TILE / 2 - this.camX) * this.zoom;
-        const py = (b.y * TILE - this.camY) * this.zoom;
+        const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+        const height = heightOf(b.type);
+        const [sx, sy] = parallaxShift(dx, dy, height, this.viewW, this.viewH);
+        const px = (dx + sx + def.w * TILE / 2) * this.zoom;
+        const py = (dy - height + sy) * this.zoom;
         if (px < -60 || px > sw + 60 || py < -100 || py > sh + 100) continue;
-        const blink = 0.8 + 0.2 * Math.sin(this.t * 2.5 + b.id);
+        const blink = 0.92 + 0.08 * Math.sin(this.t * 1.8 + (g.asi.observer ? 0 : b.id));
         const hgt = (60 + def.w * 22) * this.zoom * 0.7;
         const grad = s.createLinearGradient(0, py, 0, py - hgt);
-        grad.addColorStop(0, `rgba(120,185,255,${(0.085 * nightF * blink).toFixed(3)})`);
+        grad.addColorStop(0, `rgba(120,185,255,${(0.06 * smooth((nightF - 0.35) / 0.65) * blink).toFixed(3)})`);
         grad.addColorStop(1, 'rgba(120,185,255,0)');
         s.fillStyle = grad;
         s.fillRect(px - def.w * TILE * this.zoom * 0.45, py - hgt, def.w * TILE * this.zoom * 0.9, hgt);
@@ -1445,7 +1457,7 @@ export class Renderer {
       // Perfection accumulates: the longer the system runs, the cleaner,
       // brighter, and less alive the light becomes.
       const t = Math.min(1, Math.max(0, g.tick - g.asi.phaseTick) / 120);
-      return `saturate(${(0.92 - t * 0.14).toFixed(2)}) brightness(${(1.04 + t * 0.05).toFixed(2)}) hue-rotate(${(-6 - t * 6).toFixed(1)}deg)`;
+      return `saturate(${(0.92 - t * 0.14).toFixed(2)}) brightness(${(1.02 + t * 0.02).toFixed(2)}) hue-rotate(${(-6 - t * 6).toFixed(1)}deg)`;
     }
     // Seasonal grading layered under the era drift: crisp desaturated winters,
     // green springs, warm summers, amber autumns.

@@ -29,6 +29,17 @@ Bounds assertions keep complete buildings above the desktop controls. M64
 checks compute facade materials; M65 checks all 29 atlases, footprint/emissive
 alignment, state preservation and tall-building viewport-edge rendering.
 
+`VISUAL_LIGHTING=1 VISUAL_PROFILE=1 npm run review:visual` captures nine lighting
+states on desktop, phone and landscape: dawn, noon, dusk, midnight, storm, snow,
+compute district, polluted industry and extended observation. The manifest adds
+12 warm renderer timing samples (after four warmups), per-pass timings, buffer
+dimensions, 11 transition hashes and four animation samples, plus a PNG filmstrip.
+Timing uses a preserved real clock while
+animation stays frozen; it measures CPU submission, not GPU presentation.
+M66 checks eased day/night boundaries, actual transition rendering, unchanged
+simulation state and the existing buffer ceiling. Compare same-host manifests;
+absolute wall-clock thresholds are intentionally not CI assertions.
+
 Playwright is a devDependency; `npx playwright install chromium` once, and the
 suites find it. On a host that keeps its browsers somewhere Playwright does not
 look, point `PLAYWRIGHT_CHROMIUM` at the executable:

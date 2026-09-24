@@ -18,6 +18,17 @@ export const scenes = {
   late: { dense: true, hour: 12, rain: 0, tick: 486, phase: 5 },
   observer: { dense: true, hour: 12, rain: 0, tick: 606, phase: 6 },
 };
+export const lightingScenes = {
+  dawn: { ...scenes.dense, hour: 6.8 },
+  noon: { ...scenes.dense },
+  dusk: { ...scenes.dense, hour: 18.5 },
+  midnight: { ...scenes.night, hour: 0 },
+  storm: { ...scenes.rain, rain: 1 },
+  snow: { ...scenes.snow },
+  compute: { ...scenes.night, phase: 5, district: ['cloud_dc', 'ai_campus', 'gov_dc'] },
+  industry: { ...scenes.dense, pollution: 0.5, district: ['factory', 'coal_plant', 'auto_factory'] },
+  observer: { ...scenes.observer, tick: 1086, hour: 23 },
+};
 export const surfaceScenes = Object.fromEntries(
   ['verdant', 'sunbelt', 'rustbelt', 'coast'].flatMap((scenario) =>
     [0.5, 2, 4].map((zoom) => [`${scenario}-${zoom}`, { ...scenes.early, scenario, zoom, shore: scenario !== 'sunbelt' }])),
@@ -58,6 +69,8 @@ export async function captureScene(browser, scene, viewport, output) {
     await page.goto('http://localhost:4173');
     await pastBoot(page);
     await page.waitForFunction(() => !!window.__api);
+    // Preserve a real clock for profiling while animation remains deterministic.
+    await page.evaluate(() => { window.__reviewNow = performance.now.bind(performance); });
     // Freeze RAF, timers and wall time, then draw a fixed number of updates.
     // Pausing game speed alone still advances renderer animation and weather.
     await page.clock.install({ time: new Date('2026-01-01T12:00:00Z') });
@@ -86,7 +99,7 @@ export async function captureScene(browser, scene, viewport, output) {
         api.touchMap(g); api.invalidateNetwork(g);
       }
       if (config.dense) {
-        const types = ['highrise', 'apartment', 'office', 'cloud_dc', 'hospital',
+        const types = config.district || ['highrise', 'apartment', 'office', 'cloud_dc', 'hospital',
           'factory', 'school', 'park', 'ai_campus', 'nuclear_plant', 'arcology', 'water_plant'];
         // Fill valid sites around the founding town; never flatten its terrain.
         for (let y = cy - 18; y <= cy + 18; y += 6) {
@@ -106,6 +119,10 @@ export async function captureScene(browser, scene, viewport, output) {
       g.tick = config.tick; g.speed = 0; g.pendingEvent = null;
       g.asi.phase = config.phase; g.asi.emergence = config.phase * 16;
       g.asi.observer = config.phase === 6; g.asi.phaseTick = 486;
+      if (config.pollution) {
+        g.pollutionAvg = config.pollution;
+        for (const tile of g.map) tile.pollution = config.pollution;
+      }
       // Commissioned art fixtures: illuminate the material set independently
       // of economic viability. Simulation invariants remain in the M57 suite.
       for (const b of g.buildings.values()) { b.active = true; b.age = config.dense ? 80 : 0; }
@@ -166,6 +183,54 @@ export async function captureScene(browser, scene, viewport, output) {
       }
       r.render(g, uiState);
       const canvas = document.querySelector('#game');
+      let profile, transitions, transitionStrip;
+      if (config.profile) {
+        const before = JSON.stringify(g, (_, v) => v instanceof Map ? [...v] : v);
+        const animationTime = r.t;
+        const clock = performance.now;
+        performance.now = window.__reviewNow;
+        r.profiling = true;
+        try {
+          const samples = [];
+          for (let i = 0; i < 16; i++) {
+            const start = performance.now();
+            r.render(g, uiState);
+            const total = performance.now() - start;
+            if (i >= 4) samples.push({ total, passes: r.passTimings() });
+          }
+          profile = { samples, worldPixels: r.world.width * r.world.height,
+            buffers: ['world', 'light', 'emiss', 'bloomTmp', 'mirror', 'blurTmp']
+              .map((key) => ({ key, width: r[key].width, height: r[key].height })) };
+          transitions = [];
+          const strip = document.createElement('canvas');
+          strip.width = 176 * 15; strip.height = 114;
+          const stripContext = strip.getContext('2d');
+          let previousPixels;
+          for (const [hour, rain, elapsed = 1 / 30] of [[4.49, 0], [4.51, 0], [7.99, 0], [8.01, 0],
+            [17, 0], [20.99, 0], [21.01, 0], [15, 0.39], [15, 0.41], [15, 0.54], [15, 0.56],
+            ...[0.5, 0.5, 0.5, 0.5].map((dt) => [config.hour, config.rain, dt])]) {
+            r.hour = hour; r.rain = rain; r.t += elapsed;
+            r.render(g, uiState);
+            stripContext.drawImage(canvas, 0, 0, canvas.width, canvas.height,
+              transitions.length * 176, 0, 176, 114);
+            const pixels = stripContext.getImageData(transitions.length * 176, 0, 176, 114).data;
+            let delta = 0;
+            if (previousPixels) for (let i = 0; i < pixels.length; i += 4)
+              delta += Math.abs(pixels[i] - previousPixels[i]) + Math.abs(pixels[i + 1] - previousPixels[i + 1])
+                + Math.abs(pixels[i + 2] - previousPixels[i + 2]);
+            transitions.push({ hour, rain, time: r.t, night: r.nightFactor(),
+              meanDelta: delta / (pixels.length / 4 * 3), canvas: canvas.toDataURL() });
+            previousPixels = pixels;
+          }
+          transitionStrip = strip.toDataURL();
+          if (JSON.stringify(g, (_, v) => v instanceof Map ? [...v] : v) !== before)
+            throw new Error('Lighting review mutated simulation state');
+        } finally {
+          performance.now = clock; r.profiling = false;
+          r.hour = config.hour; r.rain = config.rain; r.t = animationTime;
+          r.render(g, uiState);
+        }
+      }
       const bounds = config.architecture ? [...g.buildings.values()].map((b) => {
         const d = api.BUILDING_DEFS[b.type], h = r.facadeFor(b.type)?.height || 0;
         const x = b.x * 16 - Math.floor(r.camX), y = b.y * 16 - Math.floor(r.camY);
@@ -176,7 +241,7 @@ export async function captureScene(browser, scene, viewport, output) {
       }) : [];
       return { seed: g.seed, scenario: g.scenario, tick: g.tick, phase: g.asi.phase,
         observer: g.asi.observer, hour: r.hour, rain: r.rain, snowing: r.snowing,
-        buildings: g.buildings.size, placed, bounds, agents: r.life.agents.length,
+        buildings: g.buildings.size, placed, bounds, profile, transitions, transitionStrip, agents: r.life.agents.length,
         particles: r.life.particles.length, zoom: r.zoom, camera: [r.camX, r.camY],
         body: document.body.className, canvas: canvas.toDataURL(),
         state: JSON.stringify([...g.buildings.values()]),
@@ -198,17 +263,22 @@ export async function captureScene(browser, scene, viewport, output) {
     if (scene.phase === 6) assert.match(metadata.body, /observer/);
     assert.equal(metadata.overflow, false, 'viewport has no document overflow');
     assert.deepEqual(errors, [], 'no browser errors');
-    const { canvas, state, ...manifest } = metadata;
+    const { canvas, state, transitionStrip, ...manifest } = metadata;
     manifest.canvasHash = hash(canvas);
     manifest.stateHash = hash(state);
+    if (manifest.transitions) manifest.transitions = manifest.transitions.map(({ canvas, ...sample }) =>
+      ({ ...sample, canvasHash: hash(canvas) }));
     if (output) await page.screenshot({ path: output, animations: 'disabled' });
+    if (output && transitionStrip) await writeFile(output.replace(/\.png$/, '-transitions.png'),
+      Buffer.from(transitionStrip.split(',')[1], 'base64'));
     return manifest;
   } finally { await ctx.close(); }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const out = resolve(process.env.VISUAL_REVIEW_DIR || 'artifacts/visual-review');
-  const catalog = process.env.VISUAL_ARCHITECTURE ? architectureScenes : process.env.VISUAL_SURFACES ? surfaceScenes : scenes;
+  const catalog = process.env.VISUAL_LIGHTING ? lightingScenes : process.env.VISUAL_ARCHITECTURE ? architectureScenes : process.env.VISUAL_SURFACES ? surfaceScenes : scenes;
+  if (process.env.VISUAL_PROFILE) for (const scene of Object.values(catalog)) scene.profile = true;
   const sceneNames = process.env.VISUAL_SCENES?.split(',') || Object.keys(catalog);
   for (const name of sceneNames) assert.ok(catalog[name], `Unknown scene: ${name}`);
   await mkdir(out, { recursive: true });
