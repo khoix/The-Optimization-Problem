@@ -1,5 +1,11 @@
 # Tests
 
+`npm test -- m68` verifies the parallax rework's fixed-base geometry and real
+transformed facade edges for house, factory and arcology. Set
+`PARALLAX_REVIEW_DIR=artifacts/parallax-review` to capture 16 pan/zoom/day-night
+reference views with stationary neighbors. Pure geometry tests use the existing
+TypeScript compiler; integration checks drive the built game in Chromium.
+
 ```
 npm run check      # types only, no build
 npm test           # build, serve, drive a browser through every suite

@@ -123,11 +123,11 @@ function wallStyleOf(type: BuildingType): WallStyle {
  * pattern that is deterministic per type — a given building always looks like
  * itself across sessions.
  */
-export function makeFacade(type: BuildingType, roof: HTMLCanvasElement): Facade | null {
+export function makeFacade(type: BuildingType, roof: HTMLCanvasElement, width?: number): Facade | null {
   const h = heightOf(type);
   if (h <= 0) return null;
   const def = BUILDING_DEFS[type];
-  const w = def.w * TILE;
+  const w = width ?? def.w * TILE;
   const style = wallStyleOf(type);
 
   const mk = () => {

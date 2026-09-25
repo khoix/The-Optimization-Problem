@@ -13,6 +13,9 @@ import { AmbientLife } from './agents';
 import { AMBIENT_KEYS, LIGHTING, MOTION, TERRAIN_PALETTE } from './visual';
 import { computeConnectivity, computeCoverage, covered } from '../game/network';
 import { heightOf, makeFacade, parallaxShift, OCCLUDING_HEIGHT, type Facade } from './height';
+import { projectVolume, projectHeightVector, intersectsViewport, drawFace, type ProjectedVolume } from './volume';
+
+const VOLUME_REFERENCES = new Set<BuildingType>(['house', 'factory', 'arcology']);
 
 /** Diagnostic map layers. Each answers one question a dark district raises. */
 export type OverlayId = 'power' | 'water' | 'roads' | 'pollution';
@@ -550,6 +553,21 @@ export class Renderer {
     return this.facades.get(type) ?? null;
   }
 
+  private sideFacades = new Map<BuildingType, Facade>();
+  private sideFacadeFor(type: BuildingType): Facade {
+    if (!this.sideFacades.has(type)) {
+      this.sideFacades.set(type, makeFacade(type, this.buildings.get(type)!.albedo,
+        BUILDING_DEFS[type].h * TILE)!);
+    }
+    return this.sideFacades.get(type)!;
+  }
+
+  private volumeFor(type: BuildingType, x: number, y: number): ProjectedVolume {
+    const def = BUILDING_DEFS[type], height = heightOf(type);
+    const base = { x, y, w: def.w * TILE, h: def.h * TILE };
+    return projectVolume(base, height, projectHeightVector(base, height, this.viewW, this.viewH));
+  }
+
   render(g: GameState, ui: UiRenderState): void {
     this.marks.length = 0;
     this.stamp('start');
@@ -734,11 +752,13 @@ export class Renderer {
       const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
       const bhPx = heightOf(b.type);
       const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
-      const rx = dx + px, ry = dy - bhPx + py;
+      const volume = VOLUME_REFERENCES.has(b.type) ? this.volumeFor(b.type, dx, dy) : null;
+      const rx = volume ? volume.top.x : dx + px, ry = volume ? volume.top.y : dy - bhPx + py;
       // Cull the projected mass as well as its footprint: a roof can still be
       // visible when the ground-level base has passed below the viewport.
-      if (Math.max(dx, rx) + def.w * TILE < 0 || Math.max(dy, ry) + def.h * TILE < 0
-        || Math.min(dx, rx) > W || Math.min(dy, ry) > H) continue;
+      if (volume ? !intersectsViewport(volume, W, H)
+        : Math.max(dx, rx) + def.w * TILE < 0 || Math.max(dy, ry) + def.h * TILE < 0
+          || Math.min(dx, rx) > W || Math.min(dy, ry) > H) continue;
       const spr = this.buildings.get(b.type);
       if (!spr) continue;
       if (b.progress < 1) {
@@ -796,7 +816,13 @@ export class Renderer {
         this.clipHole(this.ectx, W, H, xcx, xcy, xr);
       }
       if (relief < 1) w.globalAlpha = relief;
-      if (fac) {
+      if (fac && volume) {
+        for (const face of volume.faces) {
+          const material = face.side === 'east' || face.side === 'west' ? this.sideFacadeFor(b.type) : fac;
+          drawFace(w, face, material.albedo, face.shade,
+            Math.min(0.28, g.map[b.y * g.mapW + b.x].pollution * 0.5), b.id);
+        }
+      } else if (fac) {
         // Wall spans from the lifted roof's lower edge to the ground footprint,
         // stretched so it stays attached under any parallax offset.
         const wallTop = ry + def.h * TILE;
@@ -807,7 +833,7 @@ export class Renderer {
       }
       w.drawImage(spr.albedo, rx, ry);
       // sun-facing rim light + far-side shade: the poor man's normal map
-      if (dayF > 0.15 && Math.abs(sunT) > 0.15) {
+      if (!volume && dayF > 0.15 && Math.abs(sunT) > 0.15) {
         const bw = def.w * TILE, bh = def.h * TILE;
         const sunEdge = sunT < 0 ? rx + bw - 1 : rx; // sun east at dawn lights the east edge
         const darkEdge = sunT < 0 ? rx : rx + bw - 1;
@@ -822,7 +848,7 @@ export class Renderer {
       // Local pollution leaves restrained runoff under the roof edge. This
       // reads on the structure itself without adding another atmosphere pass.
       const grime = Math.min(0.28, g.map[b.y * g.mapW + b.x].pollution * 0.5);
-      if (grime > 0.025 && fac) {
+      if (grime > 0.025 && fac && !volume) {
         w.fillStyle = `rgba(53,43,29,${grime})`;
         for (let x = 3 + b.id % 4; x < def.w * TILE - 2; x += 9)
           w.fillRect(rx + x, ry + def.h * TILE, 2, Math.min(bhPx, 3 + (x + b.id) % 7));
@@ -830,7 +856,12 @@ export class Renderer {
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
         w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
-        if (fac) w.fillRect(rx, ry + def.h * TILE, def.w * TILE, Math.max(0, (dy + def.h * TILE) - (ry + def.h * TILE)));
+        if (fac && volume) {
+          for (const face of volume.faces) if (face.visible) {
+            w.beginPath(); face.corners.forEach((p, i) => i ? w.lineTo(p.x, p.y) : w.moveTo(p.x, p.y));
+            w.closePath(); w.fill();
+          }
+        } else if (fac) w.fillRect(rx, ry + def.h * TILE, def.w * TILE, Math.max(0, (dy + def.h * TILE) - (ry + def.h * TILE)));
       }
       if (relief < 1) w.globalAlpha = 1;
       // The footprint is where the building legally stands, which is no longer
@@ -857,7 +888,14 @@ export class Renderer {
           this.emissiveUsed = true;
           this.ectx.globalAlpha = 1;
           // Facade windows join the same bloom pass, so towers light up at night.
-          if (fac) {
+          if (fac && volume) {
+            w.globalAlpha = a * relief; this.ectx.globalAlpha = a * relief;
+            for (const face of volume.faces) {
+              const material = face.side === 'east' || face.side === 'west' ? this.sideFacadeFor(b.type) : fac;
+              drawFace(w, face, material.emissive, 0); drawFace(this.ectx, face, material.emissive, 0);
+            }
+            this.emissiveUsed = true; w.globalAlpha = 1; this.ectx.globalAlpha = 1;
+          } else if (fac) {
             const wallTop = ry + def.h * TILE, wallBottom = dy + def.h * TILE;
             if (wallBottom > wallTop) {
               w.globalAlpha = a;
