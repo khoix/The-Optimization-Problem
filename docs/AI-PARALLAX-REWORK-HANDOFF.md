@@ -114,3 +114,13 @@ No test was skipped or weakened. The existing npm environment warning persists;
 no new build warning was introduced. The last production edit was complete by
 22:24:28 and the last test edit by 22:25:07, before the 22:27:39 cutoff.
 Finalization records test outcomes and synchronizes this six-file E1 change.
+
+## E2 — 20% budget checkpoint (2026-09-25)
+
+E1 is complete and synchronized at `3bb0a26efa2356ed58324ab6805b2a5deadcaeaa` on `astra/parallax-rework`. A fresh fetch at 23:42 UTC confirmed the remote matches that commit and the worktree was clean.
+
+This E2 turn started at 23:40:14 UTC. The requested 20% budget is four minutes total. Under `Execution-Time-Budget.md`, the mandatory four-minute save buffer leaves zero implementation minutes: implementation cutoff 23:40:14 UTC, hard stop 23:44:14 UTC. No E2 production or test changes were started. E2 is not complete; E3 has not started.
+
+Resume E2 with the building-catalog audit: distinguish each building's visual mass from its gameplay footprint, then extend the E1 fixed-base volume helpers across elevated types, lifecycle rendering, emissives, and auxiliary projection consumers as specified in the E2 plan. Preserve ground placement and selection anchors. The preceding E1 handoff describes the current three reference types and remaining legacy paths.
+
+This checkpoint changes only this handoff. Verification for this turn consists of remote identity, clean initial worktree, and whitespace validation; E1's recorded 21/21 passing suites are prior evidence and were not rerun for this documentation-only checkpoint.
