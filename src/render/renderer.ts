@@ -564,7 +564,9 @@ export class Renderer {
 
   private volumeFor(type: BuildingType, x: number, y: number): ProjectedVolume {
     const def = BUILDING_DEFS[type], height = heightOf(type);
-    const base = { x, y, w: def.w * TILE, h: def.h * TILE };
+    const mass = this.buildings.get(type)?.volume?.base;
+    const base = mass ? { x: x + mass.x, y: y + mass.y, w: mass.w, h: mass.h }
+      : { x, y, w: def.w * TILE, h: def.h * TILE };
     return projectVolume(base, height, projectHeightVector(base, height, this.viewW, this.viewH));
   }
 
@@ -750,17 +752,19 @@ export class Renderer {
     for (const b of sorted) {
       const def = BUILDING_DEFS[b.type];
       const dx = b.x * TILE - camX, dy = b.y * TILE - camY;
+      const spr = this.buildings.get(b.type);
+      if (!spr) continue;
       const bhPx = heightOf(b.type);
       const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
       const volume = VOLUME_REFERENCES.has(b.type) ? this.volumeFor(b.type, dx, dy) : null;
-      const rx = volume ? volume.top.x : dx + px, ry = volume ? volume.top.y : dy - bhPx + py;
+      const rx = volume ? volume.top.x - (spr.volume?.base.x ?? 0) : dx + px;
+      const ry = volume ? volume.top.y - (spr.volume?.base.y ?? 0) : dy - bhPx + py;
       // Cull the projected mass as well as its footprint: a roof can still be
       // visible when the ground-level base has passed below the viewport.
-      if (volume ? !intersectsViewport(volume, W, H)
+      const groundVisible = spr.volume && dx + def.w * TILE >= 0 && dy + def.h * TILE >= 0 && dx <= W && dy <= H;
+      if (volume ? !intersectsViewport(volume, W, H) && !groundVisible
         : Math.max(dx, rx) + def.w * TILE < 0 || Math.max(dy, ry) + def.h * TILE < 0
           || Math.min(dx, rx) > W || Math.min(dy, ry) > H) continue;
-      const spr = this.buildings.get(b.type);
-      if (!spr) continue;
       if (b.progress < 1) {
         w.drawImage(this.constructionFor(def.w, def.h), dx, dy);
         if (b.progress > 0.25) {
@@ -783,6 +787,7 @@ export class Renderer {
       // Height pass. The roof rises by the building's height, sheared by its
       // distance off the optical axis; the facade fills the gap down to the
       // footprint the building actually stands on.
+      if (spr.volume) w.drawImage(spr.volume.ground, dx, dy);
       const fac = this.facadeFor(b.type);
       // Occlusion relief. Mass that can hide ground goes translucent while a
       // build tool is out, so a tower never costs the player the tiles behind
@@ -831,7 +836,7 @@ export class Renderer {
           w.drawImage(fac.albedo, rx, wallTop, def.w * TILE, wallBottom - wallTop);
         }
       }
-      w.drawImage(spr.albedo, rx, ry);
+      w.drawImage(spr.volume?.top ?? spr.albedo, rx, ry);
       // sun-facing rim light + far-side shade: the poor man's normal map
       if (!volume && dayF > 0.15 && Math.abs(sunT) > 0.15) {
         const bw = def.w * TILE, bh = def.h * TILE;
@@ -855,7 +860,8 @@ export class Renderer {
       }
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
-        w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
+        if (spr.volume && volume) w.fillRect(volume.top.x, volume.top.y, volume.top.w, volume.top.h);
+        else w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
         if (fac && volume) {
           for (const face of volume.faces) if (face.visible) {
             w.beginPath(); face.corners.forEach((p, i) => i ? w.lineTo(p.x, p.y) : w.moveTo(p.x, p.y));

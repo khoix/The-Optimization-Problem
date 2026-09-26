@@ -73,10 +73,25 @@ try {
         const walls = references.map((b) => ({ type: b.type, source: r.facadeFor(b.type).albedo,
           expected: [[b.x * 16 - r.camX, (b.y + api.BUILDING_DEFS[b.type].h) * 16 - r.camY],
             [(b.x + api.BUILDING_DEFS[b.type].w) * 16 - r.camX, (b.y + api.BUILDING_DEFS[b.type].h) * 16 - r.camY]], edges: [] }));
+        const house = r.buildings.get('house');
+        if (!house.volume) throw new Error('House ground/top layers missing');
+        const alpha = (c, x, y) => c.getContext('2d').getImageData(x, y, 1, 1).data[3];
+        if (alpha(house.volume.top, 0, 0) !== 0 || alpha(house.volume.top, 7, 15) !== 0
+          || alpha(house.volume.ground, 0, 0) !== 255 || alpha(house.volume.ground, 7, 15) !== 255)
+          throw new Error('Yard/path must stay in ground layer');
+        const houseWall = walls.find((wall) => wall.type === 'house');
+        houseWall.expected[0][0] += 1; houseWall.expected[1][0] -= 1;
+        houseWall.expected[0][1] -= 2; houseWall.expected[1][1] -= 2;
+        let groundDraws = 0;
         const facade = r.facadeFor('arcology').albedo;
         const original = r.wctx.drawImage, bases = [];
         let faceEmitters = 0;
         r.wctx.drawImage = function(source, ...args) {
+          if (source === house.volume.ground) {
+            const b = references.find((b) => b.type === 'house');
+            if (args[0] !== b.x * 16 - r.camX || args[1] !== b.y * 16 - r.camY) throw new Error('Ground layer moved');
+            groundDraws++;
+          }
           if (source === r.facadeFor('arcology').emissive) faceEmitters++;
           const wall = walls.find((wall) => wall.source === source);
           if (wall) {
@@ -99,7 +114,7 @@ try {
         }
         finally { r.wctx.drawImage = original; }
         const d = api.BUILDING_DEFS.arcology;
-        return { bases, repeated, faceEmitters, walls: walls.map(({ source, ...wall }) => wall),
+        return { bases, repeated, faceEmitters, groundDraws, walls: walls.map(({ source, ...wall }) => wall),
           expected: [[dx, dy + d.h * 16], [dx + d.w * 16, dy + d.h * 16]],
           unchanged: state === JSON.stringify([...g.buildings.values()]),
           volume: r.volumeFor ? r.volumeFor('arcology', dx, dy) : null };
@@ -120,6 +135,7 @@ try {
       for (let i = 0; i < 2; i++) for (let axis = 0; axis < 2; axis++)
         assert.ok(Math.abs(edge[i][axis] - wall.expected[i][axis]) < 0.001, `${wall.type}: anchored wall`);
   }
+  assert.ok(results.some((r) => r.groundDraws > 0), 'house ground layer actually rendered');
   for (const type of ['house', 'factory', 'arcology'])
     assert.ok(results.some((r) => r.walls.some((w) => w.type === type && w.edges.length)), `${type} actually rendered`);
   assert.deepEqual(errors, []);

@@ -13,6 +13,7 @@ export const TILE = 16;
 export interface Sprite {
   albedo: HTMLCanvasElement;
   emissive: HTMLCanvasElement | null;
+  volume?: { ground: HTMLCanvasElement; top: HTMLCanvasElement; base: { x: number; y: number; w: number; h: number } };
 }
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -331,7 +332,7 @@ function roofPlant(p: Px, x: number, y: number, w = 6, h = 5): void {
   for (let i = 2; i < w - 1; i += 2) p.r(x + i, y + 2, 1, h - 3, '#53636a');
 }
 
-type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number) => void;
+type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number, ground?: Px) => void;
 
 const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   road: () => { /* handled by makeRoads */ },
@@ -340,12 +341,12 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   highway: () => { /* handled by makeRoads */ },
   bridge: () => { /* handled by makeRoads */ },
 
-  house: (p, e, w, h, seed) => {
+  house: (p, e, w, h, seed, ground = p) => {
     const rand = rng(seed);
     const roofC = ['#8f4f3a', '#7a5a40', '#6e4a4a'][Math.floor(rand() * 3)];
     // yard
-    p.r(0, 0, w, h, '#526f43');
-    p.dither(0, 0, w, h, '#597749', 0.06, seed);
+    ground.r(0, 0, w, h, '#526f43');
+    ground.dither(0, 0, w, h, '#597749', 0.06, seed);
     // house body 12x12 centered
     const x = 2, y = 1;
     p.r(x, y + 4, 12, 8, '#c9b89a');            // walls
@@ -360,7 +361,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     p.r(x + 2, y + 7, 2, 2, '#7ca6c9'); p.r(x + 9, y + 7, 2, 2, '#7ca6c9');
     p.outline(x - 1, y, 14, 13, '#1c1c22');
     // path
-    p.r(x + 5, y + 12, 2, 3, '#b0a48c');
+    ground.r(x + 5, y + 12, 2, 3, '#b0a48c');
     // Chimney, roof ridge and a shallow porch keep the smallest home legible.
     p.r(10, 1, 2, 3, '#6b5146'); p.r(10, 1, 2, 1, '#c1ab8b');
     p.r(2, 3, 7, 1, '#bc8b6355');
@@ -977,8 +978,17 @@ export function makeBuildingSprites(): Map<BuildingType, Sprite> {
     const w = def.w * TILE, h = def.h * TILE;
     const [ac, actx] = canvas(w, h);
     const [ec, ectx] = canvas(w, h);
-    DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
-    out.set(type, { albedo: ac, emissive: ec });
+    if (type === 'house') {
+      const [ground, gctx] = canvas(w, h), [top, tctx] = canvas(w, h);
+      DRAWERS[type](new Px(tctx), new Px(ectx), w, h, type.length * 31 + 7, new Px(gctx));
+      // Keep the existing composite exactly intact for thumbnails and construction.
+      DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
+      out.set(type, { albedo: ac, emissive: ec,
+        volume: { ground, top, base: { x: 1, y: 1, w: 14, h: 13 } } });
+    } else {
+      DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
+      out.set(type, { albedo: ac, emissive: ec });
+    }
   }
   return out;
 }

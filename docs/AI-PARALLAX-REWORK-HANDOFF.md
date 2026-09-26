@@ -147,3 +147,38 @@ Source evidence: the corresponding named drawers in `src/render/sprites.ts`, dim
 Exact continuation: finish the remaining type-by-type visual-mass audit, then introduce explicit ground/top separation and per-type visual mass definitions before expanding the volume dispatch. A crop of the existing combined sprite alone is insufficient: elevated artwork must not remain duplicated in the ground layer. Preserve gameplay occupancy. No geometry, lifecycle, auxiliary path, or E3 conversion was performed this turn.
 
 Verification this turn: a Python source cross-check passed for all six documented drawer patterns, the 16 px tile scale, and the occupancy-derived volume base; `git diff --check` passed. The fresh remote fetch matched the prior `401e55e` checkpoint. No production code or tests changed, so build/browser suites were not rerun; E1's results above remain historical evidence. The initial lookup of `src/sim/buildings.ts` failed because that path does not exist; file discovery located the actual definitions at `src/game/buildings.ts` before the audit. Source inspection ended within the one-minute work window; its handoff was written during the save buffer.
+
+## E2 — house layer separation (2026-09-26, 24%)
+
+Start 01:19:41 UTC; user explicitly overrode the save buffer to two minutes. Total 4m48s, implementation cutoff 01:22:29, hard stop 01:24:29. Production edits finished before 01:22:13; targeted validation completed at 01:22:18 (results inspected at 01:22:27).
+
+The remaining source-level catalog audit is complete. In addition to the six types above, these observations cover all remaining non-road types. Coordinates are drawing regions in native pixels; w/h mean the sprite dimensions. They are not final approved extrusion masks.
+
+| Types | Mass / ground separation required |
+| --- | --- |
+| apartment, office, edge_dc, med_dc | Main box (1,1,w-2,h-3); retain outer ground margins. |
+| midrise | Main box (1,1,w-2,h-4); courtyard and shopfront details need deliberate layer assignment. |
+| highrise | Tower (6,2,w-12,h-12), separate plaza apron, crown mast extends above the box. |
+| library | Main box (2,3,w-4,h-8), portico/columns, grounded steps and planting. |
+| sports_complex | Pool hall (w-17,4,15,18), distinct stands/floodlights; pitch and courts remain ground. |
+| museum | Wing (16,2,w-19,h-8), atrium and banners; separate sculpture garden. |
+| community_center | Hall with roof overhang and outline (1,2,w-2,h-6); noticeboard/picnic area remains ground. |
+| park, plaza | Existing height zero; preserve flat rendering. |
+| coal_plant | Hall (1,10,w-2,h-11); separate stacks, coal pile and industrial yard. |
+| water_plant | Two basins, control building (2,18,12,12), and connecting pipes; no solid full-lot extrusion. |
+| water_reclamation | Three 12x12 basins; membrane hall (4,20,w-8,h-24), pipe gallery and open gaps. |
+| hospital, cloud_dc | Main box (1,1,w-2,h-4); hospital roof details stay elevated, cloud fence/gate require ground separation. |
+| factory | Main hall (1,8,w-2,h-9), separate stack and loading/service details. |
+| auto_factory | Main box (1,3,w-2,h-5), grounded logistics markings. |
+| retail | Main box (1,4,w-2,h-6), rooftop sign extends above it. |
+| gov_dc | Bunker (5,5,w-10,h-12), gatehouse, two fences and security gap. |
+| community_dc | Shed (1,2,w-2,h-4), bikes at the grounded edge. |
+| ai_campus | Main slab (1,1,w-2,40), three separate cooling towers and substation in south yard. |
+
+Implemented the first catalog conversion: house. `Sprite.volume` holds cached ground/top layers and an explicit local visual base. The house lawn/path are drawn into the ground layer; its existing outlined building occupies (1,1,14,13). `volumeFor()` uses that inset base, the renderer keeps the ground at the gameplay origin, and roof/emissive coordinates retain the sprite-local offset. Culling includes the ground layer; inactive shading uses the inset top. The original combined albedo is regenerated through the original drawer path for existing thumbnails, construction and other consumers. No new per-frame canvases or gameplay changes.
+
+M68 now checks transparent top-layer yard/path pixels, opaque ground pixels, actual fixed-origin ground draws, and the house's inset anchored facade edges across its existing pan/day/night/zoom cases. Other reference geometry checks remain unchanged.
+
+Validation: `npm run check` passed; `npm test -- m64 m65 m68` passed 3/3 with the existing `PLAYWRIGHT_CHROMIUM` environment override, including production build. `node --check test/suites/m68.mjs` and `git diff --check` passed. The first M68 attempt built successfully and passed pure geometry but failed to launch because the default Playwright browser cache was absent; using the already-installed browser resolved that environment issue. No dependency was installed. Full 21-suite regression and manual screenshot inspection were not run in this budget. Existing npm environment warning only.
+
+Exact continuation: extend cached ground/top separation and explicit visual mass definitions beyond house, starting with a compact single-block type, then handle multi-mass sites. House retains one outlined rectangular mass (including roof overhang); more exact setbacks remain future work. Construction, ghosts, selection/demolition, x-ray, roof effects and legacy parallax consumers still require E2 conversion. The material caches still use gameplay footprint dimensions, scaled onto the narrower house faces; refine per-mass material dimensions as conversion expands. E2 is incomplete; E3 has not started.
