@@ -124,3 +124,26 @@ This E2 turn started at 23:40:14 UTC. The requested 20% budget is four minutes t
 Resume E2 with the building-catalog audit: distinguish each building's visual mass from its gameplay footprint, then extend the E1 fixed-base volume helpers across elevated types, lifecycle rendering, emissives, and auxiliary projection consumers as specified in the E2 plan. Preserve ground placement and selection anchors. The preceding E1 handoff describes the current three reference types and remaining legacy paths.
 
 This checkpoint changes only this handoff. Verification for this turn consists of remote identity, clean initial worktree, and whitespace validation; E1's recorded 21/21 passing suites are prior evidence and were not rerun for this documentation-only checkpoint.
+
+## E2 — initial visual-mass audit (2026-09-26, 25%)
+
+Budget: start 00:24:39 UTC, implementation cutoff 00:25:39, hard stop 00:29:39. Five minutes total provide one minute of implementation/audit and four minutes for preservation. The first unfinished E2 requirement was the visual-mass audit; this turn records a partial source audit, with no renderer changes and no claim of complete catalog conversion.
+
+`renderer.ts:volumeFor()` currently derives its entire base from `BUILDING_DEFS` occupancy. `sprites.ts:makeBuildingSprites()` produces one combined lot/building albedo and emissive pair at that same size. Therefore simply enabling volumes for all types would lift yards and fields. Even the E1 reference house needs its ground art separated before this is a correct visual-mass catalog.
+
+Coordinates below are native sprite pixels (`TILE = 16`), written as x, y, width, height. They describe observed sprite drawing regions, not approved final extrusion masks.
+
+| Type | Gameplay sprite size | Observed mass / open-space evidence | Conversion implication |
+| --- | --- | --- | --- |
+| house | 16 × 16 | Full lawn backing; body at (2,5,12,8), gable at (1,1,14,5). | Retain lawn on ground; define body and roof overhang separately. |
+| school | 48 × 32 | Playing field at (2,20,18,10); main block drawn with `boxBuilding(22,3,23,22)`. | Field stays grounded; main block is offset within the lot. |
+| arcology | 64 × 64 | Three terraces at (2,6,60,54), (8,12,48,42), (15,18,34,30) over a full backing. | Preserve capacity for multiple masses/setbacks; do not treat backing pixels as proof of solid structure. |
+| solar_farm | 48 × 48 | Sixteen 9 × 6 panels, spaced 11 px apart, with mounts and a separate inverter. | Keep ground between panels; existing height is only 3 px. |
+| solar_array | 64 × 64 | Twenty-five 10 × 7 panels, spaced 12 px apart; tracker posts and a separate transformer area. | Avoid extruding the full field; preserve the existing 3 px scale. |
+| nuclear_plant | 64 × 64 | Two containment regions, separate turbine hall at (22,6,38,26), cooling-tower region at (24,38,18,18), and switchyard. | Needs distinct masses or masks; a full-lot solid prism would fill substantial open space. |
+
+Source evidence: the corresponding named drawers in `src/render/sprites.ts`, dimensions in `src/game/buildings.ts`, height entries in `src/render/height.ts`, and `Renderer.volumeFor()` in `src/render/renderer.ts`. These are source observations; no new visual regression result is claimed.
+
+Exact continuation: finish the remaining type-by-type visual-mass audit, then introduce explicit ground/top separation and per-type visual mass definitions before expanding the volume dispatch. A crop of the existing combined sprite alone is insufficient: elevated artwork must not remain duplicated in the ground layer. Preserve gameplay occupancy. No geometry, lifecycle, auxiliary path, or E3 conversion was performed this turn.
+
+Verification this turn: a Python source cross-check passed for all six documented drawer patterns, the 16 px tile scale, and the occupancy-derived volume base; `git diff --check` passed. The fresh remote fetch matched the prior `401e55e` checkpoint. No production code or tests changed, so build/browser suites were not rerun; E1's results above remain historical evidence. The initial lookup of `src/sim/buildings.ts` failed because that path does not exist; file discovery located the actual definitions at `src/game/buildings.ts` before the audit. Source inspection ended within the one-minute work window; its handoff was written during the save buffer.
