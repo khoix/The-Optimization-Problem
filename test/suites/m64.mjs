@@ -30,7 +30,7 @@ try {
     });
   });
   for (const r of results) {
-    const inset = ['edge_dc', 'med_dc', 'community_dc'].includes(r.type) ? 2 : 0;
+    const inset = ['edge_dc', 'cloud_dc', 'med_dc', 'community_dc'].includes(r.type) ? 2 : 0;
     assert.equal(r.width, r.roofWidth - inset, `${r.type}: visual mass material width`);
     assert.equal(r.height, r.emitterHeight, `${r.type}: aligned emissive geometry`);
     assert.ok(r.lights > 0, `${r.type}: visible status emitters`);

@@ -213,3 +213,25 @@ Environment recovery: restored locked dependencies with `npm ci`. Standard Playw
 Exact continuation: convert the ten remaining elevated types and separate factory/arcology lot art. These include multiple masses and grounded lights, so extend the layer representation as needed instead of extruding their full occupancy rectangle. All E2 construction/lifecycle/auxiliary parallax consumers remain to be converted; no legacy parallax API was retired. Existing flat sprites remain flat. E2 is incomplete, E3 has not begun. Full all-type lifecycle gallery, physical-device performance, and other browsers remain unverified.
 
 Full-regression limit: `timeout 290 npm test -- --no-build` exited 124 at 21:17:13. Suites M44, M46–M56 completed with zero reported failures; execution was stopped during M57 by the allotted test timeout, which closed its browser. This is an incomplete full run, not a full-suite pass. Resume full regression with enough time, alongside the remaining E2 work. The separately completed targeted suites and final M69 result above remain valid. Production code was complete by 21:09:50; the final test edit was complete by 21:13:29, before cutoff.
+
+## E2 — Cloud DC and grounded emitters (2026-10-02, 45%)
+
+Start 21:28:38 UTC; nine-minute budget, retaining the user's two-minute save buffer. Implementation cutoff 21:35:38; hard stop 21:37:38. Initial local and remote heads both matched `4160087`; the worktree was clean. The prior checkpoint was published after the user explicitly approved project pushes for the remainder of this chat.
+
+Cloud DC is now the sixteenth ground/top-separated volume. Its visual base is `(1,1,w-2,h-4)`. Yard backing, perimeter fence, and gate stay in the ground layer; the hall and original roof details use the projected top. Its front/side materials follow the visual base dimensions. The original composite albedo and emissive remain available to unchanged consumers.
+
+The cached volume layers now include their own roof emissive and an optional ground emissive. Drawers can direct ground lights separately; Cloud DC's green gate light is the first user. World and bloom passes draw it at the fixed lot origin while roof emitters follow the projected top. Empty ground-emissive canvases are discarded after initialization; no canvas or pixel readback is added to the frame loop. Original brightness, compute blinking, inactive gating, and construction gating remain intact.
+
+Validation this turn:
+
+- `npm run check`: passed after production edits and again after the final test extension.
+- `npm test -- m64 m65 m68 m69`: 4/4 passed, including `npm run build` on the final production source. M64 retains all existing material/light assertions while adding the Cloud DC inset width.
+- Final `node test/suites/m69.mjs`: passed against the production preview after adding inactive/construction light suppression assertions. M69 now covers sixteen types in 256 pan/zoom/day-night cases, exact ground-light/world/bloom coordinates, no lost or duplicated original emissive pixels, and the earlier grounding/face/bounds/state assertions.
+- `node --check test/suites/m69.mjs` and `git diff --check`: passed. No lint/formatter is configured; these are the derived syntax/whitespace checks.
+- Thirty-two centered catalog screenshots plus sixteen M68 captures were generated. Cloud DC day/night captures were inspected: the fence stays at the ground and roof/face emitters remain attached. This is not a complete lifecycle gallery.
+
+Production edits were complete by 21:32:18; the final test edit was complete by 21:33:59. No dependency or configuration changes. The existing npm proxy-environment warning persists. Source roots and conventions remain `src/render/`, `test/`, `README.md`, and `test/README.md`; the authorized VCS destination remains `astra/parallax-rework`.
+
+Exact continuation: nine elevated types remain unconverted (sports_complex, solar_farm, coal_plant, nuclear_plant, water_plant, solar_array, water_reclamation, gov_dc, ai_campus), plus factory/arcology still need separation of their combined lot art. Introduce multiple visual masses for those sites; the new ground-light layer can carry their grounded emitters. Lifecycle/auxiliary projection, broader occlusion ordering, and legacy API retirement remain outstanding. E2 is incomplete; E3 has not started. Physical devices, other browsers, sustained performance, and a complete full-suite run on this exact commit remain unverified.
+
+Follow-up regression: `timeout 145 npm test -- --no-build m57 m58 m59 m60 m61 m62 m63 m66 m67` completed successfully before 21:35:36. All seven matched suites (M57, M58, M61, M62, M63, M66, M67) passed; there are no separate M59/M60 suite files. This includes the scenario, import, visual fixture, terrain, lighting/buffer, and four-viewport UI checks that were beyond the prior timeout. Combined with the four targeted suites, eleven distinct suites passed on this production source. Earlier suites were not rerun this turn; their prior results remain historical evidence.

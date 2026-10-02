@@ -890,7 +890,8 @@ export class Renderer {
         w.fillRect(dx, dy + def.h * TILE - 1, def.w * TILE, 1);
       }
       // emissive: windows at night; server LEDs always, blinking
-      if (spr.emissive && b.active) {
+      const roofEmissive = spr.volume?.emissive ?? spr.emissive;
+      if (roofEmissive && b.active) {
         const isCompute = def.category === 'compute';
         // Server activity breathes gently; optimization settles into one cadence.
         const order = g.asi.observer ? 1 : Math.min(1, g.asi.emergence / 100);
@@ -899,10 +900,12 @@ export class Renderer {
         if (strength > 0.05) {
           const a = strength * blink;
           w.globalAlpha = a;
-          w.drawImage(spr.emissive, rx, ry);
+          w.drawImage(roofEmissive, rx, ry);
+          if (spr.volume?.groundEmissive) w.drawImage(spr.volume.groundEmissive, dx, dy);
           w.globalAlpha = 1;
           this.ectx.globalAlpha = a;
-          this.ectx.drawImage(spr.emissive, rx, ry);
+          this.ectx.drawImage(roofEmissive, rx, ry);
+          if (spr.volume?.groundEmissive) this.ectx.drawImage(spr.volume.groundEmissive, dx, dy);
           this.emissiveUsed = true;
           this.ectx.globalAlpha = 1;
           // Facade windows join the same bloom pass, so towers light up at night.

@@ -13,7 +13,9 @@ export const TILE = 16;
 export interface Sprite {
   albedo: HTMLCanvasElement;
   emissive: HTMLCanvasElement | null;
-  volume?: { ground: HTMLCanvasElement; top: HTMLCanvasElement; base: { x: number; y: number; w: number; h: number } };
+  volume?: { ground: HTMLCanvasElement; top: HTMLCanvasElement;
+    emissive: HTMLCanvasElement; groundEmissive: HTMLCanvasElement | null;
+    base: { x: number; y: number; w: number; h: number } };
 }
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -332,7 +334,7 @@ function roofPlant(p: Px, x: number, y: number, w = 6, h = 5): void {
   for (let i = 2; i < w - 1; i += 2) p.r(x + i, y + 2, 1, h - 3, '#53636a');
 }
 
-type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number, ground?: Px) => void;
+type BuildingSpriteFn = (p: Px, e: Px, w: number, h: number, seed: number, ground?: Px, groundE?: Px) => void;
 
 const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   road: () => { /* handled by makeRoads */ },
@@ -854,8 +856,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(24, 6, 1, 1, '#7aff9a');
   },
 
-  cloud_dc: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#787880'); p.dither(0, 0, w, h, '#84848c', 0.06, seed);
+  cloud_dc: (p, e, w, h, seed, ground = p, groundE = e) => {
+    ground.r(0, 0, w, h, '#787880'); ground.dither(0, 0, w, h, '#84848c', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 4, { wall: '#a2a6ae', wallDark: '#82868e', roof: '#92969e', roofHi: '#a6aab2', roofLo: '#767a82' });
     // long server-hall roof ridges
     for (let i = 0; i < 3; i++) { p.r(4, 5 + i * 11, w - 8, 8, '#9ea2aa'); p.r(4, 5 + i * 11, w - 8, 1, '#b2b6be'); p.r(4, 12 + i * 11, w - 8, 1, '#6e727a'); }
@@ -867,11 +869,11 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     }
     p.r(w - 5, 6, 1, h - 16, '#5a7982');
     // security fence + gate
-    p.outline(0, 0, w, h, '#5a5a62');
-    p.r(2, h - 4, 3, 2, '#5e626a');
+    ground.outline(0, 0, w, h, '#5a5a62');
+    ground.r(2, h - 4, 3, 2, '#5e626a');
     // LED row on facade
     for (let i = 0; i < 10; i++) e.p(4 + i * 4, h - 3, i % 3 === 0 ? '#7ae9ff' : '#4aa8ff');
-    e.r(2, h - 4, 1, 1, '#7aff9a');
+    groundE.r(2, h - 4, 1, 1, '#7aff9a');
   },
 
   gov_dc: (p, e, w, h, seed) => {
@@ -983,6 +985,7 @@ const VISUAL_INSETS: Partial<Record<BuildingType, readonly [number, number, numb
   museum: [16, 2, 3, 6],
   office: [1, 1, 1, 2],
   edge_dc: [1, 1, 1, 2],
+  cloud_dc: [1, 1, 1, 3],
   med_dc: [1, 1, 1, 2],
   hospital: [1, 1, 1, 3],
   auto_factory: [1, 3, 1, 2],
@@ -1001,11 +1004,14 @@ export function makeBuildingSprites(): Map<BuildingType, Sprite> {
     const inset = VISUAL_INSETS[type];
     if (inset) {
       const [ground, gctx] = canvas(w, h), [top, tctx] = canvas(w, h);
-      DRAWERS[type](new Px(tctx), new Px(ectx), w, h, type.length * 31 + 7, new Px(gctx));
+      const [topE, tectx] = canvas(w, h), [groundE, gectx] = canvas(w, h);
+      DRAWERS[type](new Px(tctx), new Px(tectx), w, h, type.length * 31 + 7, new Px(gctx), new Px(gectx));
+      const hasGroundE = gectx.getImageData(0, 0, w, h).data.some((v, i) => i % 4 === 3 && v > 0);
       // Keep the existing composite exactly intact for thumbnails and construction.
       DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
       out.set(type, { albedo: ac, emissive: ec,
-        volume: { ground, top, base: { x: inset[0], y: inset[1],
+        volume: { ground, top, emissive: topE, groundEmissive: hasGroundE ? groundE : null,
+          base: { x: inset[0], y: inset[1],
           w: w - inset[0] - inset[2], h: h - inset[1] - inset[3] } } });
     } else {
       DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);

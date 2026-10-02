@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { pastBoot } from './bootpast.mjs';
 
-const types = ['house', 'apartment', 'office', 'edge_dc', 'med_dc', 'hospital', 'auto_factory', 'community_dc', 'community_center', 'midrise', 'highrise', 'retail', 'school', 'library', 'museum'];
+const types = ['house', 'apartment', 'office', 'edge_dc', 'med_dc', 'hospital', 'auto_factory', 'community_dc', 'community_center', 'midrise', 'highrise', 'retail', 'school', 'library', 'museum', 'cloud_dc'];
 const browser = await chromium.launch(launchOptions);
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -28,7 +28,7 @@ try {
       if (!layer) throw new Error(`${type}: ground/top layers missing`);
       const w = def.w * 16, h = def.h * 16;
       const expected = type === 'house' ? [1, 1, 14, 13]
-        : type === 'hospital' ? [1, 1, w - 2, h - 4]
+        : type === 'hospital' || type === 'cloud_dc' ? [1, 1, w - 2, h - 4]
         : type === 'auto_factory' ? [1, 3, w - 2, h - 5]
         : type === 'community_dc' ? [1, 2, w - 2, h - 4]
         : type === 'community_center' ? [1, 2, w - 2, h - 6]
@@ -48,6 +48,20 @@ try {
       const pixel = (c, x, y) => [...c.getContext('2d').getImageData(x, y, 1, 1).data];
       equal(pixel(layer.top, 0, 0)[3], 0, 'top excludes lot backing');
       equal(pixel(layer.ground, 0, 0)[3], 255, 'ground retains lot backing');
+      if (type === 'cloud_dc') {
+        equal(pixel(layer.ground, 0, 0), [90, 90, 98, 255], 'security fence grounded');
+        equal(pixel(layer.ground, 2, h - 3), [94, 98, 106, 255], 'gate grounded');
+        equal(pixel(layer.top, 2, h - 3)[3], 0, 'gate absent from top');
+        equal(pixel(layer.groundEmissive, 2, h - 4), [122, 255, 154, 255], 'gate light grounded');
+        equal(pixel(layer.emissive, 2, h - 4)[3], 0, 'gate light absent from roof');
+      }
+      // Splitting emitters must neither lose nor duplicate any original pixel.
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const roof = pixel(layer.emissive, x, y);
+        const ground = layer.groundEmissive ? pixel(layer.groundEmissive, x, y) : [0, 0, 0, 0];
+        if (roof[3] && ground[3]) throw new Error(`${type}: duplicated emitter at ${x},${y}`);
+        equal(ground[3] ? ground : roof, pixel(sprite.emissive, x, y), 'composite emitter preserved');
+      }
       if (type === 'auto_factory') {
         equal(pixel(layer.ground, 3, h - 2), [208, 216, 96, 255], 'logistics stripe grounded');
         equal(pixel(layer.top, 3, h - 2)[3], 0, 'stripe absent from top');
@@ -90,7 +104,7 @@ try {
           || v.bounds.y + v.bounds.h < Math.max(dy, roofY) + h)
           throw new Error(`${type}: roof attachment or lot outside culling bounds`);
         equal([v.base.x, v.base.y, v.base.w, v.base.h], [dx + expected[0], dy + expected[1], expected[2], expected[3]], 'stationary base');
-        const seen = { ground: 0, top: 0, wall: 0, light: 0, bloom: 0, roofLight: 0, roofBloom: 0 };
+        const seen = { ground: 0, top: 0, wall: 0, light: 0, bloom: 0, roofLight: 0, roofBloom: 0, groundLight: 0, groundBloom: 0 };
         const wrap = (ctx, bloom) => {
           const original = ctx.drawImage;
           ctx.drawImage = function(source, ...args) {
@@ -98,9 +112,13 @@ try {
             if (!bloom && source === layer.top) {
               equal(args, [v.top.x - expected[0], v.top.y - expected[1]], 'top origin'); seen.top++;
             }
-            if (source === sprite.emissive) {
+            if (source === layer.emissive) {
               equal(args, [v.top.x - expected[0], v.top.y - expected[1]], 'roof emitter origin');
               if (bloom) seen.roofBloom++; else seen.roofLight++;
+            }
+            if (source === layer.groundEmissive) {
+              equal(args, [dx, dy], 'ground emitter origin');
+              if (bloom) seen.groundBloom++; else seen.groundLight++;
             }
             const material = source === front.albedo || source === front.emissive ? front
               : source === side.albedo || source === side.emissive ? side : null;
@@ -122,11 +140,34 @@ try {
         try { r.render(g, ui); } finally { restoreWorld(); restoreBloom(); }
         equal(seen.ground, 1, 'ground actually rendered'); equal(seen.top, 1, 'top actually rendered');
         equal(seen.wall, v.faces.filter((f) => f.visible).length, 'all visible walls rendered');
+        if (type === 'cloud_dc') {
+          equal(seen.groundLight, 1, 'gate light rendered by day and night');
+          equal(seen.groundBloom, 1, 'gate bloom remains grounded');
+        }
         if (hour === 23) {
           equal(seen.light, seen.wall, 'night wall emitters'); equal(seen.bloom, seen.light, 'aligned bloom');
           equal(seen.roofLight, 1, 'roof emitter rendered'); equal(seen.roofBloom, 1, 'roof bloom rendered');
         }
         renders++;
+      }
+      if (type === 'cloud_dc') {
+        // Both light layers must obey the existing offline/construction gate.
+        for (const [active, progress] of [[false, 1], [true, 0.5]]) {
+          b.active = active; b.progress = progress;
+          let emitted = 0;
+          const restores = [r.wctx, r.ectx].map((ctx) => {
+            const original = ctx.drawImage;
+            ctx.drawImage = function(source, ...args) {
+              if (source === layer.emissive || source === layer.groundEmissive
+                || source === front.emissive || source === side.emissive) emitted++;
+              return original.call(this, source, ...args);
+            };
+            return () => { ctx.drawImage = original; };
+          });
+          try { r.render(g, ui); } finally { restores.forEach((restore) => restore()); }
+          equal(emitted, 0, `no lights while active=${active}, progress=${progress}`);
+        }
+        b.active = true; b.progress = 1;
       }
       if (type === 'highrise') {
         // The mast can be the only visible pixel while every structural corner
@@ -165,5 +206,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('PASS fifteen layered types: 240 renders, inset bases, ground details, material sizes, projected faces, night emitters/bloom and unchanged state');
+  console.log('PASS sixteen layered types: 256 renders, inset bases, ground details, material sizes, projected faces, partitioned emitters/bloom and unchanged state');
 } finally { await browser.close(); }
