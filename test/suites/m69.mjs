@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { pastBoot } from './bootpast.mjs';
 
-const types = ['house', 'apartment', 'office', 'edge_dc', 'med_dc', 'hospital', 'auto_factory', 'community_dc', 'community_center', 'midrise', 'highrise', 'retail', 'school', 'library', 'museum', 'cloud_dc'];
+const types = ['house', 'apartment', 'office', 'edge_dc', 'med_dc', 'hospital', 'auto_factory', 'community_dc', 'community_center', 'midrise', 'highrise', 'retail', 'school', 'library', 'museum', 'cloud_dc', 'solar_farm'];
 const browser = await chromium.launch(launchOptions);
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -27,7 +27,8 @@ try {
       const def = api.BUILDING_DEFS[type], sprite = r.buildings.get(type), layer = sprite.volume;
       if (!layer) throw new Error(`${type}: ground/top layers missing`);
       const w = def.w * 16, h = def.h * 16;
-      const expected = type === 'house' ? [1, 1, 14, 13]
+      const expected = type === 'solar_farm' ? [2, 2, 42, 39]
+        : type === 'house' ? [1, 1, 14, 13]
         : type === 'hospital' || type === 'cloud_dc' ? [1, 1, w - 2, h - 4]
         : type === 'auto_factory' ? [1, 3, w - 2, h - 5]
         : type === 'community_dc' ? [1, 2, w - 2, h - 4]
@@ -43,11 +44,19 @@ try {
       };
       equal([layer.base.x, layer.base.y, layer.base.w, layer.base.h], expected, 'visual base');
       const front = r.facadeFor(type), side = r.sideFacadeFor(type);
-      equal([front.albedo.width, front.emissive.width], [expected[2], expected[2]], 'front material width');
-      equal([side.albedo.width, side.emissive.width], [expected[3], expected[3]], 'side material width');
+      equal([front.albedo.width, front.emissive.width], type === 'solar_farm' ? [9, 9] : [expected[2], expected[2]], 'front material width');
+      equal([side.albedo.width, side.emissive.width], type === 'solar_farm' ? [6, 6] : [expected[3], expected[3]], 'side material width');
       const pixel = (c, x, y) => [...c.getContext('2d').getImageData(x, y, 1, 1).data];
       equal(pixel(layer.top, 0, 0)[3], 0, 'top excludes lot backing');
       equal(pixel(layer.ground, 0, 0)[3], 255, 'ground retains lot backing');
+      if (type === 'solar_farm') {
+        equal(layer.masses.length, 16, 'sixteen independent panels');
+        for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
+          equal(layer.masses[row * 4 + col], { x: 2 + col * 11, y: 2 + row * 11, w: 9, h: 6 }, 'panel base');
+          equal(pixel(layer.top, 5 + col * 11, 8 + row * 11)[3], 0, 'mount absent from raised panels');
+        }
+        equal(pixel(layer.groundEmissive, w - 7, h - 4), [159, 208, 255, 255], 'inverter light grounded');
+      }
       if (type === 'cloud_dc') {
         equal(pixel(layer.ground, 0, 0), [90, 90, 98, 255], 'security fence grounded');
         equal(pixel(layer.ground, 2, h - 3), [94, 98, 106, 255], 'gate grounded');
@@ -98,6 +107,14 @@ try {
         const dx = right ? r.viewW - w - 32 : 32, dy = bottom ? r.viewH - h - 16 : 60;
         r.camX = 800 - dx; r.camY = 800 - dy;
         const v = r.volumeFor(type, dx, dy);
+        if (type === 'solar_farm') {
+          equal(v.faces.length, 64, 'four faces per panel, no full-lot wall');
+          for (let i = 0; i < 16; i++) {
+            const m = layer.masses[i], face = v.faces[i * 4 + 2];
+            equal([face.corners[3].x, face.corners[3].y, face.corners[2].x],
+              [dx + m.x, dy + m.y + m.h, dx + m.x + m.w], 'each panel anchored');
+          }
+        }
         const roofX = v.top.x - expected[0], roofY = v.top.y - expected[1];
         if (v.bounds.x > Math.min(dx, roofX) || v.bounds.y > Math.min(dy, roofY)
           || v.bounds.x + v.bounds.w < Math.max(dx, roofX) + w
@@ -140,7 +157,7 @@ try {
         try { r.render(g, ui); } finally { restoreWorld(); restoreBloom(); }
         equal(seen.ground, 1, 'ground actually rendered'); equal(seen.top, 1, 'top actually rendered');
         equal(seen.wall, v.faces.filter((f) => f.visible).length, 'all visible walls rendered');
-        if (type === 'cloud_dc') {
+        if (type === 'cloud_dc' || type === 'solar_farm' && hour === 23) {
           equal(seen.groundLight, 1, 'gate light rendered by day and night');
           equal(seen.groundBloom, 1, 'gate bloom remains grounded');
         }
@@ -206,5 +223,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('PASS sixteen layered types: 256 renders, inset bases, ground details, material sizes, projected faces, partitioned emitters/bloom and unchanged state');
+  console.log('PASS seventeen layered types: 272 renders, inset bases, ground details, material sizes, projected faces, partitioned emitters/bloom and unchanged state');
 } finally { await browser.close(); }

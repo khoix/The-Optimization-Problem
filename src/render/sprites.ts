@@ -15,7 +15,8 @@ export interface Sprite {
   emissive: HTMLCanvasElement | null;
   volume?: { ground: HTMLCanvasElement; top: HTMLCanvasElement;
     emissive: HTMLCanvasElement; groundEmissive: HTMLCanvasElement | null;
-    base: { x: number; y: number; w: number; h: number } };
+    base: { x: number; y: number; w: number; h: number };
+    masses?: { x: number; y: number; w: number; h: number }[] };
 }
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
@@ -675,9 +676,9 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(cx - 1, h / 2 - 6, 2, 2, '#fff2cc'); // uplit statue
   },
 
-  solar_farm: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#7d7458');
-    p.dither(0, 0, w, h, '#8a8064', 0.06, seed);
+  solar_farm: (p, e, w, h, seed, ground = p, groundE = e) => {
+    ground.r(0, 0, w, h, '#7d7458');
+    ground.dither(0, 0, w, h, '#8a8064', 0.06, seed);
     for (let row = 0; row < 4; row++) {
       const y = 2 + row * 11;
       for (let col = 0; col < 4; col++) {
@@ -687,12 +688,12 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
         p.r(x + 1, y + 1, 3, 1, '#6fa3cc'); // specular glint
         for (let i = 1; i < 3; i++) p.r(x, y + i * 2, 9, 1, '#16304f');
         p.outline(x, y, 9, 6, '#101c2e');
-        p.r(x + 3, y + 6, 3, 1, '#54544e'); // mount
+        ground.r(x + 3, y + 6, 3, 1, '#54544e'); // mount
       }
     }
-    p.r(w - 9, h - 5, 6, 3, '#737b75');
-    p.r(w - 9, h - 5, 6, 1, '#b3b7a4');
-    e.r(w - 7, h - 4, 1, 1, '#9fd0ff'); // inverter LED, not luminous solar glass
+    ground.r(w - 9, h - 5, 6, 3, '#737b75');
+    ground.r(w - 9, h - 5, 6, 1, '#b3b7a4');
+    groundE.r(w - 7, h - 4, 1, 1, '#9fd0ff'); // inverter LED, not luminous solar glass
   },
 
   coal_plant: (p, e, w, h, seed) => {
@@ -975,6 +976,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
 // Visual mass insets (left, top, right, bottom), independent of gameplay occupancy.
 // Add a type only after its drawer separates grounded details from elevated art.
 const VISUAL_INSETS: Partial<Record<BuildingType, readonly [number, number, number, number]>> = {
+  solar_farm: [2, 2, 4, 7],
   house: [1, 1, 1, 2],
   apartment: [1, 1, 1, 2],
   midrise: [1, 1, 1, 3],
@@ -1011,6 +1013,8 @@ export function makeBuildingSprites(): Map<BuildingType, Sprite> {
       DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
       out.set(type, { albedo: ac, emissive: ec,
         volume: { ground, top, emissive: topE, groundEmissive: hasGroundE ? groundE : null,
+          masses: type === 'solar_farm' ? Array.from({ length: 16 }, (_, i) =>
+            ({ x: 2 + i % 4 * 11, y: 2 + Math.floor(i / 4) * 11, w: 9, h: 6 })) : undefined,
           base: { x: inset[0], y: inset[1],
           w: w - inset[0] - inset[2], h: h - inset[1] - inset[3] } } });
     } else {

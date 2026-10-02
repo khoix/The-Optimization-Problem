@@ -548,7 +548,7 @@ export class Renderer {
   private facadeFor(type: BuildingType): Facade | null {
     if (!this.facades.has(type)) {
       const spr = this.buildings.get(type);
-      this.facades.set(type, spr ? makeFacade(type, spr.albedo, spr.volume?.base.w) : null);
+      this.facades.set(type, spr ? makeFacade(type, spr.albedo, spr.volume?.masses?.[0].w ?? spr.volume?.base.w) : null);
     }
     return this.facades.get(type) ?? null;
   }
@@ -557,6 +557,7 @@ export class Renderer {
   private sideFacadeFor(type: BuildingType): Facade {
     if (!this.sideFacades.has(type)) {
       this.sideFacades.set(type, makeFacade(type, this.buildings.get(type)!.albedo,
+        this.buildings.get(type)?.volume?.masses?.[0].h ??
         this.buildings.get(type)?.volume?.base.h ?? BUILDING_DEFS[type].h * TILE)!);
     }
     return this.sideFacades.get(type)!;
@@ -568,6 +569,13 @@ export class Renderer {
     const base = mass ? { x: x + mass.x, y: y + mass.y, w: mass.w, h: mass.h }
       : { x, y, w: def.w * TILE, h: def.h * TILE };
     const volume = projectVolume(base, height, projectHeightVector(base, height, this.viewW, this.viewH));
+    const masses = this.buildings.get(type)?.volume?.masses;
+    if (masses) {
+      // Equal-height masses share one top translation, leaving open ground
+      // between their individually anchored walls.
+      volume.faces = masses.flatMap((m) => projectVolume(
+        { ...m, x: x + m.x, y: y + m.y }, height, volume.z).faces);
+    }
     if (mass) {
       // Roof signs, masts and canopies can extend beyond the structural base.
       // Include the complete cached top canvas and stationary lot conservatively.
@@ -872,7 +880,9 @@ export class Renderer {
       }
       if (!b.active) {
         w.fillStyle = 'rgba(20,20,28,0.45)';
-        if (spr.volume && volume) w.fillRect(volume.top.x, volume.top.y, volume.top.w, volume.top.h);
+        if (spr.volume?.masses && volume) {
+          for (const m of spr.volume.masses) w.fillRect(dx + m.x + volume.z.x, dy + m.y + volume.z.y, m.w, m.h);
+        } else if (spr.volume && volume) w.fillRect(volume.top.x, volume.top.y, volume.top.w, volume.top.h);
         else w.fillRect(rx, ry, def.w * TILE, def.h * TILE);
         if (fac && volume) {
           for (const face of volume.faces) if (face.visible) {
