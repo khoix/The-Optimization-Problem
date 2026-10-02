@@ -369,8 +369,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(x + 2, y + 7, 2, 2, '#ffd9a0'); e.r(x + 9, y + 7, 2, 2, '#ffd9a0');
   },
 
-  apartment: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#526f43'); p.dither(0, 0, w, h, '#597749', 0.06, seed);
+  apartment: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#526f43'); ground.dither(0, 0, w, h, '#597749', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 3, { wall: '#8d8d99', wallDark: '#6e6e7a', roof: '#77778a', roofHi: '#8b8b9e', roofLo: '#5f5f70' });
     // roof furniture
     p.r(4, 4, 4, 3, '#68687a'); p.r(w - 9, 5, 5, 4, '#68687a');
@@ -391,8 +391,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(2, 2, 1, 1, '#ff6a6a');
   },
 
-  midrise: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#526f43'); p.dither(0, 0, w, h, '#597749', 0.06, seed);
+  midrise: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#526f43'); ground.dither(0, 0, w, h, '#597749', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 4, { wall: '#9a8d7e', wallDark: '#7a6f62', roof: '#8a7f72', roofHi: '#9e9384', roofLo: '#6e6459' });
     // courtyard cut into the roof
     p.r(10, 8, 12, 10, '#5d9a4d'); p.dither(10, 8, 12, 10, '#4f8a44', 0.35, seed + 3);
@@ -414,10 +414,10 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(3, h - 3, 7, 1, '#ffe9b0'); e.r(13, h - 3, 6, 1, '#bfe9ff');
   },
 
-  highrise: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#7d8a80'); p.dither(0, 0, w, h, '#8a968c', 0.06, seed);
+  highrise: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#7d8a80'); ground.dither(0, 0, w, h, '#8a968c', 0.06, seed);
     // plaza apron
-    p.r(2, h - 8, w - 4, 6, '#a8a094'); p.dither(2, h - 8, w - 4, 6, '#b8b0a4', 0.3, seed + 1);
+    ground.r(2, h - 8, w - 4, 6, '#a8a094'); ground.dither(2, h - 8, w - 4, 6, '#b8b0a4', 0.3, seed + 1);
     // tower slab, tall and narrow
     boxBuilding(p, 6, 2, w - 12, h - 12, { wall: '#6e7a8a', wallDark: '#54606e', roof: '#5e6a7a', roofHi: '#76828f', roofLo: '#464f5c', outlineC: '#181c22' });
     // Recessed crown terrace and lift core; the vertical glass is on the facade.
@@ -472,12 +472,12 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(20, 10, w - 40, 1, '#9fe8b0'); // grow lights in the crown gardens
   },
 
-  school: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#5d9a4d'); p.dither(0, 0, w, h, '#4f8a44', 0.06, seed);
+  school: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#5d9a4d'); ground.dither(0, 0, w, h, '#4f8a44', 0.06, seed);
     // playing field + running track
-    p.r(2, h - 12, 18, 10, '#4a8a3c');
-    p.outline(2, h - 12, 18, 10, '#d9d9d0');
-    p.r(10, h - 12, 1, 10, '#d9d9d0');
+    ground.r(2, h - 12, 18, 10, '#4a8a3c');
+    ground.outline(2, h - 12, 18, 10, '#d9d9d0');
+    ground.r(10, h - 12, 1, 10, '#d9d9d0');
     // two-storey brick block, long and low
     boxBuilding(p, 22, 3, w - 25, h - 10, { wall: '#b06a52', wallDark: '#8a5040', roof: '#9a5f4a', roofHi: '#b0705a', roofLo: '#7a4838' });
     // clerestory windows in two rows
@@ -490,15 +490,15 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     p.r(w - 12, h - 4, 5, 3, '#8a5040');
     p.r(w - 4, 4, 1, 7, '#8a8a92'); p.r(w - 3, 4, 3, 2, '#4f8ac9');
     // bike racks
-    for (let i = 0; i < 4; i++) p.p(23 + i * 2, h - 2, '#3a3a40');
+    for (let i = 0; i < 4; i++) ground.p(23 + i * 2, h - 2, '#3a3a40');
     p.r(24, 6, w - 29, 3, '#394d58');
     for (let x = 26; x < w - 6; x += 5) p.r(x, 6, 1, 3, '#aaa695');
     p.r(23, h - 5, 7, 1, '#d5bf92');
     e.r(w - 11, h - 3, 3, 1, '#ffd9a0');
   },
 
-  library: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#7d8a6e'); p.dither(0, 0, w, h, '#8a967a', 0.06, seed);
+  library: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#7d8a6e'); ground.dither(0, 0, w, h, '#8a967a', 0.06, seed);
     // stone civic block with a portico
     boxBuilding(p, 2, 3, w - 4, h - 8, { wall: '#c9c2ac', wallDark: '#a49d88', roof: '#b8b19c', roofHi: '#d2cbb6', roofLo: '#948d7a' });
     // pediment + columns across the front
@@ -509,10 +509,10 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     p.r(7, 6, w - 14, 5, '#8fa4b8'); p.r(7, 6, w - 14, 1, '#cfe0f0');
     for (let x = 9; x < w - 8; x += 4) p.r(x, 7, 1, 3, '#a4b4c4');
     // steps
-    p.r(9, h - 2, w - 18, 1, '#b8b19c');
+    ground.r(9, h - 2, w - 18, 1, '#b8b19c');
     p.r(5, 3, w - 10, 1, '#e0d4b9');
     p.r(5, 13, w - 10, 1, '#8c8371');
-    p.r(2, h - 3, 4, 2, '#536b4b'); p.r(w - 6, h - 3, 4, 2, '#536b4b');
+    ground.r(2, h - 3, 4, 2, '#536b4b'); ground.r(w - 6, h - 3, 4, 2, '#536b4b');
     e.r(7, 6, w - 14, 5, '#ffeccc');   // warm glow through the skylights
     for (let i = 0; i < 4; i++) e.r(8 + i * 4, h - 5, 2, 2, '#ffe9b0');
   },
@@ -542,11 +542,11 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(w - 15, 6, 11, 3, '#bfe9ff');
   },
 
-  museum: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#8a8a7e'); p.dither(0, 0, w, h, '#96968a', 0.06, seed);
+  museum: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#8a8a7e'); ground.dither(0, 0, w, h, '#96968a', 0.06, seed);
     // sculpture garden strip
-    p.r(2, h - 7, 12, 5, '#5d9a4d'); p.dither(2, h - 7, 12, 5, '#4f8a44', 0.35, seed + 2);
-    p.r(6, h - 6, 2, 3, '#a8a8b2'); p.p(6, h - 7, '#c2c2cc');
+    ground.r(2, h - 7, 12, 5, '#5d9a4d'); ground.dither(2, h - 7, 12, 5, '#4f8a44', 0.35, seed + 2);
+    ground.r(6, h - 6, 2, 3, '#a8a8b2'); ground.p(6, h - 7, '#c2c2cc');
     // angular modern wing: pale stone with a glazed atrium
     boxBuilding(p, 16, 2, w - 19, h - 8, { wall: '#dcd8cc', wallDark: '#b4b0a4', roof: '#cac6ba', roofHi: '#e8e4d8', roofLo: '#a09c90' });
     // glass atrium wedge
@@ -563,8 +563,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 3; i++) e.r(18 + i * 5, h - 6, 3, 1, '#ffd9a0');
   },
 
-  community_center: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#7d9a6e'); p.dither(0, 0, w, h, '#8aa67a', 0.06, seed);
+  community_center: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#7d9a6e'); ground.dither(0, 0, w, h, '#8aa67a', 0.06, seed);
     // low warm-timber hall with a pitched roof
     p.r(2, 6, w - 4, h - 10, '#c9a878');
     p.r(2, h - 5, w - 4, 1, '#a48858');
@@ -576,7 +576,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 3; i++) { const wx = 4 + i * 8; p.r(wx, h - 10, 5, 4, '#9cc3dd'); }
     p.r(w - 8, h - 8, 4, 4, '#6e4a32');
     // noticeboard and picnic table
-    p.r(3, h - 3, 4, 2, '#a4785a'); p.p(4, h - 3, '#e8e8e2'); p.p(6, h - 2, '#e8e8e2');
+    ground.r(3, h - 3, 4, 2, '#a4785a'); ground.p(4, h - 3, '#e8e8e2'); ground.p(6, h - 2, '#e8e8e2');
     for (let x = 4; x < w - 3; x += 6) p.r(x, 3, 1, 3, '#624b3955');
     p.r(w - 10, h - 10, 7, 1, '#dfc194');
     for (let i = 0; i < 3; i++) e.r(4 + i * 8, h - 10, 5, 3, '#ffdca8');
@@ -755,8 +755,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(4, 27, 2, 2, '#bfe9ff');
   },
 
-  hospital: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#9aa89a'); p.dither(0, 0, w, h, '#a8b6a8', 0.06, seed);
+  hospital: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#9aa89a'); ground.dither(0, 0, w, h, '#a8b6a8', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 4, { wall: '#e8e8e2', wallDark: '#c2c2ba', roof: '#d8d8d0', roofHi: '#efefe8', roofLo: '#b2b2a8' });
     // red cross + helipad
     p.r(6, 6, 8, 8, '#c2c2ba'); p.r(9, 7, 2, 6, '#c94f4f'); p.r(7, 9, 6, 2, '#c94f4f');
@@ -793,11 +793,11 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(w - 9, 2, 1, 1, '#ff6a6a');
   },
 
-  auto_factory: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#6e7478'); p.dither(0, 0, w, h, '#7a8084', 0.06, seed);
+  auto_factory: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#6e7478'); ground.dither(0, 0, w, h, '#7a8084', 0.06, seed);
     boxBuilding(p, 1, 3, w - 2, h - 5, { wall: '#aeb8be', wallDark: '#8c969c', roof: '#9aa4aa', roofHi: '#b2bcc2', roofLo: '#7e888e' });
     // clean logistics yard markings
-    p.r(3, h - 2, w - 6, 1, '#d0d860');
+    ground.r(3, h - 2, w - 6, 1, '#d0d860');
     // roof: HVAC + conveyor spine
     p.r(4, 6, w - 8, 3, '#7e888e'); p.r(4, 6, w - 8, 1, '#94a0a6');
     for (let i = 0; i < 4; i++) { p.r(6 + i * 9, 12, 6, 5, '#8c969c'); p.outline(6 + i * 9, 12, 6, 5, '#4e585e'); }
@@ -810,8 +810,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 3; i++) e.r(6 + i * 13, h - 4, 1, 1, '#7ae9ff'); // door status LEDs
   },
 
-  office: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#8a9098'); p.dither(0, 0, w, h, '#969ca4', 0.06, seed);
+  office: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#8a9098'); ground.dither(0, 0, w, h, '#969ca4', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 3, { wall: '#5e7a94', wallDark: '#46607a', roof: '#54687c', roofHi: '#68809a', roofLo: '#405264' });
     // Narrow atrium skylight beside a service spine, rather than roof windows.
     p.r(4, 4, 9, h - 13, '#344f62');
@@ -823,8 +823,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     e.r(2, 2, 1, 1, '#ff6a6a');
   },
 
-  retail: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#948c80'); p.dither(0, 0, w, h, '#a09888', 0.06, seed);
+  retail: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#948c80'); ground.dither(0, 0, w, h, '#a09888', 0.06, seed);
     boxBuilding(p, 1, 4, w - 2, h - 6, { wall: '#c9a86a', wallDark: '#a8875a', roof: '#b8927a', roofHi: '#cca68c', roofLo: '#9a7862' });
     // awnings + signage
     p.r(2, h - 7, 10, 2, '#c94f4f'); p.r(3, h - 7, 2, 2, '#e8e8e2'); p.r(7, h - 7, 2, 2, '#e8e8e2');
@@ -837,8 +837,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 5; i++) e.r(4 + i * 6, h - 4, 2, 2, '#ffe9b0');
   },
 
-  edge_dc: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#82827a'); p.dither(0, 0, w, h, '#8e8e86', 0.06, seed);
+  edge_dc: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#82827a'); ground.dither(0, 0, w, h, '#8e8e86', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 3, { wall: '#9a9aa2', wallDark: '#7a7a84', roof: '#8a8a94', roofHi: '#9e9ea8', roofLo: '#6e6e78' });
     // rooftop HVAC + fenced yard
     p.r(4, 4, 8, 6, '#7a7a84'); p.outline(4, 4, 8, 6, '#4a4a54');
@@ -897,8 +897,8 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 4; i++) e.p(6 + i * 9, h - 8, '#4aa8ff'); // perimeter status LEDs
   },
 
-  med_dc: (p, e, w, h, seed) => {
-    p.r(0, 0, w, h, '#8a9a94'); p.dither(0, 0, w, h, '#96a6a0', 0.06, seed);
+  med_dc: (p, e, w, h, seed, ground = p) => {
+    ground.r(0, 0, w, h, '#8a9a94'); ground.dither(0, 0, w, h, '#96a6a0', 0.06, seed);
     boxBuilding(p, 1, 1, w - 2, h - 3, { wall: '#e2ecea', wallDark: '#b8c6c2', roof: '#d0dedb', roofHi: '#eaf4f2', roofLo: '#a8b8b4' });
     // teal medical stripe + cross on roof
     p.r(2, 6, w - 4, 2, '#3aa8a0');
@@ -915,9 +915,9 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     for (let i = 0; i < 4; i++) e.r(12 + i * 4, h - 4, 2, 1, '#7ae9ff');
   },
 
-  community_dc: (p, e, w, h, seed) => {
+  community_dc: (p, e, w, h, seed, ground = p) => {
     const rand = rng(seed);
-    p.r(0, 0, w, h, '#7d8a5e'); p.dither(0, 0, w, h, '#8a9a6a', 0.06, seed);
+    ground.r(0, 0, w, h, '#7d8a5e'); ground.dither(0, 0, w, h, '#8a9a6a', 0.06, seed);
     // patchwork shed: reused panels in mismatched colors
     boxBuilding(p, 1, 2, w - 2, h - 4, { wall: '#a8926a', wallDark: '#86744e', roof: '#8a7a5c', roofHi: '#9e8e6e', roofLo: '#6e6046' });
     const patches = ['#7a8ac9', '#c97a5a', '#6aa86a', '#c9b05a'];
@@ -932,7 +932,7 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
     // mural stripe + open door + bikes
     p.r(2, h - 6, w - 12, 1, '#c97ab0'); p.r(2, h - 5, w - 12, 1, '#7ac9c9');
     p.r(w - 8, h - 6, 3, 4, '#5e5036');
-    p.r(3, h - 2, 4, 1, '#3a3a40'); p.p(4, h - 3, '#3a3a40'); p.p(6, h - 3, '#3a3a40');
+    ground.r(3, h - 2, 4, 1, '#3a3a40'); ground.p(4, h - 3, '#3a3a40'); ground.p(6, h - 3, '#3a3a40');
     e.r(w - 8, h - 5, 3, 2, '#ffd9a0'); // warm open doorway
     for (let i = 0; i < 3; i++) e.p(14 + i * 3, h - 4, '#7aff9a'); // mismatched status LEDs
   },
@@ -970,6 +970,26 @@ const DRAWERS: Record<BuildingType, BuildingSpriteFn> = {
   },
 };
 
+// Visual mass insets (left, top, right, bottom), independent of gameplay occupancy.
+// Add a type only after its drawer separates grounded details from elevated art.
+const VISUAL_INSETS: Partial<Record<BuildingType, readonly [number, number, number, number]>> = {
+  house: [1, 1, 1, 2],
+  apartment: [1, 1, 1, 2],
+  midrise: [1, 1, 1, 3],
+  highrise: [6, 2, 6, 10],
+  retail: [1, 4, 1, 2],
+  school: [22, 3, 3, 7],
+  library: [2, 3, 2, 5],
+  museum: [16, 2, 3, 6],
+  office: [1, 1, 1, 2],
+  edge_dc: [1, 1, 1, 2],
+  med_dc: [1, 1, 1, 2],
+  hospital: [1, 1, 1, 3],
+  auto_factory: [1, 3, 1, 2],
+  community_dc: [1, 2, 1, 2],
+  community_center: [1, 2, 1, 4],
+};
+
 export function makeBuildingSprites(): Map<BuildingType, Sprite> {
   const out = new Map<BuildingType, Sprite>();
   for (const type of Object.keys(DRAWERS) as BuildingType[]) {
@@ -978,13 +998,15 @@ export function makeBuildingSprites(): Map<BuildingType, Sprite> {
     const w = def.w * TILE, h = def.h * TILE;
     const [ac, actx] = canvas(w, h);
     const [ec, ectx] = canvas(w, h);
-    if (type === 'house') {
+    const inset = VISUAL_INSETS[type];
+    if (inset) {
       const [ground, gctx] = canvas(w, h), [top, tctx] = canvas(w, h);
       DRAWERS[type](new Px(tctx), new Px(ectx), w, h, type.length * 31 + 7, new Px(gctx));
       // Keep the existing composite exactly intact for thumbnails and construction.
       DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
       out.set(type, { albedo: ac, emissive: ec,
-        volume: { ground, top, base: { x: 1, y: 1, w: 14, h: 13 } } });
+        volume: { ground, top, base: { x: inset[0], y: inset[1],
+          w: w - inset[0] - inset[2], h: h - inset[1] - inset[3] } } });
     } else {
       DRAWERS[type](new Px(actx), new Px(ectx), w, h, type.length * 31 + 7);
       out.set(type, { albedo: ac, emissive: ec });

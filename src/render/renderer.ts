@@ -548,7 +548,7 @@ export class Renderer {
   private facadeFor(type: BuildingType): Facade | null {
     if (!this.facades.has(type)) {
       const spr = this.buildings.get(type);
-      this.facades.set(type, spr ? makeFacade(type, spr.albedo) : null);
+      this.facades.set(type, spr ? makeFacade(type, spr.albedo, spr.volume?.base.w) : null);
     }
     return this.facades.get(type) ?? null;
   }
@@ -557,7 +557,7 @@ export class Renderer {
   private sideFacadeFor(type: BuildingType): Facade {
     if (!this.sideFacades.has(type)) {
       this.sideFacades.set(type, makeFacade(type, this.buildings.get(type)!.albedo,
-        BUILDING_DEFS[type].h * TILE)!);
+        this.buildings.get(type)?.volume?.base.h ?? BUILDING_DEFS[type].h * TILE)!);
     }
     return this.sideFacades.get(type)!;
   }
@@ -567,7 +567,19 @@ export class Renderer {
     const mass = this.buildings.get(type)?.volume?.base;
     const base = mass ? { x: x + mass.x, y: y + mass.y, w: mass.w, h: mass.h }
       : { x, y, w: def.w * TILE, h: def.h * TILE };
-    return projectVolume(base, height, projectHeightVector(base, height, this.viewW, this.viewH));
+    const volume = projectVolume(base, height, projectHeightVector(base, height, this.viewW, this.viewH));
+    if (mass) {
+      // Roof signs, masts and canopies can extend beyond the structural base.
+      // Include the complete cached top canvas and stationary lot conservatively.
+      const left = Math.min(x, x + volume.z.x, volume.bounds.x);
+      const top = Math.min(y, y + volume.z.y, volume.bounds.y);
+      const right = Math.max(x + def.w * TILE, x + volume.z.x + def.w * TILE,
+        volume.bounds.x + volume.bounds.w);
+      const bottom = Math.max(y + def.h * TILE, y + volume.z.y + def.h * TILE,
+        volume.bounds.y + volume.bounds.h);
+      volume.bounds = { x: left, y: top, w: right - left, h: bottom - top };
+    }
+    return volume;
   }
 
   render(g: GameState, ui: UiRenderState): void {
@@ -756,7 +768,7 @@ export class Renderer {
       if (!spr) continue;
       const bhPx = heightOf(b.type);
       const [px, py] = parallaxShift(dx, dy, bhPx, W, H);
-      const volume = VOLUME_REFERENCES.has(b.type) ? this.volumeFor(b.type, dx, dy) : null;
+      const volume = spr.volume || VOLUME_REFERENCES.has(b.type) ? this.volumeFor(b.type, dx, dy) : null;
       const rx = volume ? volume.top.x - (spr.volume?.base.x ?? 0) : dx + px;
       const ry = volume ? volume.top.y - (spr.volume?.base.y ?? 0) : dy - bhPx + py;
       // Cull the projected mass as well as its footprint: a roof can still be

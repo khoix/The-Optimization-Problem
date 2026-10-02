@@ -182,3 +182,34 @@ M68 now checks transparent top-layer yard/path pixels, opaque ground pixels, act
 Validation: `npm run check` passed; `npm test -- m64 m65 m68` passed 3/3 with the existing `PLAYWRIGHT_CHROMIUM` environment override, including production build. `node --check test/suites/m68.mjs` and `git diff --check` passed. The first M68 attempt built successfully and passed pure geometry but failed to launch because the default Playwright browser cache was absent; using the already-installed browser resolved that environment issue. No dependency was installed. Full 21-suite regression and manual screenshot inspection were not run in this budget. Existing npm environment warning only.
 
 Exact continuation: extend cached ground/top separation and explicit visual mass definitions beyond house, starting with a compact single-block type, then handle multi-mass sites. House retains one outlined rectangular mass (including roof overhang); more exact setbacks remain future work. Construction, ghosts, selection/demolition, x-ray, roof effects and legacy parallax consumers still require E2 conversion. The material caches still use gameplay footprint dimensions, scaled onto the narrower house faces; refine per-mass material dimensions as conversion expands. E2 is incomplete; E3 has not started.
+
+## E2 recovery and catalog expansion (2026-10-02, 80%)
+
+Budget: start 21:02:54 UTC, sixteen minutes total, retaining the user's two-minute post-implementation buffer. Implementation cutoff 21:16:54; hard stop 21:18:54.
+
+Workspace maintenance removed the prior checkout. The remote still pointed to `72fa264` (house conversion), so the interrupted September 26 50% turn had not synchronized its work. This turn restored its eight additional types and M69 checks from the recorded edits, then extended the catalog. Previous unsaved test logs were not treated as current validation.
+
+`VISUAL_INSETS` now defines fifteen separated ground/top types. Their front/back materials use visual mass width and their side materials use visual mass depth. The cached original composite sprite remains available to existing consumers; gameplay footprints are unchanged. Ground details include the school field and bike racks, high-rise plaza, museum garden/sculpture, library steps/planters, factory logistics stripe, and community noticeboard/bikes.
+
+| Catalog status | Types |
+| --- | --- |
+| Ground/top separation and inset projected volume | house, apartment, midrise, highrise, office, retail, school, library, museum, hospital, community_center, auto_factory, edge_dc, med_dc, community_dc |
+| E1 projected reference geometry; combined lot art still needs separation | factory, arcology |
+| Intentionally flat | park, plaza |
+| Elevated conversion remaining | sports_complex, solar_farm, coal_plant, nuclear_plant, water_plant, solar_array, water_reclamation, cloud_dc, gov_dc, ai_campus |
+
+For the six newly converted types (midrise, highrise, retail, school, library, museum), the structural rectangle follows the existing main building box. Roof signs, masts, canopies, shopfront and portico details retain their existing sprite positions. Culling conservatively unions the structural volume, complete translated top canvas, and stationary lot, so attachments outside the structural rectangle cannot disappear early. M69 includes an actual render with only the high-rise mast inside the viewport while the structural top and base are below it.
+
+Validation observed this turn:
+
+- `npm run check`: passed after restoration and after the six-type expansion.
+- `npm test -- m64 m65 m68 m69`: 4/4 passed, including production build, on the final production source. M64 explicitly expects the narrower converted compute materials while retaining all lighting/material assertions. M65 still covers all 29 composite atlases.
+- Final `node test/suites/m69.mjs` against the running production preview: passed at 21:13:44, including the added mast-only culling case. M69 exercises fifteen types in 240 pan/zoom/day-night render cases, fixed bases, ground/top origins, ground pixels, front/side texture dimensions, actual face transforms, roof and wall emissives/bloom, conservative bounds, and unchanged gameplay state.
+- `node --check test/suites/m69.mjs` and `git diff --check`: passed.
+- Thirty centered day/night catalog captures were generated, plus the sixteen M68 reference captures. Inspected school and museum in daylight and highrise at night: open grounds remain at the base, walls connect, and roof details/emissives remain attached.
+
+Environment recovery: restored locked dependencies with `npm ci`. Standard Playwright browser downloads returned invalid archives. An isolated `@sparticuz/chromium` runtime was obtained outside the repo; its default extractor encountered an ownership error, so its bundled archives were unpacked locally without restoring archive ownership. Chromium 153 then ran all targeted tests. The first sandboxed preview attempt could not open its server; the authorized local-server execution succeeded. No project dependency or lockfile changed. The existing npm proxy-environment warning remains.
+
+Exact continuation: convert the ten remaining elevated types and separate factory/arcology lot art. These include multiple masses and grounded lights, so extend the layer representation as needed instead of extruding their full occupancy rectangle. All E2 construction/lifecycle/auxiliary parallax consumers remain to be converted; no legacy parallax API was retired. Existing flat sprites remain flat. E2 is incomplete, E3 has not begun. Full all-type lifecycle gallery, physical-device performance, and other browsers remain unverified.
+
+Full-regression limit: `timeout 290 npm test -- --no-build` exited 124 at 21:17:13. Suites M44, M46–M56 completed with zero reported failures; execution was stopped during M57 by the allotted test timeout, which closed its browser. This is an incomplete full run, not a full-suite pass. Resume full regression with enough time, alongside the remaining E2 work. The separately completed targeted suites and final M69 result above remain valid. Production code was complete by 21:09:50; the final test edit was complete by 21:13:29, before cutoff.

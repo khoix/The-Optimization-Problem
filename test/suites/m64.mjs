@@ -30,7 +30,8 @@ try {
     });
   });
   for (const r of results) {
-    assert.equal(r.width, r.roofWidth, `${r.type}: footprint width preserved`);
+    const inset = ['edge_dc', 'med_dc', 'community_dc'].includes(r.type) ? 2 : 0;
+    assert.equal(r.width, r.roofWidth - inset, `${r.type}: visual mass material width`);
     assert.equal(r.height, r.emitterHeight, `${r.type}: aligned emissive geometry`);
     assert.ok(r.lights > 0, `${r.type}: visible status emitters`);
     assert.equal(r.warm, 0, `${r.type}: cool compute lighting`);
@@ -38,5 +39,5 @@ try {
   }
   assert.equal(new Set(results.map((r) => r.image)).size, 6, 'each compute class has distinct facade geometry');
   assert.deepEqual(errors, []);
-  console.log('PASS all six compute facades: footprint widths, aligned emitters, distinct geometry, dark albedo, cool lights, no page errors');
+  console.log('PASS all six compute facades: visual mass widths, aligned emitters, distinct geometry, dark albedo, cool lights, no page errors');
 } finally { await browser.close(); }

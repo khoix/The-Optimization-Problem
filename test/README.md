@@ -1,5 +1,9 @@
 # Tests
 
+`npm test -- m69` checks fifteen layered types across 240 pan/zoom/day-night
+renders, grounded yard details, roof attachment bounds, face materials and
+aligned roof/wall emitters. Set `PARALLAX_REVIEW_DIR` for centered day/night captures.
+
 `npm test -- m68` verifies the parallax rework's fixed-base geometry and real
 transformed facade edges for house, factory and arcology. Set
 `PARALLAX_REVIEW_DIR=artifacts/parallax-review` to capture 16 pan/zoom/day-night
